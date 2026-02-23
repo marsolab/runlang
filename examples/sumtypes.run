@@ -1,0 +1,33 @@
+// Sum types and pattern matching in Run
+import "fmt"
+
+type Color = .red | .green | .blue | .custom(int)
+
+type Result = .ok(int) | .err(str)
+
+fn divide(a: int, b: int) Result {
+    if b == 0 {
+        return .err("division by zero")
+    }
+    return .ok(a / b)
+}
+
+fn color_name(c: Color) str {
+    switch c {
+        .red => return "red",
+        .green => return "green",
+        .blue => return "blue",
+        .custom(val) => return fmt.sprintf("custom(%d)", val)
+    }
+}
+
+fn main() {
+    result := divide(10, 3)
+    switch result {
+        .ok(val) => fmt.println(val),
+        .err(msg) => fmt.println(msg)
+    }
+
+    c := Color.custom(0xFF00FF)
+    fmt.println(color_name(c))
+}

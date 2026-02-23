@@ -1,0 +1,38 @@
+// Generational memory and pointers in Run
+import "fmt"
+
+pub struct Node {
+    value: int
+    next: &Node?
+}
+
+fn create_list(count: int) &Node {
+    var head Node = Node{ value: 0, next: null }
+    var current &Node = &head
+
+    for i in 1..count {
+        var node Node = Node{ value: i, next: null }
+        current.next = &node
+        current = &node
+    }
+
+    return &head
+}
+
+fn sum_list(head: @Node) int {
+    var total int = 0
+    var current @Node? = head
+
+    for current != null {
+        total = total + current.value
+        current = current.next
+    }
+
+    return total
+}
+
+fn main() {
+    list := create_list(10)
+    total := sum_list(@list)
+    fmt.println(total)
+}
