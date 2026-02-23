@@ -1,0 +1,31 @@
+// Structs, methods, and traits in Run
+import "fmt"
+import "math"
+
+pub struct Point {
+    x: f64
+    y: f64
+}
+
+fn (p: &Point) distance(other: @Point) f64 {
+    dx := p.x - other.x
+    dy := p.y - other.y
+    return math.sqrt(dx * dx + dy * dy)
+}
+
+pub trait Stringer {
+    fn (s: @Self) to_string() str
+}
+
+impl Stringer for Point {
+    fn (p: @Point) to_string() str {
+        return fmt.sprintf("(%f, %f)", p.x, p.y)
+    }
+}
+
+fn main() {
+    var p1 Point = Point{ x: 1.0, y: 2.0 }
+    var p2 Point = Point{ x: 4.0, y: 6.0 }
+    d := p1.distance(@p2)
+    fmt.println(d)
+}

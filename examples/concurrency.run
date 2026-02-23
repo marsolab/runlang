@@ -1,0 +1,21 @@
+// Concurrency with goroutines and channels in Run
+import "fmt"
+import "time"
+
+fn worker(id: int, ch: chan int) {
+    time.sleep(100)
+    ch <- id * 2
+}
+
+fn main() {
+    ch := make_chan(int, 10)
+
+    for i in 0..5 {
+        run worker(i, ch)
+    }
+
+    for i in 0..5 {
+        result := <-ch
+        fmt.println(result)
+    }
+}
