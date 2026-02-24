@@ -31,8 +31,8 @@ pub const Parser = struct {
 
     /// Parse the full source file into a list of top-level declaration node indices.
     pub fn parseFile(self: *Parser) ![]const NodeIndex {
-        var decls = std.ArrayList(NodeIndex).init(self.tree.allocator);
-        defer decls.deinit();
+        var decls: std.ArrayList(NodeIndex) = .empty;
+        defer decls.deinit(self.tree.allocator);
 
         self.skipNewlines();
 
@@ -43,7 +43,7 @@ pub const Parser = struct {
             }
             const decl = try self.parseTopLevel();
             if (decl != null_node) {
-                try decls.append(decl);
+                try decls.append(self.tree.allocator, decl);
             }
         }
 
@@ -1318,7 +1318,7 @@ pub const Parser = struct {
     }
 
     fn addError(self: *Parser, tag: Ast.ErrorTag, loc: Token.Loc, expected: ?Tag) !void {
-        try self.tree.errors.append(.{
+        try self.tree.errors.append(self.tree.allocator, .{
             .tag = tag,
             .loc = loc,
             .expected = expected,
@@ -1332,7 +1332,7 @@ test "parse variable declaration" {
     const source = "var x int = 42";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
-    defer tokens.deinit();
+    defer tokens.deinit(std.testing.allocator);
 
     var parser = Parser.init(std.testing.allocator, tokens.items, source);
     defer parser.deinit();
@@ -1345,7 +1345,7 @@ test "parse short variable declaration" {
     const source = "fn main() {\n    x := 42\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
-    defer tokens.deinit();
+    defer tokens.deinit(std.testing.allocator);
 
     var parser = Parser.init(std.testing.allocator, tokens.items, source);
     defer parser.deinit();
@@ -1358,7 +1358,7 @@ test "parse function definition" {
     const source = "pub fn add(a: int, b: int) int {\n    return a + b\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
-    defer tokens.deinit();
+    defer tokens.deinit(std.testing.allocator);
 
     var parser = Parser.init(std.testing.allocator, tokens.items, source);
     defer parser.deinit();
@@ -1371,7 +1371,7 @@ test "parse struct" {
     const source = "struct Point {\n    x: f64,\n    y: f64\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
-    defer tokens.deinit();
+    defer tokens.deinit(std.testing.allocator);
 
     var parser = Parser.init(std.testing.allocator, tokens.items, source);
     defer parser.deinit();
@@ -1384,7 +1384,7 @@ test "parse sum type" {
     const source = "type State = .loading | .ready(Data) | .error(str)";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
-    defer tokens.deinit();
+    defer tokens.deinit(std.testing.allocator);
 
     var parser = Parser.init(std.testing.allocator, tokens.items, source);
     defer parser.deinit();
@@ -1397,7 +1397,7 @@ test "parse method with receiver" {
     const source = "fn (p: &Point) distance(other: @Point) f64 {\n    return 0.0\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
-    defer tokens.deinit();
+    defer tokens.deinit(std.testing.allocator);
 
     var parser = Parser.init(std.testing.allocator, tokens.items, source);
     defer parser.deinit();

@@ -19,26 +19,28 @@ const usage =
     \\
 ;
 
+const File = std.fs.File;
+
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
     if (args.len < 2) {
-        try std.io.getStdErr().writeAll(usage);
+        try File.stderr().writeAll(usage);
         std.process.exit(1);
     }
 
     const command = args[1];
 
     if (std.mem.eql(u8, command, "-h") or std.mem.eql(u8, command, "--help")) {
-        try std.io.getStdOut().writeAll(usage);
+        try File.stdout().writeAll(usage);
         return;
     }
 
     if (std.mem.eql(u8, command, "tokens")) {
         if (args.len < 3) {
-            try std.io.getStdErr().writeAll("Error: no input file\n");
+            try File.stderr().writeAll("Error: no input file\n");
             std.process.exit(1);
         }
         try cmdTokens(allocator, args[2]);
@@ -47,7 +49,7 @@ pub fn main() !void {
 
     if (std.mem.eql(u8, command, "ast")) {
         if (args.len < 3) {
-            try std.io.getStdErr().writeAll("Error: no input file\n");
+            try File.stderr().writeAll("Error: no input file\n");
             std.process.exit(1);
         }
         try cmdAst(allocator, args[2]);
@@ -56,7 +58,7 @@ pub fn main() !void {
 
     if (std.mem.eql(u8, command, "build") or std.mem.eql(u8, command, "check")) {
         if (args.len < 3) {
-            try std.io.getStdErr().writeAll("Error: no input file\n");
+            try File.stderr().writeAll("Error: no input file\n");
             std.process.exit(1);
         }
         try cmdBuild(allocator, args[2], command);
@@ -69,8 +71,8 @@ pub fn main() !void {
         return;
     }
 
-    try std.io.getStdErr().writer().print("Unknown command: {s}\n", .{command});
-    try std.io.getStdErr().writeAll(usage);
+    try File.stderr().deprecatedWriter().print("Unknown command: {s}\n", .{command});
+    try File.stderr().writeAll(usage);
     std.process.exit(1);
 }
 
@@ -85,7 +87,7 @@ fn cmdTokens(allocator: std.mem.Allocator, path: []const u8) !void {
     defer allocator.free(source);
 
     var lexer = Lexer.init(source);
-    const stdout = std.io.getStdOut().writer();
+    const stdout = File.stdout().deprecatedWriter();
 
     while (true) {
         const tok = lexer.next();
@@ -101,17 +103,17 @@ fn cmdAst(allocator: std.mem.Allocator, path: []const u8) !void {
 
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(allocator);
-    defer tokens.deinit();
+    defer tokens.deinit(allocator);
 
     var parser = Parser.init(allocator, tokens.items, source);
     defer parser.deinit();
 
     _ = try parser.parseFile();
 
-    const stdout = std.io.getStdOut().writer();
+    const stdout = File.stdout().deprecatedWriter();
 
     if (parser.tree.errors.items.len > 0) {
-        const stderr = std.io.getStdErr().writer();
+        const stderr = File.stderr().deprecatedWriter();
         for (parser.tree.errors.items) |err| {
             try stderr.print("error: {s} at offset {d}\n", .{ @tagName(err.tag), err.loc.start });
         }
@@ -140,14 +142,14 @@ fn cmdBuild(allocator: std.mem.Allocator, path: []const u8, command: []const u8)
 
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(allocator);
-    defer tokens.deinit();
+    defer tokens.deinit(allocator);
 
     var parser = Parser.init(allocator, tokens.items, source);
     defer parser.deinit();
 
     _ = try parser.parseFile();
 
-    const stderr = std.io.getStdErr().writer();
+    const stderr = File.stderr().deprecatedWriter();
 
     if (parser.tree.errors.items.len > 0) {
         for (parser.tree.errors.items) |err| {
@@ -156,7 +158,7 @@ fn cmdBuild(allocator: std.mem.Allocator, path: []const u8, command: []const u8)
         std.process.exit(1);
     }
 
-    const stdout = std.io.getStdOut().writer();
+    const stdout = File.stdout().deprecatedWriter();
     if (std.mem.eql(u8, command, "check")) {
         try stdout.print("check: {s} OK ({d} nodes)\n", .{ path, parser.tree.nodes.items.len });
     } else {

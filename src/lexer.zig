@@ -62,10 +62,10 @@ pub const Lexer = struct {
     }
 
     pub fn tokenize(self: *Lexer, allocator: std.mem.Allocator) !std.ArrayList(Token) {
-        var tokens = std.ArrayList(Token).init(allocator);
+        var tokens: std.ArrayList(Token) = .empty;
         while (true) {
             const tok = self.next();
-            try tokens.append(tok);
+            try tokens.append(allocator, tok);
             if (tok.tag == .eof) break;
         }
         return tokens;

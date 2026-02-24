@@ -36,33 +36,33 @@ pub const Ast = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Ast {
-        var nodes = std.ArrayList(Node).init(allocator);
+        var nodes: std.ArrayList(Node) = .empty;
         // Reserve index 0 as null sentinel
-        nodes.append(.{ .tag = .root, .main_token = 0, .data = .{ .lhs = 0, .rhs = 0 } }) catch {};
+        nodes.append(allocator, .{ .tag = .root, .main_token = 0, .data = .{ .lhs = 0, .rhs = 0 } }) catch {};
         return .{
             .source = source,
             .nodes = nodes,
-            .extra_data = std.ArrayList(NodeIndex).init(allocator),
-            .errors = std.ArrayList(Error).init(allocator),
+            .extra_data = .empty,
+            .errors = .empty,
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *Ast) void {
-        self.nodes.deinit();
-        self.extra_data.deinit();
-        self.errors.deinit();
+        self.nodes.deinit(self.allocator);
+        self.extra_data.deinit(self.allocator);
+        self.errors.deinit(self.allocator);
     }
 
     pub fn addNode(self: *Ast, node: Node) !NodeIndex {
         const index: NodeIndex = @intCast(self.nodes.items.len);
-        try self.nodes.append(node);
+        try self.nodes.append(self.allocator, node);
         return index;
     }
 
     pub fn addExtra(self: *Ast, data: NodeIndex) !u32 {
         const index: u32 = @intCast(self.extra_data.items.len);
-        try self.extra_data.append(data);
+        try self.extra_data.append(self.allocator, data);
         return index;
     }
 };
