@@ -14,4 +14,11 @@ Import paths are the path to the package. They are used to import packages into 
 use "math/rand"
 ```
 
-Imports can be scoped to a specific block of code using the `use` keyword.
+It is also ca be written as:
+
+```run
+use (
+    "math/rand"
+    "fmt"
+)
+```
