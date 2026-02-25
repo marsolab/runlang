@@ -21,7 +21,7 @@ var x: int? = 42                       // int?
 fn read() !string { ... }             // !string
 ```
 
-For user-defined types, use traits and concrete implementations. In practice, this covers the vast majority of real-world needs without the complexity tax of generics.
+For user-defined types, use interfaces and concrete implementations. In practice, this covers the vast majority of real-world needs without the complexity tax of generics.
 
 ## Memory safety without complexity
 
@@ -30,7 +30,7 @@ Run's generational references provide memory safety without a garbage collector 
 ## Explicit over implicit
 
 - Type conversions are explicit — no silent coercions
-- Trait implementations are explicit — no implicit interface satisfaction
+- Interface implementations are explicit — declared via `implements` block in struct
 - Error handling is explicit — errors cannot be silently ignored
 - Visibility is explicit — `pub` or private, nothing in between
 

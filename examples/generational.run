@@ -1,7 +1,7 @@
 // Generational memory and pointers in Run
 import "fmt"
 
-pub struct Node {
+pub Node struct {
     value: int
     next: &Node?
 }

@@ -1,25 +1,27 @@
-# Traits
+# Interfaces
 
-Traits define a set of methods that a type must implement. Unlike Go interfaces, trait implementations in Run are explicit — you must declare `impl Trait for Type`.
+Interfaces define a set of methods that a type must implement. Interface implementations in Run are explicit — you must declare which interfaces a struct implements inside its definition.
 
 ```run
 package main
 
 use "fmt"
 
-trait Stringer {
-    fn string(self: @Self) string
+interface Stringer {
+    fn string() string
 }
 
-pub struct Point {
+pub Point struct {
+    implements {
+        Stringer
+    }
+
     x: f64
     y: f64
 }
 
-impl Stringer for Point {
-    fn string(self: @Point) string {
-        return fmt.sprintf("(%f, %f)", self.x, self.y)
-    }
+fn (self: @Point) string() string {
+    return fmt.sprintf("(%f, %f)", self.x, self.y)
 }
 
 fn print_it(s: Stringer) {
@@ -32,8 +34,8 @@ fn main() {
 }
 ```
 
-## Key differences from Go interfaces
+## Key points
 
-- Traits require an explicit `impl` block — they are not satisfied implicitly.
-- No operator overloading is allowed through traits.
-- A type can implement multiple traits.
+- Interfaces require an explicit `implements` block inside the struct — they are not satisfied implicitly.
+- No operator overloading is allowed through interfaces.
+- A type can implement multiple interfaces.

@@ -7,7 +7,7 @@ package main
 
 use "fmt"
 
-pub struct Rectangle {
+pub Rectangle struct {
     width: f64
     height: f64
 }
