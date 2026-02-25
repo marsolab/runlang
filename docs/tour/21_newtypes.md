@@ -18,7 +18,7 @@ fn main() {
     temp := Celsius(100.0)
     fmt.println(to_fahrenheit(temp))
 
-    // var f Fahrenheit = temp  // error: type mismatch
+    // let f Fahrenheit = temp  // error: type mismatch
 }
 ```
 

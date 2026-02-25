@@ -27,14 +27,16 @@ borrow checker or garbage collector.
 ## Variables
 
 ```
-var a int           // declaration, zero-initialized
-var a int = 32      // explicit type with initialization
-a := 32             // short declaration with type inference
-const a int = 32    // compile-time constant
+var a int           // mutable, zero-initialized
+var a int = 32      // mutable, explicit type with initialization
+a := 32             // mutable, short declaration with type inference
+let a int = 32      // immutable, explicit type
+let a = compute()   // immutable, type inference
 ```
 
-- Variables are **mutable by default**
-- `const` for immutable bindings
+- `var` — mutable binding, can be reassigned
+- `let` — immutable binding, must be initialized, cannot be reassigned (compiler-enforced)
+- `:=` — short declaration (mutable, equivalent to `var` with type inference)
 
 ## Functions
 

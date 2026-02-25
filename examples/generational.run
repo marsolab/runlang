@@ -7,11 +7,11 @@ pub Node struct {
 }
 
 fn create_list(count: int) &Node {
-    var head Node = Node{ value: 0, next: null }
+    let head Node = Node{ value: 0, next: null }
     var current &Node = &head
 
     for i in 1..count {
-        var node Node = Node{ value: i, next: null }
+        let node Node = Node{ value: i, next: null }
         current.next = &node
         current = &node
     }

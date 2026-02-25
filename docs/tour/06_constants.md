@@ -1,15 +1,15 @@
-# Constants
+# Immutable Variables
 
-Constants are declared with the `const` keyword. They must be assigned a value at compile time and cannot be changed.
+Immutable variables are declared with the `let` keyword. They must be assigned a value and cannot be reassigned.
 
 ```run
 package main
 
 use "fmt"
 
-const pi f64 = 3.14159
-const max_size int = 1024
-const greeting string = "Hello"
+let pi f64 = 3.14159
+let max_size int = 1024
+let greeting str = "Hello"
 
 fn main() {
     fmt.println(pi)
@@ -18,4 +18,4 @@ fn main() {
 }
 ```
 
-Unlike variables, constants require both a type and a value at the point of declaration.
+The compiler enforces immutability — any attempt to reassign a `let` variable is a compile-time error. Use `let` when a value should never change, and `var` when it needs to be updated.

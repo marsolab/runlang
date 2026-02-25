@@ -74,16 +74,7 @@ pub const Parser = struct {
             .kw_type => self.parseTypeAlias(),
             .kw_import => self.parseImportDecl(),
             .kw_var => self.parseVarDecl(),
-            .kw_const => self.parseConstDecl(),
-            .identifier => {
-                // Name struct { ... }
-                if (self.peekTagAt(1) == .kw_struct) {
-                    return self.parseStructDecl();
-                }
-                try self.addError(.expected_expression, self.currentLoc(), null);
-                self.advance();
-                return null_node;
-            },
+            .kw_let => self.parseLetDecl(),
             else => {
                 try self.addError(.expected_expression, self.currentLoc(), null);
                 self.advance();
@@ -101,15 +92,7 @@ pub const Parser = struct {
             .kw_interface => try self.parseInterfaceDecl(),
             .kw_type => try self.parseTypeAlias(),
             .kw_var => try self.parseVarDecl(),
-            .kw_const => try self.parseConstDecl(),
-            .identifier => blk: {
-                // pub Name struct { ... }
-                if (self.peekTagAt(1) == .kw_struct) {
-                    break :blk try self.parseStructDecl();
-                }
-                try self.addError(.expected_expression, self.currentLoc(), null);
-                break :blk null_node;
-            },
+            .kw_let => try self.parseLetDecl(),
             else => blk: {
                 try self.addError(.expected_expression, self.currentLoc(), null);
                 break :blk null_node;
@@ -440,7 +423,7 @@ pub const Parser = struct {
             try self.addError(.expected_identifier, self.currentLoc(), null);
             return null_node;
         }
-        self.advance(); // variable name
+        self.advance();
 
         // Optional type
         var type_node: NodeIndex = null_node;
@@ -462,9 +445,9 @@ pub const Parser = struct {
         });
     }
 
-    fn parseConstDecl(self: *Parser) Error!NodeIndex {
+    fn parseLetDecl(self: *Parser) Error!NodeIndex {
         const tok = self.pos;
-        self.expect(.kw_const);
+        self.expect(.kw_let);
 
         if (self.peekTag() != .identifier) {
             try self.addError(.expected_identifier, self.currentLoc(), null);
@@ -472,16 +455,18 @@ pub const Parser = struct {
         }
         self.advance();
 
+        // Optional type
         var type_node: NodeIndex = null_node;
         if (self.isTypeStart()) {
             type_node = try self.parseType();
         }
 
+        // Required initializer — immutable variables must be initialized
         self.expectToken(.equal);
         const init_expr = try self.parseExpr();
 
         return self.tree.addNode(.{
-            .tag = .const_decl,
+            .tag = .let_decl,
             .main_token = tok,
             .data = .{ .lhs = type_node, .rhs = init_expr },
         });
@@ -499,7 +484,7 @@ pub const Parser = struct {
             .kw_for => self.parseFor(),
             .kw_switch => self.parseSwitch(),
             .kw_var => self.parseVarDecl(),
-            .kw_const => self.parseConstDecl(),
+            .kw_let => self.parseLetDecl(),
             .kw_run => self.parseRun(),
             else => self.parseExprOrAssign(),
         };
@@ -1352,8 +1337,65 @@ pub const Parser = struct {
 
 // --- Tests ---
 
-test "parse variable declaration" {
+test "parse var declaration" {
     const source = "var x int = 42";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_var = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .var_decl) {
+            found_var = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_var);
+}
+
+test "parse var declaration without init" {
+    const source = "var x int";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+}
+
+test "parse let declaration" {
+    const source = "let x int = 42";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_let = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .let_decl) {
+            found_let = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_let);
+}
+
+test "parse let declaration without type" {
+    const source = "let x = 42";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);
@@ -1367,6 +1409,19 @@ test "parse variable declaration" {
 
 test "parse short variable declaration" {
     const source = "fn main() {\n    x := 42\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+}
+
+test "parse var and let in function body" {
+    const source = "fn main() {\n    var x int = 0\n    let y int = 42\n    x = 10\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);

@@ -26,8 +26,8 @@ fn (p: @Point) to_string() string {
 }
 
 fn main() {
-    var p1 Point = Point{ x: 1.0, y: 2.0 }
-    var p2 Point = Point{ x: 4.0, y: 6.0 }
+    let p1 Point = Point{ x: 1.0, y: 2.0 }
+    let p2 Point = Point{ x: 4.0, y: 6.0 }
     d := p1.distance(@p2)
     fmt.println(d)
 }
