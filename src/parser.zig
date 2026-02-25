@@ -577,6 +577,12 @@ pub const Parser = struct {
         const tok = self.pos;
         self.expect(.kw_if);
         const condition = try self.parseExpr();
+
+        // Ternary form: if cond :: then_expr else else_expr
+        if (self.peekTag() == .colon_colon) {
+            return self.parseIfExprRest(tok, condition);
+        }
+
         self.skipNewlines();
         const then_block = try self.parseBlock();
 
@@ -599,6 +605,23 @@ pub const Parser = struct {
             .tag = .if_stmt,
             .main_token = tok,
             .data = .{ .lhs = condition, .rhs = then_block },
+        });
+    }
+
+    /// Parse the rest of a ternary if-expression after condition has been parsed.
+    /// Expects `::` as the current token.
+    fn parseIfExprRest(self: *Parser, tok: u32, condition: NodeIndex) Error!NodeIndex {
+        self.expectToken(.colon_colon);
+        const then_expr = try self.parseExpr();
+        self.expectToken(.kw_else);
+        const else_expr = try self.parseExpr();
+
+        _ = try self.tree.addExtra(else_expr);
+
+        return self.tree.addNode(.{
+            .tag = .if_expr,
+            .main_token = tok,
+            .data = .{ .lhs = condition, .rhs = then_expr },
         });
     }
 
@@ -1138,6 +1161,13 @@ pub const Parser = struct {
                 self.expectToken(.r_paren);
                 return expr;
             },
+            .kw_if => {
+                // Ternary if-expression: if cond :: then_expr else else_expr
+                const tok = self.pos;
+                self.expect(.kw_if);
+                const condition = try self.parseExpr();
+                return self.parseIfExprRest(tok, condition);
+            },
             .kw_fn => {
                 // Closure: fn(params) ret { body }
                 return self.parseClosure();
@@ -1395,6 +1425,55 @@ test "parse sum type" {
 
 test "parse method with receiver" {
     const source = "fn (p: &Point) distance(other: @Point) f64 {\n    return 0.0\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+}
+
+test "parse ternary if expression in assignment" {
+    const source = "fn main() {\n    x := if a < b :: 1 else 2\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    // Verify an if_expr node was created
+    var found_if_expr = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .if_expr) {
+            found_if_expr = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_if_expr);
+}
+
+test "parse ternary if expression as statement" {
+    const source = "fn main() {\n    if x > 0 :: foo() else bar()\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+}
+
+test "parse nested ternary if expression" {
+    const source = "fn main() {\n    x := if a :: if b :: 1 else 2 else 3\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);
