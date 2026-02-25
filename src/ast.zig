@@ -223,7 +223,7 @@ pub const Node = struct {
         variant,
 
         // Types (used in type position)
-        /// Simple named type: `int`, `str`, `MyStruct`
+        /// Simple named type: `int`, `string`, `MyStruct`
         type_name,
         /// Pointer type: `&T`
         type_ptr,

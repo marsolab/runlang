@@ -9,7 +9,7 @@ use "fmt"
 
 const pi f64 = 3.14159
 const max_size int = 1024
-const greeting str = "Hello"
+const greeting string = "Hello"
 
 fn main() {
     fmt.println(pi)

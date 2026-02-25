@@ -377,7 +377,7 @@ pub const Parser = struct {
         self.advance(); // type name
         self.expectToken(.equal);
 
-        // Parse sum type variants: .loading | .ready(Data) | .error(str)
+        // Parse sum type variants: .loading | .ready(Data) | .error(string)
         const start: u32 = @intCast(self.tree.extra_data.items.len);
         var count: u32 = 0;
 
@@ -1265,7 +1265,7 @@ pub const Parser = struct {
             });
         }
 
-        // Named type: int, str, MyStruct, etc.
+        // Named type: int, string, MyStruct, etc.
         if (self.peekTag() == .identifier) {
             const tok = self.pos;
             self.advance();
@@ -1407,7 +1407,7 @@ test "parse struct" {
 }
 
 test "parse sum type" {
-    const source = "type State = .loading | .ready(Data) | .error(str)";
+    const source = "type State = .loading | .ready(Data) | .error(string)";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);
