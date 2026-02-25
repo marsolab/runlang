@@ -296,10 +296,11 @@ test "lex simple variable declaration" {
 }
 
 test "lex keywords" {
-    var lexer = Lexer.init("fn pub var const return struct");
+    var lexer = Lexer.init("fn pub var let const return struct");
     try std.testing.expectEqual(Tag.kw_fn, lexer.next().tag);
     try std.testing.expectEqual(Tag.kw_pub, lexer.next().tag);
     try std.testing.expectEqual(Tag.kw_var, lexer.next().tag);
+    try std.testing.expectEqual(Tag.kw_let, lexer.next().tag);
     try std.testing.expectEqual(Tag.kw_const, lexer.next().tag);
     try std.testing.expectEqual(Tag.kw_return, lexer.next().tag);
     try std.testing.expectEqual(Tag.kw_struct, lexer.next().tag);

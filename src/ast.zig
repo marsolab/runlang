@@ -94,6 +94,9 @@ pub const Node = struct {
         /// `const name type = expr`
         /// lhs = type node (or null_node), rhs = init expr (or null_node)
         const_decl,
+        /// `let name type = expr` — runtime immutable binding
+        /// lhs = type node (or null_node), rhs = init expr
+        let_decl,
         /// `name := expr`
         /// lhs = null_node, rhs = init expr
         short_var_decl,
