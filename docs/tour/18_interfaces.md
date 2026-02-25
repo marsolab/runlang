@@ -8,27 +8,32 @@ package main
 use "fmt"
 
 interface Stringer {
-    fn string() string
+    string() string
+}
+
+interface Writer {
+    write(p []byte) !int
 }
 
 pub Point struct {
-    implements {
-        Stringer
-    }
+    implements (
+        Stringer,
+        Writer,
+    )
 
     x: f64
     y: f64
 }
 
-fn (self: @Point) string() string {
+fun (self: @Point) string() string {
     return fmt.sprintf("(%f, %f)", self.x, self.y)
 }
 
-fn print_it(s: Stringer) {
+fun print_it(s: Stringer) {
     fmt.println(s.string())
 }
 
-fn main() {
+pub fun main() {
     p := Point{ x: 1.0, y: 2.0 }
     print_it(p)
 }
