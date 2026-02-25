@@ -1480,3 +1480,49 @@ test "parse nested ternary if expression" {
     _ = try parser.parseFile();
     try std.testing.expect(parser.tree.errors.items.len == 0);
 }
+
+test "parse for-in string iteration (default characters)" {
+    const source = "fn main() {\n    for ch in s {\n        foo(ch)\n    }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    // Verify a for_stmt node was created
+    var found_for = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .for_stmt) {
+            found_for = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_for);
+}
+
+test "parse for-in string.bytes iteration" {
+    const source = "fn main() {\n    for b in s.bytes {\n        foo(b)\n    }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    // Verify for_stmt and field_access nodes were created
+    var found_for = false;
+    var found_field_access = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .for_stmt) found_for = true;
+        if (node.tag == .field_access) found_field_access = true;
+    }
+    try std.testing.expect(found_for);
+    try std.testing.expect(found_field_access);
+}

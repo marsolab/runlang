@@ -86,9 +86,9 @@ switch read_file("config.txt") {
 ### Strings
 
 - UTF-8 encoded byte slices
-- Two iteration modes:
-  - `for b in s.bytes { }` — fast, iterate over raw bytes
-  - `for c in s.chars { }` — slower, iterate over unicode codepoints
+- Default iteration yields characters (unicode codepoints):
+  - `for c in s { }` — iterate over characters
+  - `for b in s.bytes { }` — iterate over raw bytes
 
 ### Structs
 
