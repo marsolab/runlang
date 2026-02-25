@@ -14,11 +14,11 @@ fn (p: &Point) distance(other: @Point) f64 {
 }
 
 pub trait Stringer {
-    fn (s: @Self) to_string() str
+    fn (s: @Self) to_string() string
 }
 
 impl Stringer for Point {
-    fn (p: @Point) to_string() str {
+    fn (p: @Point) to_string() string {
         return fmt.sprintf("(%f, %f)", p.x, p.y)
     }
 }

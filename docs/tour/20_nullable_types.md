@@ -7,7 +7,7 @@ package main
 
 use "fmt"
 
-fn find(names: []str, target: str) int? {
+fn find(names: []string, target: string) int? {
     for i, name in names {
         if name == target {
             return i

@@ -1,6 +1,6 @@
 # Strings
 
-Strings in Run are UTF-8 encoded byte sequences. The string type is `str`.
+Strings in Run are UTF-8 encoded byte sequences. The string type is `string`.
 
 ```run
 package main

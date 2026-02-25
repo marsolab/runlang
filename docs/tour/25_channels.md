@@ -45,6 +45,6 @@ An unbuffered channel synchronizes the sender and receiver — the sender blocks
 A buffered channel allows sends to proceed without blocking until the buffer is full. This is useful when the sender and receiver run at different speeds.
 
 ```run
-ch := make_chan(str, 5)
+ch := make_chan(string, 5)
 ch <- "hello"  // does not block (buffer has space)
 ```

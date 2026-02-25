@@ -10,14 +10,14 @@ Use `var` to declare a variable with an explicit type. Variables declared with `
 var x int        // x is 0
 var y f64        // y is 0.0
 var z bool       // z is false
-var s str        // s is ""
+var s string        // s is ""
 ```
 
 You can also provide an initial value:
 
 ```run
 var x int = 42
-var name str = "Run"
+var name string = "Run"
 ```
 
 ## Short declarations
@@ -48,5 +48,5 @@ Variables declared without an explicit initial value are given their zero value:
 
 - `0` for numeric types
 - `false` for `bool`
-- `""` for `str`
+- `""` for `string`
 - `null` for nullable types

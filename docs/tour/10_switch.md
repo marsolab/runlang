@@ -7,7 +7,7 @@ package main
 
 use "fmt"
 
-fn describe(x: int) str {
+fn describe(x: int) string {
     switch x {
         1 => return "one",
         2 => return "two",

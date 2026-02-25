@@ -8,7 +8,7 @@ package main
 use "fmt"
 
 fn main() {
-    ages := map[str]int{
+    ages := map[string]int{
         "Alice": 30,
         "Bob": 25,
     }

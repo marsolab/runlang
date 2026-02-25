@@ -47,7 +47,7 @@ Each directory is a package. The package name matches the directory name:
 // pkg/auth/auth.run
 package auth
 
-pub fn login(user: str, pass: str) !Session {
+pub fn login(user: string, pass: string) !Session {
     // ...
 }
 ```

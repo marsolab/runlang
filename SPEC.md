@@ -57,8 +57,8 @@ fn private_helper(x int) int {
 Zig-style error unions. A function that can fail returns `!T`:
 
 ```
-fn read_file(path str) !str {
-    // returns str on success, error on failure
+fn read_file(path string) !string {
+    // returns string on success, error on failure
 }
 
 // Caller handles with try:
@@ -81,7 +81,7 @@ switch read_file("config.txt") {
 - **Integers**: `int`, `uint`, `i32`, `i64`, `u32`, `u64`, `byte`
 - **Floats**: `f32`, `f64`
 - **Boolean**: `bool`
-- **String**: `str` — UTF-8 byte slice
+- **String**: `string` — UTF-8 byte slice
 
 ### Strings
 
@@ -112,11 +112,11 @@ fn (p &Point) distance(other @Point) f64 {
 
 ```
 pub trait Stringer {
-    fn (s @Self) to_string() str
+    fn (s @Self) to_string() string
 }
 
 impl Stringer for Point {
-    fn (p @Point) to_string() str {
+    fn (p @Point) to_string() string {
         return fmt.sprintf("(%f, %f)", p.x, p.y)
     }
 }
@@ -128,7 +128,7 @@ impl Stringer for Point {
 ### Sum Types / Tagged Unions
 
 ```
-type State = .loading | .ready(Data) | .error(str)
+type State = .loading | .ready(Data) | .error(string)
 
 switch state {
     .loading => show_spinner(),
@@ -159,7 +159,7 @@ switch x {
 
 ```
 type UserID = int    // distinct type, not an alias
-type Email = str
+type Email = string
 ```
 
 - Creates a new type that is **not interchangeable** with the underlying type
