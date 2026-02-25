@@ -165,8 +165,6 @@ pub const Parser = struct {
         }
         self.advance(); // consume name
 
-        self.expectToken(.colon);
-
         // receiver type
         const type_node = try self.parseType();
 
@@ -204,7 +202,6 @@ pub const Parser = struct {
             return null_node;
         }
         self.advance(); // param name
-        self.expectToken(.colon);
         const type_node = try self.parseType();
         return self.tree.addNode(.{
             .tag = .param,
@@ -260,7 +257,6 @@ pub const Parser = struct {
             return null_node;
         }
         self.advance(); // field name
-        self.expectToken(.colon);
         const type_node = try self.parseType();
 
         // Optional default value
@@ -1385,7 +1381,7 @@ test "parse short variable declaration" {
 }
 
 test "parse function definition" {
-    const source = "pub fn add(a: int, b: int) int {\n    return a + b\n}";
+    const source = "pub fn add(a int, b int) int {\n    return a + b\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);
@@ -1398,7 +1394,7 @@ test "parse function definition" {
 }
 
 test "parse struct" {
-    const source = "struct Point {\n    x: f64,\n    y: f64\n}";
+    const source = "struct Point {\n    x f64,\n    y f64\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);
@@ -1424,7 +1420,7 @@ test "parse sum type" {
 }
 
 test "parse method with receiver" {
-    const source = "fn (p: &Point) distance(other: @Point) f64 {\n    return 0.0\n}";
+    const source = "fn (p &Point) distance(other @Point) f64 {\n    return 0.0\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);
