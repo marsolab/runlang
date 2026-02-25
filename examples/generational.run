@@ -8,7 +8,7 @@ pub struct Node {
 
 fn create_list(count: int) &Node {
     let head Node = Node{ value: 0, next: null }
-    let current &Node = &head
+    var current &Node = &head
 
     for i in 1..count {
         let node Node = Node{ value: i, next: null }
@@ -20,8 +20,8 @@ fn create_list(count: int) &Node {
 }
 
 fn sum_list(head: @Node) int {
-    let total int = 0
-    let current @Node? = head
+    var total int = 0
+    var current @Node? = head
 
     for current != null {
         total = total + current.value

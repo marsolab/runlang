@@ -17,7 +17,7 @@ Built-in types that would normally require generics — slices, maps, channels, 
 names := ["Alice", "Bob"]              // []str
 ages := map[str]int{"Alice": 30}       // map[str]int
 ch := make_chan(int, 10)               // chan int
-let x: int? = 42                       // int?
+var x: int? = 42                       // int?
 fn read() !str { ... }                 // !str
 ```
 

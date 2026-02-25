@@ -75,6 +75,7 @@ pub const Parser = struct {
             .kw_impl => self.parseImplDecl(),
             .kw_type => self.parseTypeAlias(),
             .kw_import => self.parseImportDecl(),
+            .kw_var => self.parseVarDecl(),
             .kw_let => self.parseLetDecl(),
             else => {
                 try self.addError(.expected_expression, self.currentLoc(), null);
@@ -93,6 +94,7 @@ pub const Parser = struct {
             .kw_struct => try self.parseStructDecl(),
             .kw_trait => try self.parseTraitDecl(),
             .kw_type => try self.parseTypeAlias(),
+            .kw_var => try self.parseVarDecl(),
             .kw_let => try self.parseLetDecl(),
             else => blk: {
                 try self.addError(.expected_expression, self.currentLoc(), null);
@@ -442,9 +444,9 @@ pub const Parser = struct {
         });
     }
 
-    fn parseLetDecl(self: *Parser) Error!NodeIndex {
+    fn parseVarDecl(self: *Parser) Error!NodeIndex {
         const tok = self.pos;
-        self.expect(.kw_let);
+        self.expect(.kw_var);
 
         if (self.peekTag() != .identifier) {
             try self.addError(.expected_identifier, self.currentLoc(), null);
@@ -466,6 +468,33 @@ pub const Parser = struct {
         }
 
         return self.tree.addNode(.{
+            .tag = .var_decl,
+            .main_token = tok,
+            .data = .{ .lhs = type_node, .rhs = init_expr },
+        });
+    }
+
+    fn parseLetDecl(self: *Parser) Error!NodeIndex {
+        const tok = self.pos;
+        self.expect(.kw_let);
+
+        if (self.peekTag() != .identifier) {
+            try self.addError(.expected_identifier, self.currentLoc(), null);
+            return null_node;
+        }
+        self.advance();
+
+        // Optional type
+        var type_node: NodeIndex = null_node;
+        if (self.isTypeStart()) {
+            type_node = try self.parseType();
+        }
+
+        // Required initializer — immutable variables must be initialized
+        self.expectToken(.equal);
+        const init_expr = try self.parseExpr();
+
+        return self.tree.addNode(.{
             .tag = .let_decl,
             .main_token = tok,
             .data = .{ .lhs = type_node, .rhs = init_expr },
@@ -483,6 +512,7 @@ pub const Parser = struct {
             .kw_if => self.parseIf(),
             .kw_for => self.parseFor(),
             .kw_switch => self.parseSwitch(),
+            .kw_var => self.parseVarDecl(),
             .kw_let => self.parseLetDecl(),
             .kw_run => self.parseRun(),
             else => self.parseExprOrAssign(),
@@ -1330,7 +1360,42 @@ pub const Parser = struct {
 
 // --- Tests ---
 
-test "parse let declaration with type and init" {
+test "parse var declaration" {
+    const source = "var x int = 42";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_var = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .var_decl) {
+            found_var = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_var);
+}
+
+test "parse var declaration without init" {
+    const source = "var x int";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+}
+
+test "parse let declaration" {
     const source = "let x int = 42";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
@@ -1342,7 +1407,6 @@ test "parse let declaration with type and init" {
     _ = try parser.parseFile();
     try std.testing.expect(parser.tree.errors.items.len == 0);
 
-    // Verify a let_decl node was created
     var found_let = false;
     for (parser.tree.nodes.items) |node| {
         if (node.tag == .let_decl) {
@@ -1351,19 +1415,6 @@ test "parse let declaration with type and init" {
         }
     }
     try std.testing.expect(found_let);
-}
-
-test "parse let declaration without init (zero-initialized)" {
-    const source = "let x int";
-    var lexer = Lexer.init(source);
-    var tokens = try lexer.tokenize(std.testing.allocator);
-    defer tokens.deinit(std.testing.allocator);
-
-    var parser = Parser.init(std.testing.allocator, tokens.items, source);
-    defer parser.deinit();
-
-    _ = try parser.parseFile();
-    try std.testing.expect(parser.tree.errors.items.len == 0);
 }
 
 test "parse let declaration without type" {
@@ -1392,8 +1443,8 @@ test "parse short variable declaration" {
     try std.testing.expect(parser.tree.errors.items.len == 0);
 }
 
-test "parse let declaration in function body" {
-    const source = "fn main() {\n    let x int = 42\n}";
+test "parse var and let in function body" {
+    const source = "fn main() {\n    var x int = 0\n    let y int = 42\n    x = 10\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);

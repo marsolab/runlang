@@ -69,7 +69,7 @@ fn main() {
 Run supports compound assignment for convenience.
 
 ```run
-let x int = 10
+var x int = 10
 x += 5   // x is now 15
 x -= 3   // x is now 12
 x *= 2   // x is now 24

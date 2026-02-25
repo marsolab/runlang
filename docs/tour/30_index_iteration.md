@@ -31,8 +31,8 @@ use "fmt"
 fn main() {
     scores := [85, 92, 78, 95, 88]
 
-    let best_index int = 0
-    let best_score int = scores[0]
+    var best_index int = 0
+    var best_score int = scores[0]
 
     for i, score in scores {
         if score > best_score {

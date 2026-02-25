@@ -22,7 +22,7 @@ fn Rectangle.scale(self: &Rectangle, factor: f64) {
 }
 
 fn main() {
-    let r := Rectangle{ width: 3.0, height: 4.0 }
+    var r := Rectangle{ width: 3.0, height: 4.0 }
     fmt.println(r.area()) // 12.0
 
     r.scale(2.0)

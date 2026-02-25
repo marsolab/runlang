@@ -27,15 +27,16 @@ borrow checker or garbage collector.
 ## Variables
 
 ```
-let a int           // zero-initialized
-let a int = 32      // explicit type with initialization
-let a = compute()   // type inference from initializer
-a := 32             // short declaration with type inference
+var a int           // mutable, zero-initialized
+var a int = 32      // mutable, explicit type with initialization
+a := 32             // mutable, short declaration with type inference
+let a int = 32      // immutable, explicit type
+let a = compute()   // immutable, type inference
 ```
 
-- `let` — the only variable declaration keyword
-- `:=` — short declaration syntax (equivalent to `let` with type inference)
-- **Immutability is determined at compile time**: the compiler analyzes whether a variable is ever reassigned. Variables that are never reassigned after initialization are treated as immutable. No `var` or `const` keywords needed.
+- `var` — mutable binding, can be reassigned
+- `let` — immutable binding, must be initialized, cannot be reassigned (compiler-enforced)
+- `:=` — short declaration (mutable, equivalent to `var` with type inference)
 
 ## Functions
 
@@ -143,8 +144,8 @@ switch state {
 ### Nullable Types
 
 ```
-let x: int? = null
-let y: int? = 42
+var x: int? = null
+var y: int? = 42
 
 switch x {
     .some(val) => use(val),
@@ -221,7 +222,7 @@ run fn() { do_work() }
 ### Channels
 
 ```
-let ch: chan int
+var ch: chan int
 ch := make_chan(int)        // unbuffered
 ch := make_chan(int, 100)   // buffered
 

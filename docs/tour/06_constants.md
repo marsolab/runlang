@@ -1,6 +1,6 @@
-# Compile-Time Immutability
+# Immutable Variables
 
-Run does not have a separate `const` keyword. Instead, the compiler analyzes every variable declared with `let` (or `:=`) and determines at compile time whether it is ever reassigned.
+Immutable variables are declared with the `let` keyword. They must be assigned a value and cannot be reassigned.
 
 ```run
 package main
@@ -18,4 +18,4 @@ fn main() {
 }
 ```
 
-Since `pi`, `max_size`, and `greeting` are never reassigned, the compiler treats them as immutable and can optimize them as constants. If you later add code that reassigns one of these variables, the compiler will allow it — immutability is inferred, not declared.
+The compiler enforces immutability — any attempt to reassign a `let` variable is a compile-time error. Use `let` when a value should never change, and `var` when it needs to be updated.
