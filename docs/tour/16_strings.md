@@ -1,6 +1,6 @@
 # Strings
 
-Strings in Run are UTF-8 encoded byte sequences. The string type is `str`.
+Strings in Run are UTF-8 encoded byte sequences. The string type is `string`.
 
 ```run
 package main
@@ -15,11 +15,21 @@ fn main() {
 
 ## Iteration
 
-Strings support two iteration modes.
+Iterating over a string yields characters (Unicode code points) by default.
+
+### Character iteration (default)
+
+Ranging over a string directly gives you one character per iteration. This handles multi-byte UTF-8 sequences correctly.
+
+```run
+for ch in greeting {
+    fmt.println(ch)
+}
+```
 
 ### Byte iteration
 
-Use `.bytes` to iterate over the raw bytes of a string.
+Use `.bytes` to iterate over the raw bytes of a string instead.
 
 ```run
 for b in greeting.bytes {
@@ -27,14 +37,4 @@ for b in greeting.bytes {
 }
 ```
 
-### Character iteration
-
-Use `.chars` to iterate over Unicode characters (code points).
-
-```run
-for ch in greeting.chars {
-    fmt.println(ch)
-}
-```
-
-Character iteration handles multi-byte UTF-8 sequences correctly, making it the preferred way to process text.
+Byte iteration is faster but does not respect character boundaries — a multi-byte character will appear as multiple separate bytes.

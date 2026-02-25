@@ -8,7 +8,7 @@ package main
 use "fmt"
 use "time"
 
-fn say(msg: str) {
+fn say(msg: string) {
     for i in 0..3 {
         time.sleep(100)
         fmt.println(msg)

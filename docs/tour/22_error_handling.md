@@ -8,7 +8,7 @@ package main
 use "fmt"
 use "os"
 
-fn read_config(path: str) !str {
+fn read_config(path: string) !string {
     file := try os.open(path)
     defer file.close()
     return try file.read_all()

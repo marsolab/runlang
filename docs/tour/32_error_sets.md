@@ -12,7 +12,7 @@ package main
 use "fmt"
 use "os"
 
-fn load_config(path: str) !str {
+fn load_config(path: string) !string {
     file := try os.open(path)      // may return os.NotFound, os.Permission, ...
     defer file.close()
     content := try file.read_all() // may return io.ReadError, ...

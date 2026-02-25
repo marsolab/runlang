@@ -3,7 +3,7 @@ import "fmt"
 
 type Color = .red | .green | .blue | .custom(int)
 
-type Result = .ok(int) | .err(str)
+type Result = .ok(int) | .err(string)
 
 fn divide(a: int, b: int) Result {
     if b == 0 {
@@ -12,7 +12,7 @@ fn divide(a: int, b: int) Result {
     return .ok(a / b)
 }
 
-fn color_name(c: Color) str {
+fn color_name(c: Color) string {
     switch c {
         .red => return "red",
         .green => return "green",

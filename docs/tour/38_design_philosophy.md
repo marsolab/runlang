@@ -14,11 +14,11 @@ Built-in types that would normally require generics — slices, maps, channels, 
 
 ```run
 // These work without generics — they are built into the language
-names := ["Alice", "Bob"]              // []str
-ages := map[str]int{"Alice": 30}       // map[str]int
+names := ["Alice", "Bob"]              // []string
+ages := map[string]int{"Alice": 30}    // map[string]int
 ch := make_chan(int, 10)               // chan int
 var x: int? = 42                       // int?
-fn read() !str { ... }                 // !str
+fn read() !string { ... }             // !string
 ```
 
 For user-defined types, use traits and concrete implementations. In practice, this covers the vast majority of real-world needs without the complexity tax of generics.

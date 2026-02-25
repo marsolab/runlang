@@ -10,14 +10,14 @@ Use `var` to declare a variable that can be reassigned. Variables declared witho
 var x int        // x is 0
 var y f64        // y is 0.0
 var z bool       // z is false
-var s str        // s is ""
+var s string        // s is ""
 ```
 
 You can also provide an initial value:
 
 ```run
 var x int = 42
-var name str = "Run"
+var name string = "Run"
 ```
 
 ## Immutable variables with `let`
@@ -60,5 +60,5 @@ Variables declared with `var` without an explicit initial value are given their 
 
 - `0` for numeric types
 - `false` for `bool`
-- `""` for `str`
+- `""` for `string`
 - `null` for nullable types

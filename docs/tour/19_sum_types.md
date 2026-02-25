@@ -9,7 +9,7 @@ use "fmt"
 
 type Color = .red | .green | .blue | .custom(int)
 
-fn color_name(c: Color) str {
+fn color_name(c: Color) string {
     switch c {
         .red => return "red",
         .green => return "green",
@@ -32,7 +32,7 @@ fn main() {
 When you `switch` on a sum type, the compiler checks that every variant is handled. If you miss a case, the program will not compile. This prevents bugs from unhandled states.
 
 ```run
-type State = .loading | .ready(Data) | .error(str)
+type State = .loading | .ready(Data) | .error(string)
 
 fn handle(s: State) {
     switch s {

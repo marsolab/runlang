@@ -36,7 +36,7 @@ fn helper() {
 Functions that do not return a value simply omit the return type.
 
 ```run
-fn greet(name: str) {
+fn greet(name: string) {
     fmt.println("Hello, " + name)
 }
 ```

@@ -35,9 +35,9 @@ Structs can be made public with `pub`. Field visibility follows the same rules â
 
 ```run
 pub struct Config {
-    pub host: str
+    pub host: string
     pub port: int
-    secret: str  // private to this package
+    secret: string  // private to this package
 }
 ```
 

@@ -25,21 +25,21 @@ use "fmt"
 use "os"
 
 pub struct Config {
-    host: str
+    host: string
     port: int
 }
 
 trait Display {
-    fn string(self: @Self) str
+    fn string(self: @Self) string
 }
 
 impl Display for Config {
-    fn string(self: @Config) str {
+    fn string(self: @Config) string {
         return fmt.sprintf("%s:%d", self.host, self.port)
     }
 }
 
-fn load_config(path: str) !Config {
+fn load_config(path: string) !Config {
     content := try os.read_file(path)
     host := try parse_field(content, "host")
     port := try parse_int(try parse_field(content, "port"))

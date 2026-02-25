@@ -20,7 +20,7 @@ Run has a simple type system with the following built-in types:
 ## Other types
 
 - `bool` - boolean value, `true` or `false`
-- `str`  - UTF-8 encoded string
+- `string`  - UTF-8 encoded string
 
 ## Type inference
 
@@ -34,7 +34,7 @@ use "fmt"
 fn main() {
     x := 42          // int
     pi := 3.14159    // f64
-    name := "Run"    // str
+    name := "Run"    // string
     active := true   // bool
 
     fmt.println(x)

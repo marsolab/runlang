@@ -165,8 +165,6 @@ pub const Parser = struct {
         }
         self.advance(); // consume name
 
-        self.expectToken(.colon);
-
         // receiver type
         const type_node = try self.parseType();
 
@@ -204,7 +202,6 @@ pub const Parser = struct {
             return null_node;
         }
         self.advance(); // param name
-        self.expectToken(.colon);
         const type_node = try self.parseType();
         return self.tree.addNode(.{
             .tag = .param,
@@ -260,7 +257,6 @@ pub const Parser = struct {
             return null_node;
         }
         self.advance(); // field name
-        self.expectToken(.colon);
         const type_node = try self.parseType();
 
         // Optional default value
@@ -381,7 +377,7 @@ pub const Parser = struct {
         self.advance(); // type name
         self.expectToken(.equal);
 
-        // Parse sum type variants: .loading | .ready(Data) | .error(str)
+        // Parse sum type variants: .loading | .ready(Data) | .error(string)
         const start: u32 = @intCast(self.tree.extra_data.items.len);
         var count: u32 = 0;
 
@@ -1271,7 +1267,7 @@ pub const Parser = struct {
             });
         }
 
-        // Named type: int, str, MyStruct, etc.
+        // Named type: int, string, MyStruct, etc.
         if (self.peekTag() == .identifier) {
             const tok = self.pos;
             self.advance();
@@ -1457,7 +1453,7 @@ test "parse var and let in function body" {
 }
 
 test "parse function definition" {
-    const source = "pub fn add(a: int, b: int) int {\n    return a + b\n}";
+    const source = "pub fn add(a int, b int) int {\n    return a + b\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);
@@ -1470,7 +1466,7 @@ test "parse function definition" {
 }
 
 test "parse struct" {
-    const source = "struct Point {\n    x: f64,\n    y: f64\n}";
+    const source = "struct Point {\n    x f64,\n    y f64\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);
@@ -1483,7 +1479,7 @@ test "parse struct" {
 }
 
 test "parse sum type" {
-    const source = "type State = .loading | .ready(Data) | .error(str)";
+    const source = "type State = .loading | .ready(Data) | .error(string)";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);
@@ -1496,7 +1492,7 @@ test "parse sum type" {
 }
 
 test "parse method with receiver" {
-    const source = "fn (p: &Point) distance(other: @Point) f64 {\n    return 0.0\n}";
+    const source = "fn (p &Point) distance(other @Point) f64 {\n    return 0.0\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);
@@ -1555,4 +1551,50 @@ test "parse nested ternary if expression" {
 
     _ = try parser.parseFile();
     try std.testing.expect(parser.tree.errors.items.len == 0);
+}
+
+test "parse for-in string iteration (default characters)" {
+    const source = "fn main() {\n    for ch in s {\n        foo(ch)\n    }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    // Verify a for_stmt node was created
+    var found_for = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .for_stmt) {
+            found_for = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_for);
+}
+
+test "parse for-in string.bytes iteration" {
+    const source = "fn main() {\n    for b in s.bytes {\n        foo(b)\n    }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    // Verify for_stmt and field_access nodes were created
+    var found_for = false;
+    var found_field_access = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .for_stmt) found_for = true;
+        if (node.tag == .field_access) found_field_access = true;
+    }
+    try std.testing.expect(found_for);
+    try std.testing.expect(found_field_access);
 }

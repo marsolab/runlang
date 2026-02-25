@@ -8,7 +8,7 @@ package main
 use "fmt"
 
 trait Stringer {
-    fn string(self: @Self) str
+    fn string(self: @Self) string
 }
 
 pub struct Point {
@@ -17,7 +17,7 @@ pub struct Point {
 }
 
 impl Stringer for Point {
-    fn string(self: @Point) str {
+    fn string(self: @Point) string {
         return fmt.sprintf("(%f, %f)", self.x, self.y)
     }
 }
