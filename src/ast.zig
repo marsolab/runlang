@@ -104,6 +104,10 @@ pub const Node = struct {
         /// `interface Name { method_sigs }`
         /// lhs = extra_data start for method sigs, rhs = count
         interface_decl,
+        /// Bare method signature in an interface: `name(params) ret_type`
+        /// main_token = method name, lhs = params start, rhs = null_node
+        /// extra_data: [ret_type]
+        method_sig,
         /// `type Name = variants`
         /// lhs = extra_data start for variants, rhs = variant count
         type_alias,

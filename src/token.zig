@@ -97,6 +97,7 @@ pub const Token = struct {
 
     pub const keywords = std.StaticStringMap(Tag).initComptime(.{
         .{ "fn", .kw_fn },
+        .{ "fun", .kw_fn },
         .{ "pub", .kw_pub },
         .{ "var", .kw_var },
         .{ "let", .kw_let },

@@ -75,6 +75,11 @@ pub const Parser = struct {
             .kw_import => self.parseImportDecl(),
             .kw_var => self.parseVarDecl(),
             .kw_let => self.parseLetDecl(),
+            .identifier => if (self.peekTagAt(1) == .kw_struct) self.parseStructDecl() else {
+                try self.addError(.expected_expression, self.currentLoc(), null);
+                self.advance();
+                return null_node;
+            },
             else => {
                 try self.addError(.expected_expression, self.currentLoc(), null);
                 self.advance();
@@ -93,6 +98,10 @@ pub const Parser = struct {
             .kw_type => try self.parseTypeAlias(),
             .kw_var => try self.parseVarDecl(),
             .kw_let => try self.parseLetDecl(),
+            .identifier => if (self.peekTagAt(1) == .kw_struct) try self.parseStructDecl() else blk: {
+                try self.addError(.expected_expression, self.currentLoc(), null);
+                break :blk null_node;
+            },
             else => blk: {
                 try self.addError(.expected_expression, self.currentLoc(), null);
                 break :blk null_node;
@@ -162,6 +171,9 @@ pub const Parser = struct {
         }
         self.advance(); // consume name
 
+        // Optional colon between name and type
+        if (self.peekTag() == .colon) self.advance();
+
         // receiver type
         const type_node = try self.parseType();
 
@@ -199,6 +211,8 @@ pub const Parser = struct {
             return null_node;
         }
         self.advance(); // param name
+        // Optional colon between name and type
+        if (self.peekTag() == .colon) self.advance();
         const type_node = try self.parseType();
         return self.tree.addNode(.{
             .tag = .param,
@@ -230,12 +244,12 @@ pub const Parser = struct {
         if (self.peekTag() == .kw_implements) {
             self.advance(); // consume 'implements'
             self.skipNewlines();
-            self.expectToken(.l_brace);
+            self.expectToken(.l_paren);
             self.skipNewlines();
 
-            while (self.peekTag() != .r_brace and !self.isAtEnd()) {
+            while (self.peekTag() != .r_paren and !self.isAtEnd()) {
                 self.skipNewlines();
-                if (self.peekTag() == .r_brace) break;
+                if (self.peekTag() == .r_paren) break;
 
                 if (self.peekTag() != .identifier) {
                     try self.addError(.expected_identifier, self.currentLoc(), null);
@@ -254,7 +268,7 @@ pub const Parser = struct {
                 if (self.peekTag() == .comma) self.advance();
                 self.skipNewlines();
             }
-            self.expectToken(.r_brace);
+            self.expectToken(.r_paren);
             self.skipNewlines();
         }
         // Patch the implements count
@@ -291,6 +305,8 @@ pub const Parser = struct {
             return null_node;
         }
         self.advance(); // field name
+        // Optional colon between name and type
+        if (self.peekTag() == .colon) self.advance();
         const type_node = try self.parseType();
 
         // Optional default value
@@ -327,7 +343,7 @@ pub const Parser = struct {
         while (self.peekTag() != .r_brace and !self.isAtEnd()) {
             self.skipNewlines();
             if (self.peekTag() == .r_brace) break;
-            const method = try self.parseFnDecl();
+            const method = try self.parseMethodSig();
             _ = try self.tree.addExtra(method);
             count += 1;
             self.skipNewlines();
@@ -338,6 +354,34 @@ pub const Parser = struct {
             .tag = .interface_decl,
             .main_token = tok,
             .data = .{ .lhs = start, .rhs = count },
+        });
+    }
+
+    /// Parse a bare method signature: `name(params) ret_type`
+    fn parseMethodSig(self: *Parser) Error!NodeIndex {
+        const tok = self.pos;
+        if (self.peekTag() != .identifier) {
+            try self.addError(.expected_identifier, self.currentLoc(), null);
+            return null_node;
+        }
+        self.advance(); // consume method name
+
+        // Parameters
+        const params_start = try self.parseParamList();
+
+        // Return type (optional)
+        var ret_type: NodeIndex = null_node;
+        if (self.isTypeStart()) {
+            ret_type = try self.parseType();
+        }
+
+        // Store return type in extra data
+        _ = try self.tree.addExtra(ret_type);
+
+        return self.tree.addNode(.{
+            .tag = .method_sig,
+            .main_token = tok,
+            .data = .{ .lhs = params_start, .rhs = null_node },
         });
     }
 
@@ -1473,7 +1517,7 @@ test "parse pub struct" {
 }
 
 test "parse struct with implements" {
-    const source = "pub Rectangle struct {\n    implements {\n        Figure\n    }\n\n    x int\n    y int\n}";
+    const source = "pub Rectangle struct {\n    implements (\n        Figure,\n    )\n\n    x int\n    y int\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);
@@ -1495,8 +1539,8 @@ test "parse struct with implements" {
     try std.testing.expect(found_struct);
 }
 
-test "parse interface" {
-    const source = "pub interface Stringer {\n    fn to_string() string\n}";
+test "parse struct with implements and colons" {
+    const source = "pub Point struct {\n    implements (\n        Stringer,\n        Writer,\n    )\n\n    x: f64\n    y: f64\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);
@@ -1507,15 +1551,56 @@ test "parse interface" {
     _ = try parser.parseFile();
     try std.testing.expect(parser.tree.errors.items.len == 0);
 
-    // Verify an interface_decl node was created
-    var found_interface = false;
+    var found_struct = false;
     for (parser.tree.nodes.items) |node| {
-        if (node.tag == .interface_decl) {
-            found_interface = true;
+        if (node.tag == .struct_decl) {
+            found_struct = true;
             break;
         }
     }
+    try std.testing.expect(found_struct);
+}
+
+test "parse interface" {
+    const source = "pub interface Stringer {\n    string() string\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    // Verify an interface_decl and method_sig node were created
+    var found_interface = false;
+    var found_method_sig = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .interface_decl) found_interface = true;
+        if (node.tag == .method_sig) found_method_sig = true;
+    }
     try std.testing.expect(found_interface);
+    try std.testing.expect(found_method_sig);
+}
+
+test "parse interface with multiple methods" {
+    const source = "interface ReadWriter {\n    read(buf: []byte) !int\n    write(buf: []byte) !int\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var method_sig_count: u32 = 0;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .method_sig) method_sig_count += 1;
+    }
+    try std.testing.expectEqual(@as(u32, 2), method_sig_count);
 }
 
 test "parse sum type" {
@@ -1542,6 +1627,41 @@ test "parse method with receiver" {
 
     _ = try parser.parseFile();
     try std.testing.expect(parser.tree.errors.items.len == 0);
+}
+
+test "parse method with receiver using colons" {
+    const source = "fn (self: @Point) string() string {\n    return \"point\"\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+}
+
+test "parse fun keyword as alias for fn" {
+    const source = "fun main() {\n    return\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_fn = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .fn_decl) {
+            found_fn = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_fn);
 }
 
 test "parse ternary if expression in assignment" {
