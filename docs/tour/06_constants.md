@@ -1,15 +1,15 @@
-# Constants
+# Compile-Time Immutability
 
-Constants are declared with the `const` keyword. They must be assigned a value at compile time and cannot be changed.
+Run does not have a separate `const` keyword. Instead, the compiler analyzes every variable declared with `let` (or `:=`) and determines at compile time whether it is ever reassigned.
 
 ```run
 package main
 
 use "fmt"
 
-const pi f64 = 3.14159
-const max_size int = 1024
-const greeting str = "Hello"
+let pi f64 = 3.14159
+let max_size int = 1024
+let greeting str = "Hello"
 
 fn main() {
     fmt.println(pi)
@@ -18,4 +18,4 @@ fn main() {
 }
 ```
 
-Unlike variables, constants require both a type and a value at the point of declaration.
+Since `pi`, `max_size`, and `greeting` are never reassigned, the compiler treats them as immutable and can optimize them as constants. If you later add code that reassigns one of these variables, the compiler will allow it — immutability is inferred, not declared.

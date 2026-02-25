@@ -47,7 +47,7 @@ fn main() {
 When you need a specific numeric type, use an explicit type annotation:
 
 ```run
-var small: i32 = 100
-var big: u64 = 1_000_000
-var precise: f64 = 0.1
+let small: i32 = 100
+let big: u64 = 1_000_000
+let precise: f64 = 0.1
 ```

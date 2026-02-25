@@ -13,8 +13,8 @@ use "fmt"
 use "sync"
 
 fn main() {
-    var counter int = 0
-    var mu sync.Mutex
+    let counter int = 0
+    let mu sync.Mutex
 
     for i in 0..10 {
         run fn() {

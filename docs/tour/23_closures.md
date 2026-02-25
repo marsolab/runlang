@@ -27,7 +27,7 @@ package main
 use "fmt"
 
 fn make_counter() fn() int {
-    var count int = 0
+    let count int = 0
     return fn() int {
         count = count + 1
         return count

@@ -31,7 +31,7 @@ fn main() {
 The compiler enforces null checks at compile time. You cannot use a nullable value without first checking whether it is `null`. This eliminates null pointer errors at runtime.
 
 ```run
-var x: int? = null
+let x: int? = null
 
 // x + 1    // error: cannot use nullable value directly
 

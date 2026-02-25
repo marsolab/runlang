@@ -16,7 +16,7 @@ fn increment(p: &int) {
 }
 
 fn main() {
-    var x int = 10
+    let x int = 10
     increment(&x)
     fmt.println(x) // 11
 }
