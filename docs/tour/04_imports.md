@@ -14,7 +14,7 @@ Import paths are the path to the package. They are used to import packages into 
 use "math/rand"
 ```
 
-It is also ca be written as:
+It can also be written as a grouped import:
 
 ```run
 use (
