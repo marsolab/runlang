@@ -39,25 +39,25 @@ const a int = 32    // compile-time constant
 ## Functions
 
 ```
-pub fn add(a: int, b: int) int {
+pub fn add(a int, b int) int {
     return a + b
 }
 
-fn private_helper(x: int) int {
+fn private_helper(x int) int {
     return x * 2
 }
 ```
 
 - Zig-style signature: return type after parameters, no arrow
 - `pub` keyword for public visibility, private by default
-- Full closures supported: `fn(x: int) int { return x + 1 }`
+- Full closures supported: `fn(x int) int { return x + 1 }`
 
 ## Error Handling
 
 Zig-style error unions. A function that can fail returns `!T`:
 
 ```
-fn read_file(path: str) !str {
+fn read_file(path str) !str {
     // returns str on success, error on failure
 }
 
@@ -94,11 +94,11 @@ switch read_file("config.txt") {
 
 ```
 pub struct Point {
-    x: f64
-    y: f64
+    x f64
+    y f64
 }
 
-fn (p: &Point) distance(other: @Point) f64 {
+fn (p &Point) distance(other @Point) f64 {
     dx := p.x - other.x
     dy := p.y - other.y
     return math.sqrt(dx * dx + dy * dy)
@@ -112,11 +112,11 @@ fn (p: &Point) distance(other: @Point) f64 {
 
 ```
 pub trait Stringer {
-    fn (s: @Self) to_string() str
+    fn (s @Self) to_string() str
 }
 
 impl Stringer for Point {
-    fn (p: @Point) to_string() str {
+    fn (p @Point) to_string() str {
         return fmt.sprintf("(%f, %f)", p.x, p.y)
     }
 }
@@ -142,8 +142,8 @@ switch state {
 ### Nullable Types
 
 ```
-var x: int? = null
-var y: int? = 42
+var x int? = null
+var y int? = 42
 
 switch x {
     .some(val) => use(val),
@@ -220,7 +220,7 @@ run fn() { do_work() }
 ### Channels
 
 ```
-var ch: chan int
+var ch chan int
 ch := make_chan(int)        // unbuffered
 ch := make_chan(int, 100)   // buffered
 
@@ -241,7 +241,7 @@ within `unsafe` blocks.
 
 ```
 // math/vector.run
-pub struct Vec3 { x: f64, y: f64, z: f64 }
+pub struct Vec3 { x f64, y f64, z f64 }
 
 // main.run
 import "math"
