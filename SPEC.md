@@ -95,7 +95,7 @@ switch read_file("config.txt") {
 ### Structs
 
 ```
-pub struct Point {
+pub Point struct {
     x f64
     y f64
 }
@@ -107,24 +107,34 @@ fn (p &Point) distance(other @Point) f64 {
 }
 ```
 
+- Struct name comes **before** the `struct` keyword
 - Methods declared **outside** the struct with a receiver (Go-style)
 - `&T` receiver for read/write, `@T` receiver for read-only
 
-### Traits (Explicit)
+### Interfaces (Explicit)
 
 ```
-pub trait Stringer {
-    fn (s @Self) to_string() string
+pub interface Stringer {
+    fn to_string() string
 }
 
-impl Stringer for Point {
-    fn (p @Point) to_string() string {
-        return fmt.sprintf("(%f, %f)", p.x, p.y)
+pub Point struct {
+    implements {
+        Stringer
     }
+
+    x f64
+    y f64
+}
+
+fn (p @Point) to_string() string {
+    return fmt.sprintf("(%f, %f)", p.x, p.y)
 }
 ```
 
-- Explicit `impl Trait for Type` — no implicit/structural interfaces
+- `interface` defines a set of method signatures (no receiver in signatures)
+- Structs declare which interfaces they implement via an `implements` block
+- Method implementations remain outside the struct with a receiver (Go-style)
 - No operator overloading
 
 ### Sum Types / Tagged Unions
@@ -243,7 +253,7 @@ within `unsafe` blocks.
 
 ```
 // math/vector.run
-pub struct Vec3 { x f64, y f64, z f64 }
+pub Vec3 struct { x f64, y f64, z f64 }
 
 // main.run
 import "math"

@@ -7,7 +7,7 @@ Congratulations — you have completed the Run language tour! Here is a summary 
 - **Basics** — variables, constants, types, functions, operators
 - **Control flow** — for loops, if/else, switch, break/continue, defer
 - **Data types** — structs, slices, maps, strings, pointers
-- **Type system** — methods, traits, sum types, nullable types, newtypes
+- **Type system** — methods, interfaces, sum types, nullable types, newtypes
 - **Error handling** — error unions with `!T`, `try`, and `switch`
 - **Closures** — first-class functions and captured variables
 - **Concurrency** — green threads with `run`, channels for communication
@@ -24,19 +24,21 @@ package main
 use "fmt"
 use "os"
 
-pub struct Config {
+interface Display {
+    fn string() string
+}
+
+pub Config struct {
+    implements {
+        Display
+    }
+
     host: string
     port: int
 }
 
-trait Display {
-    fn string(self: @Self) string
-}
-
-impl Display for Config {
-    fn string(self: @Config) string {
-        return fmt.sprintf("%s:%d", self.host, self.port)
-    }
+fn (self: @Config) string() string {
+    return fmt.sprintf("%s:%d", self.host, self.port)
 }
 
 fn load_config(path: string) !Config {

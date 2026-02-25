@@ -1,8 +1,16 @@
-// Structs, methods, and traits in Run
+// Structs, methods, and interfaces in Run
 import "fmt"
 import "math"
 
-pub struct Point {
+pub interface Stringer {
+    fn to_string() string
+}
+
+pub Point struct {
+    implements {
+        Stringer
+    }
+
     x: f64
     y: f64
 }
@@ -13,14 +21,8 @@ fn (p: &Point) distance(other: @Point) f64 {
     return math.sqrt(dx * dx + dy * dy)
 }
 
-pub trait Stringer {
-    fn (s: @Self) to_string() string
-}
-
-impl Stringer for Point {
-    fn (p: @Point) to_string() string {
-        return fmt.sprintf("(%f, %f)", p.x, p.y)
-    }
+fn (p: @Point) to_string() string {
+    return fmt.sprintf("(%f, %f)", p.x, p.y)
 }
 
 fn main() {

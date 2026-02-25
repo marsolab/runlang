@@ -97,15 +97,17 @@ pub const Node = struct {
         /// `name := expr`
         /// lhs = null_node, rhs = init expr
         short_var_decl,
-        /// `struct { fields }`
-        /// lhs = extra_data start for fields, rhs = field count
+        /// `Name struct { implements { ... } fields }`
+        /// lhs = extra_data start, rhs = field count
+        /// extra_data layout: [implements_count, iface1, ..., ifaceN, field1, ..., fieldM]
         struct_decl,
-        /// `trait { methods }`
+        /// `interface Name { method_sigs }`
         /// lhs = extra_data start for method sigs, rhs = count
-        trait_decl,
-        /// `impl Trait for Type { methods }`
-        /// lhs = trait name node, rhs = extra_data start for methods
-        impl_decl,
+        interface_decl,
+        /// Bare method signature in an interface: `name(params) ret_type`
+        /// main_token = method name, lhs = params start, rhs = null_node
+        /// extra_data: [ret_type]
+        method_sig,
         /// `type Name = variants`
         /// lhs = extra_data start for variants, rhs = variant count
         type_alias,

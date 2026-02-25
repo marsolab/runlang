@@ -15,7 +15,7 @@ package main
 
 use "fmt"
 
-pub struct Node {
+pub Node struct {
     value: int
     next: &Node?
 }

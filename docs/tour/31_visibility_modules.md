@@ -9,7 +9,7 @@ Everything in Run is private by default. Only items marked with `pub` are access
 ```run
 // math/vector.run
 
-pub struct Vec3 {
+pub Vec3 struct {
     pub x: f64
     pub y: f64
     pub z: f64

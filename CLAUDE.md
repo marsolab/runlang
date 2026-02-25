@@ -49,7 +49,7 @@ These differ from older Zig versions and are critical to get right:
 - No generics by design
 - `&T` (read/write pointer), `@T` (read-only pointer)
 - `!T` error unions with `try` and `switch`
-- Structs declared separately from methods (Go-style); traits with explicit `impl Trait for Type`
+- Structs use `Name struct { }` syntax (name before keyword); interfaces with `implements` block inside struct
 - Newlines are significant tokens
 
 ## Current Status
