@@ -80,6 +80,7 @@ pub const Token = struct {
         r_bracket, // ]
         comma, // ,
         colon, // :
+        colon_colon, // ::
         question, // ?
         fat_arrow, // =>
 

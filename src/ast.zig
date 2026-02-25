@@ -149,6 +149,9 @@ pub const Node = struct {
         /// `if cond { then } else { otherwise }`
         /// lhs = condition, rhs = then block (else stored in extra_data)
         if_stmt,
+        /// `if cond :: then_expr else else_expr` (ternary)
+        /// lhs = condition, rhs = then_expr (else_expr stored in extra_data)
+        if_expr,
         /// `for cond { body }` or `for item in iter { body }`
         /// lhs = condition/iterator, rhs = body block
         for_stmt,
