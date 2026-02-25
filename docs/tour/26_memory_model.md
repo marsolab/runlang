@@ -21,7 +21,7 @@ pub struct Node {
 }
 
 fn main() {
-    var node := Node{ value: 42, next: null }
+    let node := Node{ value: 42, next: null }
     // node is freed when main returns
 }
 ```

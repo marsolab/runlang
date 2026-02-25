@@ -88,12 +88,12 @@ pub const Node = struct {
         /// `pub fn ...` wraps fn_decl
         /// lhs = inner declaration node
         pub_decl,
-        /// `var name type = expr` or `var name type`
+        /// `var name type = expr` or `var name type` — mutable variable
         /// lhs = type node (or null_node), rhs = init expr (or null_node)
         var_decl,
-        /// `const name type = expr`
-        /// lhs = type node (or null_node), rhs = init expr (or null_node)
-        const_decl,
+        /// `let name type = expr` — immutable variable (compile-time enforced)
+        /// lhs = type node (or null_node), rhs = init expr
+        let_decl,
         /// `name := expr`
         /// lhs = null_node, rhs = init expr
         short_var_decl,

@@ -5,7 +5,7 @@
 Arrays have a fixed size known at compile time.
 
 ```run
-var numbers [5]int = [1, 2, 3, 4, 5]
+let numbers [5]int = [1, 2, 3, 4, 5]
 fmt.println(numbers[0]) // 1
 ```
 
