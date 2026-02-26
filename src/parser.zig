@@ -161,7 +161,6 @@ pub const Parser = struct {
     }
 
     fn parseReceiver(self: *Parser) Error!NodeIndex {
-        const tok = self.pos;
         self.expect(.l_paren);
 
         // receiver name
@@ -169,6 +168,7 @@ pub const Parser = struct {
             try self.addError(.expected_identifier, self.currentLoc(), null);
             return null_node;
         }
+        const tok = self.pos; // points to receiver name identifier
         self.advance(); // consume name
 
         // Optional colon between name and type
@@ -2016,4 +2016,136 @@ test "parse method returning anonymous struct" {
     }
     try std.testing.expect(found_receiver);
     try std.testing.expect(found_anon_struct_type);
+}
+
+test "parse public method with receiver" {
+    const source = "pub fn (p &Point) translate(dx f64, dy f64) {\n    p.x = p.x + dx\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_pub = false;
+    var found_fn = false;
+    var found_receiver = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .pub_decl) found_pub = true;
+        if (node.tag == .fn_decl) found_fn = true;
+        if (node.tag == .receiver) found_receiver = true;
+    }
+    try std.testing.expect(found_pub);
+    try std.testing.expect(found_fn);
+    try std.testing.expect(found_receiver);
+}
+
+test "parse method with value receiver" {
+    const source = "fn (p Point) area() f64 {\n    return 0.0\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_receiver = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .receiver) found_receiver = true;
+    }
+    try std.testing.expect(found_receiver);
+}
+
+test "parse method with error union return type" {
+    const source = "fn (c &Connection) read(buf []byte) !int {\n    return 0\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_receiver = false;
+    var found_error_union = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .receiver) found_receiver = true;
+        if (node.tag == .type_error_union) found_error_union = true;
+    }
+    try std.testing.expect(found_receiver);
+    try std.testing.expect(found_error_union);
+}
+
+test "parse method with no params" {
+    const source = "fn (s @Circle) area() f64 {\n    return 0.0\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_receiver = false;
+    var param_count: u32 = 0;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .receiver) found_receiver = true;
+        if (node.tag == .param) param_count += 1;
+    }
+    try std.testing.expect(found_receiver);
+    try std.testing.expectEqual(@as(u32, 0), param_count);
+}
+
+test "receiver main_token points to name identifier" {
+    const source = "fn (self &Point) origin() {\n    return\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .receiver) {
+            // main_token should point to the receiver name "self"
+            const name = tokens.items[node.main_token].slice(source);
+            try std.testing.expectEqualStrings("self", name);
+            break;
+        }
+    }
+}
+
+test "parse multiple methods on same type" {
+    const source = "fn (p &Point) getX() f64 {\n    return 0.0\n}\nfn (p &Point) getY() f64 {\n    return 0.0\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var fn_count: u32 = 0;
+    var receiver_count: u32 = 0;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .fn_decl) fn_count += 1;
+        if (node.tag == .receiver) receiver_count += 1;
+    }
+    try std.testing.expectEqual(@as(u32, 2), fn_count);
+    try std.testing.expectEqual(@as(u32, 2), receiver_count);
 }

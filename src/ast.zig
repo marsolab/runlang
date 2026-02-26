@@ -82,8 +82,11 @@ pub const Node = struct {
         root,
 
         // Declarations
-        /// `fn name(params) ret_type { body }`
-        /// lhs = params (extra_data range), rhs = body block
+        /// `fn name(params) ret_type { body }` or `fn (recv Type) name(params) ret_type { body }`
+        /// main_token = `fn` keyword
+        /// lhs = params start in extra_data, rhs = body block
+        /// extra_data layout: [param1, param2, ..., paramN, count, receiver_node, ret_type]
+        /// receiver_node = null_node when no receiver
         fn_decl,
         /// `pub fn ...` wraps fn_decl
         /// lhs = inner declaration node
@@ -124,7 +127,8 @@ pub const Node = struct {
         /// A function parameter: `name: type`
         /// lhs = type node
         param,
-        /// A method receiver: `(self: &Type)` or `(self: @Type)`
+        /// A method receiver: `(self &Type)` or `(self: @Type)` (Go-style)
+        /// main_token = receiver name identifier
         /// lhs = type node
         receiver,
 
