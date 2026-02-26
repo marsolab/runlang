@@ -12,16 +12,16 @@ pub Rectangle struct {
     height: f64
 }
 
-fn Rectangle.area(self: @Rectangle) f64 {
+fun Rectangle.area(self: @Rectangle) f64 {
     return self.width * self.height
 }
 
-fn Rectangle.scale(self: &Rectangle, factor: f64) {
+fun Rectangle.scale(self: &Rectangle, factor: f64) {
     self.width = self.width * factor
     self.height = self.height * factor
 }
 
-fn main() {
+fun main() {
     var r := Rectangle{ width: 3.0, height: 4.0 }
     fmt.println(r.area()) // 12.0
 

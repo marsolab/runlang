@@ -41,7 +41,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     x := 42
     name := "Run"
     pi := 3.14159

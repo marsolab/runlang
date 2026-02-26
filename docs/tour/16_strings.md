@@ -7,7 +7,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     greeting := "Hello, Run!"
     fmt.println(greeting)
 }

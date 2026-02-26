@@ -47,7 +47,7 @@ Each directory is a package. The package name matches the directory name:
 // pkg/auth/auth.run
 package auth
 
-pub fn login(user: string, pass: string) !Session {
+pub fun login(user: string, pass: string) !Session {
     // ...
 }
 ```
@@ -58,7 +58,7 @@ package main
 
 use "auth"
 
-fn main() {
+fun main() {
     session := try auth.login("admin", "secret")
 }
 ```

@@ -31,7 +31,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     x := 42          // int
     pi := 3.14159    // f64
     name := "Run"    // string

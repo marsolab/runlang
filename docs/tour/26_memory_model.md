@@ -20,7 +20,7 @@ pub Node struct {
     next: &Node?
 }
 
-fn main() {
+fun main() {
     let node := Node{ value: 42, next: null }
     // node is freed when main returns
 }
@@ -31,7 +31,7 @@ fn main() {
 Non-owning references observe but do not control the lifetime of the pointed-to object.
 
 ```run
-fn sum_list(head: @Node) int {
+fun sum_list(head: @Node) int {
     var total int = 0
     var current: @Node? = head
     for current != null {

@@ -7,7 +7,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     x := 42           // int
     y := f64(x)       // convert int to f64
     z := i32(x)       // convert int to i32
@@ -26,7 +26,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     big := 100000
     small := i32(big)
 

@@ -16,12 +16,12 @@ pub Vec3 struct {
 }
 
 // public — callable from other packages
-pub fn Vec3.length(self: @Vec3) f64 {
+pub fun Vec3.length(self: @Vec3) f64 {
     return math.sqrt(self.x*self.x + self.y*self.y + self.z*self.z)
 }
 
 // private — only visible within the math package
-fn normalize_internal(v: &Vec3) {
+fun normalize_internal(v: &Vec3) {
     len := v.length()
     v.x = v.x / len
     v.y = v.y / len
@@ -53,7 +53,7 @@ package main
 use "math"
 use "fmt"
 
-fn main() {
+fun main() {
     v := math.Vec3{ x: 1.0, y: 2.0, z: 3.0 }
     fmt.println(v.length())
 }

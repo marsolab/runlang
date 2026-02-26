@@ -11,7 +11,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     names := ["Alice", "Bob", "Charlie"]  // allocated with the default allocator
     fmt.println(names[0])
 }
@@ -27,7 +27,7 @@ package main
 use "fmt"
 use "mem"
 
-fn main() {
+fun main() {
     arena := mem.arena_allocator(1024 * 1024)  // 1 MB arena
     defer arena.deinit()
 

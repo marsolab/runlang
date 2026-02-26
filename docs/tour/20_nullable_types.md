@@ -7,7 +7,7 @@ package main
 
 use "fmt"
 
-fn find(names: []string, target: string) int? {
+fun find(names: []string, target: string) int? {
     for i, name in names {
         if name == target {
             return i
@@ -16,7 +16,7 @@ fn find(names: []string, target: string) int? {
     return null
 }
 
-fn main() {
+fun main() {
     names := ["Alice", "Bob", "Charlie"]
 
     switch find(names, "Bob") {

@@ -8,13 +8,13 @@ package main
 use "fmt"
 use "os"
 
-fn read_config(path: string) !string {
+fun read_config(path: string) !string {
     file := try os.open(path)
     defer file.close()
     return try file.read_all()
 }
 
-fn main() {
+fun main() {
     switch read_config("config.txt") {
         .ok(content) => fmt.println(content),
         .err(e) => fmt.println("failed to read config"),
@@ -27,7 +27,7 @@ fn main() {
 Use `try` to propagate errors. If the expression returns an error, `try` immediately returns that error from the enclosing function. Otherwise, it unwraps the value.
 
 ```run
-fn process() !int {
+fun process() !int {
     data := try read_file("input.txt")
     result := try parse(data)
     return result

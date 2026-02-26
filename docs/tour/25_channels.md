@@ -18,13 +18,13 @@ package main
 
 use "fmt"
 
-fn producer(ch: chan int) {
+fun producer(ch: chan int) {
     for i in 0..5 {
         ch <- i  // send
     }
 }
 
-fn main() {
+fun main() {
     ch := make_chan(int, 10)
 
     run producer(ch)

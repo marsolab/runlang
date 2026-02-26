@@ -8,14 +8,14 @@ package main
 use "fmt"
 use "time"
 
-fn say(msg: string) {
+fun say(msg: string) {
     for i in 0..3 {
         time.sleep(100)
         fmt.println(msg)
     }
 }
 
-fn main() {
+fun main() {
     run say("hello")
     say("world")
 }
@@ -33,12 +33,12 @@ package main
 use "fmt"
 use "time"
 
-fn worker(id: int) {
+fun worker(id: int) {
     time.sleep(100)
     fmt.println("worker", id, "done")
 }
 
-fn main() {
+fun main() {
     for i in 0..5 {
         run worker(i)
     }

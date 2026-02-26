@@ -8,7 +8,7 @@ package main
 use "fmt"
 use "os"
 
-fn main() {
+fun main() {
     file := os.open("data.txt")
     defer file.close()
 
@@ -26,7 +26,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     defer fmt.println("first")
     defer fmt.println("second")
     defer fmt.println("third")

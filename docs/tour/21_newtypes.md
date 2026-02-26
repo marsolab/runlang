@@ -10,11 +10,11 @@ use "fmt"
 newtype Celsius f64
 newtype Fahrenheit f64
 
-fn to_fahrenheit(c: Celsius) Fahrenheit {
+fun to_fahrenheit(c: Celsius) Fahrenheit {
     return Fahrenheit(f64(c) * 9.0 / 5.0 + 32.0)
 }
 
-fn main() {
+fun main() {
     temp := Celsius(100.0)
     fmt.println(to_fahrenheit(temp))
 

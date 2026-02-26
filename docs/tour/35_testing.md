@@ -11,11 +11,11 @@ package math
 
 use "testing"
 
-fn add(a: int, b: int) int {
+fun add(a: int, b: int) int {
     return a + b
 }
 
-fn test_add(t: &testing.T) {
+fun test_add(t: &testing.T) {
     t.expect(add(2, 3) == 5)
     t.expect(add(-1, 1) == 0)
     t.expect(add(0, 0) == 0)
@@ -51,7 +51,7 @@ math/
 Use `t.fail` to report a failure with a descriptive message.
 
 ```run
-fn test_divide(t: &testing.T) {
+fun test_divide(t: &testing.T) {
     result := divide(10, 3)
     if result != 3 {
         t.fail("expected 3, got", result)

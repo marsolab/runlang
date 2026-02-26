@@ -22,7 +22,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     x := 0
     for x < 10 {
         fmt.println(x)
@@ -40,7 +40,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     for i in 0..5 {
         fmt.println(i) // prints 0, 1, 2, 3, 4
     }
@@ -56,7 +56,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     names := ["Alice", "Bob", "Charlie"]
     for name in names {
         fmt.println(name)

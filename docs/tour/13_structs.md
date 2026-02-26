@@ -12,7 +12,7 @@ pub Point struct {
     y: f64
 }
 
-fn main() {
+fun main() {
     p := Point{ x: 3.0, y: 4.0 }
     fmt.println(p.x)
     fmt.println(p.y)

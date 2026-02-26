@@ -18,7 +18,7 @@ names := ["Alice", "Bob"]              // []string
 ages := map[string]int{"Alice": 30}    // map[string]int
 ch := make_chan(int, 10)               // chan int
 var x: int? = 42                       // int?
-fn read() !string { ... }             // !string
+fun read() !string { ... }             // !string
 ```
 
 For user-defined types, use interfaces and concrete implementations. In practice, this covers the vast majority of real-world needs without the complexity tax of generics.

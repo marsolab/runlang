@@ -49,11 +49,11 @@ package main
 use "http"
 use "fmt"
 
-fn handle(w: &http.ResponseWriter, r: @http.Request) {
+fun handle(w: &http.ResponseWriter, r: @http.Request) {
     w.write("Hello from Run!")
 }
 
-fn main() {
+fun main() {
     http.handle_fn("/", handle)
     fmt.println("listening on :8080")
     http.listen_and_serve(":8080")

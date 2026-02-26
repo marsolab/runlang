@@ -11,11 +11,11 @@ package main
 
 use "fmt"
 
-fn increment(p: &int) {
+fun increment(p: &int) {
     p.* = p.* + 1
 }
 
-fn main() {
+fun main() {
     var x int = 10
     increment(&x)
     fmt.println(x) // 11
@@ -27,7 +27,7 @@ fn main() {
 `@T` is a read-only pointer. It allows reading but not modifying the pointed-to value.
 
 ```run
-fn print_value(p: @int) {
+fun print_value(p: @int) {
     fmt.println(p.*) // ok: reading
     // p.* = 42      // error: cannot write through read-only pointer
 }

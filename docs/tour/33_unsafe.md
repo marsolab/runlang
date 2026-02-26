@@ -12,12 +12,12 @@ package main
 use "fmt"
 use "sync"
 
-fn main() {
+fun main() {
     var counter int = 0
     var mu sync.Mutex
 
     for i in 0..10 {
-        run fn() {
+        run fun() {
             unsafe {
                 mu.lock()
                 counter = counter + 1

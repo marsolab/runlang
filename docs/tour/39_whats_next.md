@@ -25,7 +25,7 @@ use "fmt"
 use "os"
 
 interface Display {
-    fn string() string
+    fun string() string
 }
 
 pub Config struct {
@@ -37,18 +37,18 @@ pub Config struct {
     port: int
 }
 
-fn (self: @Config) string() string {
+fun (self: @Config) string() string {
     return fmt.sprintf("%s:%d", self.host, self.port)
 }
 
-fn load_config(path: string) !Config {
+fun load_config(path: string) !Config {
     content := try os.read_file(path)
     host := try parse_field(content, "host")
     port := try parse_int(try parse_field(content, "port"))
     return Config{ host: host, port: port }
 }
 
-fn main() {
+fun main() {
     switch load_config("server.conf") {
         .ok(config) => {
             fmt.println("starting server on", config.string())

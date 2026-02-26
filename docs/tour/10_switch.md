@@ -7,7 +7,7 @@ package main
 
 use "fmt"
 
-fn describe(x: int) string {
+fun describe(x: int) string {
     switch x {
         1 => return "one",
         2 => return "two",
@@ -16,7 +16,7 @@ fn describe(x: int) string {
     }
 }
 
-fn main() {
+fun main() {
     fmt.println(describe(2))
     fmt.println(describe(99))
 }

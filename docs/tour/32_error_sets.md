@@ -12,7 +12,7 @@ package main
 use "fmt"
 use "os"
 
-fn load_config(path: string) !string {
+fun load_config(path: string) !string {
     file := try os.open(path)      // may return os.NotFound, os.Permission, ...
     defer file.close()
     content := try file.read_all() // may return io.ReadError, ...
@@ -32,7 +32,7 @@ package main
 use "fmt"
 use "os"
 
-fn main() {
+fun main() {
     switch os.open("config.txt") {
         .ok(file) => {
             defer file.close()
@@ -50,7 +50,7 @@ fn main() {
 The `try` keyword unwraps a success value or immediately returns the error from the current function. This keeps the happy path clean and readable.
 
 ```run
-fn process() !int {
+fun process() !int {
     data := try read_file("input.txt")   // returns error if read fails
     parsed := try parse_int(data)         // returns error if parse fails
     return parsed * 2                     // only reached on success

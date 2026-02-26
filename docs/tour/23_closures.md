@@ -7,12 +7,12 @@ package main
 
 use "fmt"
 
-fn apply(x: int, f: fn(int) int) int {
+fun apply(x: int, f: fun(int) int) int {
     return f(x)
 }
 
-fn main() {
-    double := fn(x: int) int { return x * 2 }
+fun main() {
+    double := fun(x: int) int { return x * 2 }
     fmt.println(apply(5, double)) // 10
 }
 ```
@@ -26,15 +26,15 @@ package main
 
 use "fmt"
 
-fn make_counter() fn() int {
+fun make_counter() fun() int {
     var count int = 0
-    return fn() int {
+    return fun() int {
         count = count + 1
         return count
     }
 }
 
-fn main() {
+fun main() {
     counter := make_counter()
     fmt.println(counter()) // 1
     fmt.println(counter()) // 2

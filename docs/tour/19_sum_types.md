@@ -9,7 +9,7 @@ use "fmt"
 
 type Color = .red | .green | .blue | .custom(int)
 
-fn color_name(c: Color) string {
+fun color_name(c: Color) string {
     switch c {
         .red => return "red",
         .green => return "green",
@@ -18,7 +18,7 @@ fn color_name(c: Color) string {
     }
 }
 
-fn main() {
+fun main() {
     c := Color.red
     fmt.println(color_name(c))
 
@@ -34,7 +34,7 @@ When you `switch` on a sum type, the compiler checks that every variant is handl
 ```run
 type State = .loading | .ready(Data) | .error(string)
 
-fn handle(s: State) {
+fun handle(s: State) {
     switch s {
         .loading => fmt.println("loading..."),
         .ready(data) => process(data),

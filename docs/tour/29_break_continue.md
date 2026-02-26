@@ -11,7 +11,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     for i in 0..100 {
         if i > 4 {
             break
@@ -31,7 +31,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     for i in 0..10 {
         if i % 2 == 0 {
             continue
@@ -51,7 +51,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     outer: for i in 0..5 {
         for j in 0..5 {
             if i + j >= 4 {

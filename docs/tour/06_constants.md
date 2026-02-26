@@ -11,7 +11,7 @@ let pi f64 = 3.14159
 let max_size int = 1024
 let greeting str = "Hello"
 
-fn main() {
+fun main() {
     fmt.println(pi)
     fmt.println(max_size)
     fmt.println(greeting)

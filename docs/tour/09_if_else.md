@@ -7,7 +7,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     x := 42
 
     if x > 0 {
@@ -30,7 +30,7 @@ package main
 use "fmt"
 use "math"
 
-fn main() {
+fun main() {
     // v is declared and used within the if/else chain
     if v := math.pow(2, 10); v < 1000 {
         fmt.println("small:", v)
@@ -61,7 +61,7 @@ package main
 
 use "fmt"
 
-fn main() {
+fun main() {
     x := 10
 
     label := if x > 0 :: "positive" else "non-positive"
