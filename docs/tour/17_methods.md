@@ -44,8 +44,9 @@ This is the same pattern as Go's method declarations.
 
 - `@T` — read-only receiver. The method can read but not modify the struct.
 - `&T` — read/write receiver. The method can modify the struct's fields.
+- `T` — value receiver. The method receives a copy of the struct. Useful for small types where copying is cheaper than pointer indirection.
 
-Choose `@T` when the method only observes the value, and `&T` when it needs to mutate.
+Choose `@T` when the method only observes the value, `&T` when it needs to mutate, and `T` when working with small types where a copy is preferred.
 
 ```run
 // Read-only — cannot modify p
@@ -57,6 +58,11 @@ fun (p @Point) length() f64 {
 fun (p &Point) translate(dx f64, dy f64) {
     p.x = p.x + dx
     p.y = p.y + dy
+}
+
+// Value — receives a copy of c
+fun (c Circle) radius() f64 {
+    return c.radius
 }
 ```
 

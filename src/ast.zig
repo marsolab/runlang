@@ -130,9 +130,9 @@ pub const Node = struct {
         /// A function parameter: `name: type`
         /// lhs = type node
         param,
-        /// A method receiver: `(self &Type)` or `(self: @Type)` (Go-style)
+        /// A method receiver: `(self &Type)`, `(self: @Type)`, or `(self Type)` (Go-style)
         /// main_token = receiver name identifier
-        /// lhs = type node
+        /// lhs = type node (type_ptr for &T, type_const_ptr for @T, type_name for value receiver)
         receiver,
 
         // Statements
