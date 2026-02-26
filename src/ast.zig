@@ -114,6 +114,9 @@ pub const Node = struct {
         /// `type Name = variants`
         /// lhs = extra_data start for variants, rhs = variant count
         type_alias,
+        /// `type Name Type` — simple type declaration (type alias to another type)
+        /// main_token = kw_type, lhs = type node
+        type_decl,
         /// `import "path"`
         /// main_token points to the string literal
         import_decl,

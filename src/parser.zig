@@ -394,27 +394,44 @@ pub const Parser = struct {
             return null_node;
         }
         self.advance(); // type name
-        self.expectToken(.equal);
 
-        // Parse sum type variants: .loading | .ready(Data) | .error(string)
-        const start: u32 = @intCast(self.tree.extra_data.items.len);
-        var count: u32 = 0;
+        // Disambiguate: `type Name = .variants` (sum type) vs `type Name <type>` (type decl)
+        if (self.peekTag() == .equal) {
+            self.advance(); // consume '='
 
-        const variant = try self.parseVariantDef();
-        _ = try self.tree.addExtra(variant);
-        count += 1;
+            // Parse sum type variants: .loading | .ready(Data) | .error(string)
+            const start: u32 = @intCast(self.tree.extra_data.items.len);
+            var count: u32 = 0;
 
-        while (self.peekTag() == .pipe) {
-            self.advance();
-            const v = try self.parseVariantDef();
-            _ = try self.tree.addExtra(v);
+            const variant = try self.parseVariantDef();
+            _ = try self.tree.addExtra(variant);
             count += 1;
+
+            while (self.peekTag() == .pipe) {
+                self.advance();
+                const v = try self.parseVariantDef();
+                _ = try self.tree.addExtra(v);
+                count += 1;
+            }
+
+            return self.tree.addNode(.{
+                .tag = .type_alias,
+                .main_token = tok,
+                .data = .{ .lhs = start, .rhs = count },
+            });
         }
 
+        // Simple type declaration: `type Name <type>`
+        if (!self.isTypeStart()) {
+            try self.addError(.expected_type, self.currentLoc(), null);
+            return null_node;
+        }
+        const type_node = try self.parseType();
+
         return self.tree.addNode(.{
-            .tag = .type_alias,
+            .tag = .type_decl,
             .main_token = tok,
-            .data = .{ .lhs = start, .rhs = count },
+            .data = .{ .lhs = type_node, .rhs = null_node },
         });
     }
 
@@ -2148,4 +2165,124 @@ test "parse multiple methods on same type" {
     }
     try std.testing.expectEqual(@as(u32, 2), fn_count);
     try std.testing.expectEqual(@as(u32, 2), receiver_count);
+}
+
+test "parse type declaration with simple type" {
+    const source = "type A int";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_type_decl = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_decl) {
+            found_type_decl = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_type_decl);
+}
+
+test "parse pub type declaration" {
+    const source = "pub type A int";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_pub = false;
+    var found_type_decl = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .pub_decl) found_pub = true;
+        if (node.tag == .type_decl) found_type_decl = true;
+    }
+    try std.testing.expect(found_pub);
+    try std.testing.expect(found_type_decl);
+}
+
+test "parse type declaration with float type" {
+    const source = "type B f64";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+}
+
+test "parse type declaration with pointer type" {
+    const source = "type Ref &int";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_type_decl = false;
+    var found_type_ptr = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_decl) found_type_decl = true;
+        if (node.tag == .type_ptr) found_type_ptr = true;
+    }
+    try std.testing.expect(found_type_decl);
+    try std.testing.expect(found_type_ptr);
+}
+
+test "parse type declaration with slice type" {
+    const source = "type Bytes []byte";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_type_decl = false;
+    var found_type_slice = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_decl) found_type_decl = true;
+        if (node.tag == .type_slice) found_type_slice = true;
+    }
+    try std.testing.expect(found_type_decl);
+    try std.testing.expect(found_type_slice);
+}
+
+test "parse multiple type declarations" {
+    const source = "pub type A int\ntype B f64";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var type_decl_count: u32 = 0;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_decl) type_decl_count += 1;
+    }
+    try std.testing.expectEqual(@as(u32, 2), type_decl_count);
 }
