@@ -16,8 +16,8 @@ fun read_config(path: string) !string {
 
 fun main() {
     switch read_config("config.txt") {
-        .ok(content) => fmt.println(content),
-        .err(e) => fmt.println("failed to read config"),
+        .ok(content) :: fmt.println(content),
+        .err(e) :: fmt.println("failed to read config"),
     }
 }
 ```
@@ -40,8 +40,8 @@ Use `switch` to handle both success and error cases explicitly.
 
 ```run
 switch do_work() {
-    .ok(val) => use(val),
-    .err(e) => log(e),
+    .ok(val) :: use(val),
+    .err(e) :: log(e),
 }
 ```
 

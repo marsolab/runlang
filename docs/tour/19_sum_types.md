@@ -11,10 +11,10 @@ type Color = .red | .green | .blue | .custom(int)
 
 fun color_name(c: Color) string {
     switch c {
-        .red => return "red",
-        .green => return "green",
-        .blue => return "blue",
-        .custom(val) => return fmt.sprintf("custom(%d)", val),
+        .red :: return "red",
+        .green :: return "green",
+        .blue :: return "blue",
+        .custom(val) :: return fmt.sprintf("custom(%d)", val),
     }
 }
 
@@ -36,9 +36,9 @@ type State = .loading | .ready(Data) | .error(string)
 
 fun handle(s: State) {
     switch s {
-        .loading => fmt.println("loading..."),
-        .ready(data) => process(data),
-        .error(msg) => fmt.println(msg),
+        .loading :: fmt.println("loading..."),
+        .ready(data) :: process(data),
+        .error(msg) :: fmt.println(msg),
     }
 }
 ```

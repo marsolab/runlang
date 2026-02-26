@@ -160,7 +160,7 @@ pub const Node = struct {
         /// `switch expr { arms }`
         /// lhs = expr, rhs = extra_data start for arms
         switch_stmt,
-        /// A single switch arm: `pattern => expr`
+        /// A single switch arm: `pattern :: expr`
         /// lhs = pattern, rhs = body
         switch_arm,
         /// Assignment: `lhs = rhs`

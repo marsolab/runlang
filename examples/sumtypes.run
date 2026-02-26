@@ -14,18 +14,18 @@ fn divide(a: int, b: int) Result {
 
 fn color_name(c: Color) string {
     switch c {
-        .red => return "red",
-        .green => return "green",
-        .blue => return "blue",
-        .custom(val) => return fmt.sprintf("custom(%d)", val)
+        .red :: return "red",
+        .green :: return "green",
+        .blue :: return "blue",
+        .custom(val) :: return fmt.sprintf("custom(%d)", val)
     }
 }
 
 fn main() {
     result := divide(10, 3)
     switch result {
-        .ok(val) => fmt.println(val),
-        .err(msg) => fmt.println(msg)
+        .ok(val) :: fmt.println(val),
+        .err(msg) :: fmt.println(msg)
     }
 
     c := Color.custom(0xFF00FF)

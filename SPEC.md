@@ -68,8 +68,8 @@ content := try read_file("config.txt")
 
 // Or with switch:
 switch read_file("config.txt") {
-    .ok(content) => use(content),
-    .err(e) => log(e),
+    .ok(content) :: use(content),
+    .err(e) :: log(e),
 }
 ```
 
@@ -143,9 +143,9 @@ fn (p @Point) to_string() string {
 type State = .loading | .ready(Data) | .error(string)
 
 switch state {
-    .loading => show_spinner(),
-    .ready(data) => render(data),
-    .error(msg) => show_error(msg),
+    .loading :: show_spinner(),
+    .ready(data) :: render(data),
+    .error(msg) :: show_error(msg),
 }
 ```
 
@@ -158,8 +158,8 @@ var x int? = null
 var y int? = 42
 
 switch x {
-    .some(val) => use(val),
-    .null => handle_missing(),
+    .some(val) :: use(val),
+    .null :: handle_missing(),
 }
 ```
 
@@ -194,10 +194,10 @@ for i, item in collection { }   // index + value
 
 ```
 switch value {
-    1 => do_one(),
-    2, 3 => do_two_or_three(),
-    .variant(x) => use(x),
-    _ => default(),
+    1 :: do_one(),
+    2, 3 :: do_two_or_three(),
+    .variant(x) :: use(x),
+    _ :: default(),
 }
 ```
 
