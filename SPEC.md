@@ -87,6 +87,7 @@ fn (p &Point) translate(dx f64, dy f64) {
 **Receiver types:**
 - `&T` — read/write pointer receiver. The method can read and modify the struct.
 - `@T` — read-only pointer receiver. Compiler-enforced immutability on the receiver.
+- `T` — value receiver. The method receives a copy of the struct. Useful for small types where copying is cheaper than pointer indirection.
 
 Methods can be made public with `pub`:
 

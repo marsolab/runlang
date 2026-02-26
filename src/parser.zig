@@ -2074,7 +2074,15 @@ test "parse method with value receiver" {
 
     var found_receiver = false;
     for (parser.tree.nodes.items) |node| {
-        if (node.tag == .receiver) found_receiver = true;
+        if (node.tag == .receiver) {
+            found_receiver = true;
+            // Value receiver type should be type_name (not type_ptr or type_const_ptr)
+            const type_node = parser.tree.nodes.items[node.data.lhs];
+            try std.testing.expectEqual(.type_name, type_node.tag);
+            // Verify the type name is "Point"
+            const type_name = tokens.items[type_node.main_token].slice(source);
+            try std.testing.expectEqualStrings("Point", type_name);
+        }
     }
     try std.testing.expect(found_receiver);
 }
