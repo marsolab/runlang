@@ -241,5 +241,13 @@ pub const Node = struct {
         type_chan,
         /// Array type: `[N]T`
         type_array,
+        /// Anonymous struct type: `struct { field1 type1, field2 type2 }`
+        /// lhs = extra_data start for field_decl nodes, rhs = field count
+        type_anon_struct,
+
+        // Anonymous struct literal
+        /// `.{ field1: val1, field2: val2 }`
+        /// lhs = null_node, rhs = extra_data start for field inits
+        anon_struct_literal,
     };
 };
