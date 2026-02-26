@@ -9,10 +9,10 @@ use "fmt"
 
 fun describe(x: int) string {
     switch x {
-        1 => return "one",
-        2 => return "two",
-        3 => return "three",
-        _ => return "other",
+        1 :: return "one",
+        2 :: return "two",
+        3 :: return "three",
+        _ :: return "other",
     }
 }
 

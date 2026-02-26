@@ -34,13 +34,13 @@ use "os"
 
 fun main() {
     switch os.open("config.txt") {
-        .ok(file) => {
+        .ok(file) :: {
             defer file.close()
             fmt.println("opened successfully")
         },
-        .err(.not_found) => fmt.println("file not found"),
-        .err(.permission) => fmt.println("access denied"),
-        .err(e) => fmt.println("unexpected error:", e),
+        .err(.not_found) :: fmt.println("file not found"),
+        .err(.permission) :: fmt.println("access denied"),
+        .err(e) :: fmt.println("unexpected error:", e),
     }
 }
 ```

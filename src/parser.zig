@@ -720,7 +720,7 @@ pub const Parser = struct {
     fn parseSwitchArm(self: *Parser) Error!NodeIndex {
         const tok = self.pos;
         const pattern = try self.parseExpr();
-        self.expectToken(.fat_arrow);
+        self.expectToken(.colon_colon);
         self.skipNewlines();
 
         var body: NodeIndex = null_node;

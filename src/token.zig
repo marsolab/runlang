@@ -82,7 +82,6 @@ pub const Token = struct {
         colon, // :
         colon_colon, // ::
         question, // ?
-        fat_arrow, // =>
 
         // Special
         newline,

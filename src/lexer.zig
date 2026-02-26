@@ -234,8 +234,6 @@ pub const Lexer = struct {
             '=' => blk: {
                 if (self.peekNext() == @as(u8, '='))
                     break :blk self.advance2(.equal_equal);
-                if (self.peekNext() == @as(u8, '>'))
-                    break :blk self.advance2(.fat_arrow);
                 break :blk self.advance1(.equal);
             },
             '!' => blk: {
@@ -340,14 +338,13 @@ test "lex string and float" {
 }
 
 test "lex operators" {
-    var lexer = Lexer.init(":= == != <= >= <- => .. ::");
+    var lexer = Lexer.init(":= == != <= >= <- .. ::");
     try std.testing.expectEqual(Tag.colon_equal, lexer.next().tag);
     try std.testing.expectEqual(Tag.equal_equal, lexer.next().tag);
     try std.testing.expectEqual(Tag.bang_equal, lexer.next().tag);
     try std.testing.expectEqual(Tag.less_equal, lexer.next().tag);
     try std.testing.expectEqual(Tag.greater_equal, lexer.next().tag);
     try std.testing.expectEqual(Tag.arrow_left, lexer.next().tag);
-    try std.testing.expectEqual(Tag.fat_arrow, lexer.next().tag);
     try std.testing.expectEqual(Tag.dot_dot, lexer.next().tag);
     try std.testing.expectEqual(Tag.colon_colon, lexer.next().tag);
     try std.testing.expectEqual(Tag.eof, lexer.next().tag);

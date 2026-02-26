@@ -20,8 +20,8 @@ fun main() {
     names := ["Alice", "Bob", "Charlie"]
 
     switch find(names, "Bob") {
-        .some(i) => fmt.println("found at index", i),
-        .none => fmt.println("not found"),
+        .some(i) :: fmt.println("found at index", i),
+        .none :: fmt.println("not found"),
     }
 }
 ```
@@ -36,7 +36,7 @@ var x: int? = null
 // x + 1    // error: cannot use nullable value directly
 
 switch x {
-    .some(val) => fmt.println(val + 1),
-    .none => fmt.println("no value"),
+    .some(val) :: fmt.println(val + 1),
+    .none :: fmt.println("no value"),
 }
 ```

@@ -50,10 +50,10 @@ fun load_config(path: string) !Config {
 
 fun main() {
     switch load_config("server.conf") {
-        .ok(config) => {
+        .ok(config) :: {
             fmt.println("starting server on", config.string())
         },
-        .err(e) => {
+        .err(e) :: {
             fmt.println("error:", e)
             os.exit(1)
         },
