@@ -1092,6 +1092,51 @@ pub const Parser = struct {
         });
     }
 
+    fn parseAnonStructLiteral(self: *Parser, dot_tok: u32) Error!NodeIndex {
+        self.expectToken(.l_brace);
+        self.skipNewlines();
+
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        var count: u32 = 0;
+
+        while (self.peekTag() != .r_brace and !self.isAtEnd()) {
+            self.skipNewlines();
+            if (self.peekTag() == .r_brace) break;
+
+            if (count > 0) {
+                self.expectToken(.comma);
+                self.skipNewlines();
+            }
+
+            // field_name: value
+            const field_tok = self.pos;
+            if (self.peekTag() != .identifier) {
+                try self.addError(.expected_identifier, self.currentLoc(), null);
+                break;
+            }
+            self.advance();
+            self.expectToken(.colon);
+            const val = try self.parseExpr();
+
+            const field_init = try self.tree.addNode(.{
+                .tag = .struct_field_init,
+                .main_token = field_tok,
+                .data = .{ .lhs = val, .rhs = null_node },
+            });
+            _ = try self.tree.addExtra(field_init);
+            count += 1;
+            self.skipNewlines();
+        }
+        self.expectToken(.r_brace);
+        _ = try self.tree.addExtra(count);
+
+        return self.tree.addNode(.{
+            .tag = .anon_struct_literal,
+            .main_token = dot_tok,
+            .data = .{ .lhs = null_node, .rhs = start },
+        });
+    }
+
     fn parsePrimary(self: *Parser) Error!NodeIndex {
         return switch (self.peekTag()) {
             .int_literal => {
@@ -1149,9 +1194,15 @@ pub const Parser = struct {
                 });
             },
             .dot => {
-                // Variant literal: .loading, .ready(data)
                 const tok = self.pos;
                 self.advance();
+
+                // Anonymous struct literal: .{ field: val, ... }
+                if (self.peekTag() == .l_brace) {
+                    return self.parseAnonStructLiteral(tok);
+                }
+
+                // Variant literal: .loading, .ready(data)
                 if (self.peekTag() != .identifier) {
                     try self.addError(.expected_identifier, self.currentLoc(), null);
                     return null_node;
@@ -1286,6 +1337,38 @@ pub const Parser = struct {
             });
         }
 
+        // Anonymous struct type: struct { field1 type1, field2 type2 }
+        if (self.peekTag() == .kw_struct) {
+            const tok = self.pos;
+            self.advance(); // consume 'struct'
+            self.skipNewlines();
+            self.expectToken(.l_brace);
+            self.skipNewlines();
+
+            const start: u32 = @intCast(self.tree.extra_data.items.len);
+            var field_count: u32 = 0;
+
+            while (self.peekTag() != .r_brace and !self.isAtEnd()) {
+                self.skipNewlines();
+                if (self.peekTag() == .r_brace) break;
+
+                const field = try self.parseFieldDecl();
+                _ = try self.tree.addExtra(field);
+                field_count += 1;
+
+                self.skipNewlines();
+                if (self.peekTag() == .comma) self.advance();
+                self.skipNewlines();
+            }
+            self.expectToken(.r_brace);
+
+            return self.tree.addNode(.{
+                .tag = .type_anon_struct,
+                .main_token = tok,
+                .data = .{ .lhs = start, .rhs = field_count },
+            });
+        }
+
         // Named type: int, string, MyStruct, etc.
         if (self.peekTag() == .identifier) {
             const tok = self.pos;
@@ -1317,7 +1400,7 @@ pub const Parser = struct {
     fn isTypeStart(self: *const Parser) bool {
         const tag = self.peekTag();
         return tag == .identifier or tag == .ampersand or tag == .at or
-            tag == .bang or tag == .l_bracket or tag == .kw_chan;
+            tag == .bang or tag == .l_bracket or tag == .kw_chan or tag == .kw_struct;
     }
 
     // --- Helpers ---
@@ -1757,4 +1840,180 @@ test "parse for-in string.bytes iteration" {
     }
     try std.testing.expect(found_for);
     try std.testing.expect(found_field_access);
+}
+
+test "parse function returning anonymous struct" {
+    const source = "fn divmod(a int, b int) struct { quotient int, remainder int } {\n    return .{ quotient: a / b, remainder: a % b }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_fn = false;
+    var found_anon_struct_type = false;
+    var found_anon_struct_literal = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .fn_decl) found_fn = true;
+        if (node.tag == .type_anon_struct) found_anon_struct_type = true;
+        if (node.tag == .anon_struct_literal) found_anon_struct_literal = true;
+    }
+    try std.testing.expect(found_fn);
+    try std.testing.expect(found_anon_struct_type);
+    try std.testing.expect(found_anon_struct_literal);
+}
+
+test "parse anonymous struct literal" {
+    const source = "fn main() {\n    result := .{ x: 1, y: 2 }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_anon_struct = false;
+    var field_init_count: u32 = 0;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .anon_struct_literal) found_anon_struct = true;
+        if (node.tag == .struct_field_init) field_init_count += 1;
+    }
+    try std.testing.expect(found_anon_struct);
+    try std.testing.expectEqual(@as(u32, 2), field_init_count);
+}
+
+test "parse anonymous struct type with field colons" {
+    const source = "fn swap(a int, b int) struct { first: int, second: int } {\n    return .{ first: b, second: a }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_type = false;
+    var field_count: u32 = 0;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_anon_struct) found_type = true;
+        if (node.tag == .field_decl) field_count += 1;
+    }
+    try std.testing.expect(found_type);
+    try std.testing.expectEqual(@as(u32, 2), field_count);
+}
+
+test "parse error union of anonymous struct" {
+    const source = "fn parse(s string) !struct { value int, rest string } {\n    return .{ value: 0, rest: s }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_error_union = false;
+    var found_anon_struct_type = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_error_union) found_error_union = true;
+        if (node.tag == .type_anon_struct) found_anon_struct_type = true;
+    }
+    try std.testing.expect(found_error_union);
+    try std.testing.expect(found_anon_struct_type);
+}
+
+test "parse anonymous struct in closure return type" {
+    const source = "fn main() {\n    f := fn(x int) struct { doubled int, tripled int } {\n        return .{ doubled: x * 2, tripled: x * 3 }\n    }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_closure = false;
+    var found_anon_struct_type = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .closure) found_closure = true;
+        if (node.tag == .type_anon_struct) found_anon_struct_type = true;
+    }
+    try std.testing.expect(found_closure);
+    try std.testing.expect(found_anon_struct_type);
+}
+
+test "parse anonymous struct with newline-separated fields" {
+    const source = "fn coords() struct {\n    x int\n    y int\n    z int\n} {\n    return .{ x: 1, y: 2, z: 3 }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var field_count: u32 = 0;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .field_decl) field_count += 1;
+    }
+    try std.testing.expectEqual(@as(u32, 3), field_count);
+}
+
+test "parse pointer to anonymous struct type" {
+    const source = "fn make() &struct { x int, y int } {\n    return .{ x: 0, y: 0 }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_ptr = false;
+    var found_anon_struct = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_ptr) found_ptr = true;
+        if (node.tag == .type_anon_struct) found_anon_struct = true;
+    }
+    try std.testing.expect(found_ptr);
+    try std.testing.expect(found_anon_struct);
+}
+
+test "parse method returning anonymous struct" {
+    const source = "fn (p @Point) decompose() struct { x f64, y f64 } {\n    return .{ x: p.x, y: p.y }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_receiver = false;
+    var found_anon_struct_type = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .receiver) found_receiver = true;
+        if (node.tag == .type_anon_struct) found_anon_struct_type = true;
+    }
+    try std.testing.expect(found_receiver);
+    try std.testing.expect(found_anon_struct_type);
 }

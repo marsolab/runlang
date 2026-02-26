@@ -54,6 +54,27 @@ fn private_helper(x int) int {
 - `pub` keyword for public visibility, private by default
 - Full closures supported: `fn(x int) int { return x + 1 }`
 
+### Multiple Return Values
+
+Functions can return multiple values using anonymous structs (Zig-style):
+
+```
+fn divmod(a int, b int) struct { quotient int, remainder int } {
+    return .{ quotient: a / b, remainder: a % b }
+}
+
+// Caller accesses fields on the result:
+result := divmod(10, 3)
+result.quotient   // 3
+result.remainder  // 1
+```
+
+- Anonymous struct types can be used anywhere a type is expected
+- Anonymous struct literals use `.{ field: value }` syntax
+- Fields can be separated by commas or newlines
+- Works with error unions: `fn parse(s string) !struct { value int, rest string }`
+- Works with pointers: `fn make() &struct { x int, y int }`
+
 ## Error Handling
 
 Zig-style error unions. A function that can fail returns `!T`:
