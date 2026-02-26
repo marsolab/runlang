@@ -1,6 +1,6 @@
 # Methods
 
-In Run, methods are declared separately from structs using receiver syntax. This is similar to Go — the struct definition contains only data, and methods are defined alongside it.
+In Run, methods are functions with a **receiver** — declared outside the struct, just like in Go. The struct definition contains only data; methods are defined alongside it.
 
 ```run
 package main
@@ -12,13 +12,13 @@ pub Rectangle struct {
     height: f64
 }
 
-fun Rectangle.area(self: @Rectangle) f64 {
-    return self.width * self.height
+fun (r @Rectangle) area() f64 {
+    return r.width * r.height
 }
 
-fun Rectangle.scale(self: &Rectangle, factor: f64) {
-    self.width = self.width * factor
-    self.height = self.height * factor
+fun (r &Rectangle) scale(factor f64) {
+    r.width = r.width * factor
+    r.height = r.height * factor
 }
 
 fun main() {
@@ -30,9 +30,66 @@ fun main() {
 }
 ```
 
+## Receiver syntax
+
+The receiver appears in parentheses between `fn`/`fun` and the method name:
+
+```
+fn (name Type) method_name(params) return_type { body }
+```
+
+This is the same pattern as Go's method declarations.
+
 ## Receiver types
 
-- `@Rectangle` — a read-only receiver. The method can read but not modify the struct.
-- `&Rectangle` — a read/write receiver. The method can modify the struct's fields.
+- `@T` — read-only receiver. The method can read but not modify the struct.
+- `&T` — read/write receiver. The method can modify the struct's fields.
 
-Choose `@T` when the method only observes the value, and `&T` when it needs to mutate it.
+Choose `@T` when the method only observes the value, and `&T` when it needs to mutate.
+
+```run
+// Read-only — cannot modify p
+fun (p @Point) length() f64 {
+    return math.sqrt(p.x * p.x + p.y * p.y)
+}
+
+// Read/write — can modify p
+fun (p &Point) translate(dx f64, dy f64) {
+    p.x = p.x + dx
+    p.y = p.y + dy
+}
+```
+
+## Public methods
+
+Methods can be made public with `pub`, just like functions:
+
+```run
+pub fun (p @Point) distance(other @Point) f64 {
+    dx := p.x - other.x
+    dy := p.y - other.y
+    return math.sqrt(dx * dx + dy * dy)
+}
+```
+
+## Multiple methods
+
+You can define any number of methods on the same type:
+
+```run
+pub Circle struct {
+    radius: f64
+}
+
+fun (c @Circle) area() f64 {
+    return 3.14159 * c.radius * c.radius
+}
+
+fun (c @Circle) circumference() f64 {
+    return 2.0 * 3.14159 * c.radius
+}
+
+fun (c &Circle) grow(amount f64) {
+    c.radius = c.radius + amount
+}
+```

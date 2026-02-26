@@ -54,6 +54,53 @@ fn private_helper(x int) int {
 - `pub` keyword for public visibility, private by default
 - Full closures supported: `fn(x int) int { return x + 1 }`
 
+### Methods (Go-style Receivers)
+
+Methods are functions with a **receiver** parameter, declared outside the struct:
+
+```
+fn (name ReceiverType) method_name(params) return_type { body }
+```
+
+The receiver appears in parentheses between `fn` and the method name — identical to Go's
+method declaration syntax. Methods are not defined inside the struct body; the struct
+contains only data.
+
+```
+pub Point struct {
+    x f64
+    y f64
+}
+
+// Read-only receiver — cannot modify p
+fn (p @Point) length() f64 {
+    return math.sqrt(p.x * p.x + p.y * p.y)
+}
+
+// Read/write receiver — can modify p
+fn (p &Point) translate(dx f64, dy f64) {
+    p.x = p.x + dx
+    p.y = p.y + dy
+}
+```
+
+**Receiver types:**
+- `&T` — read/write pointer receiver. The method can read and modify the struct.
+- `@T` — read-only pointer receiver. Compiler-enforced immutability on the receiver.
+
+Methods can be made public with `pub`:
+
+```
+pub fn (p @Point) distance(other @Point) f64 {
+    dx := p.x - other.x
+    dy := p.y - other.y
+    return math.sqrt(dx * dx + dy * dy)
+}
+```
+
+The colon between receiver name and type is optional: `(p &Point)` and `(p: &Point)` are
+both valid.
+
 ### Multiple Return Values
 
 Functions can return multiple values using anonymous structs (Zig-style):
@@ -120,17 +167,11 @@ pub Point struct {
     x f64
     y f64
 }
-
-fn (p &Point) distance(other @Point) f64 {
-    dx := p.x - other.x
-    dy := p.y - other.y
-    return math.sqrt(dx * dx + dy * dy)
-}
 ```
 
 - Struct name comes **before** the `struct` keyword
-- Methods declared **outside** the struct with a receiver (Go-style)
-- `&T` receiver for read/write, `@T` receiver for read-only
+- Structs contain only data — no methods inside the body
+- Methods are declared outside with a Go-style receiver (see **Methods** under Functions)
 
 ### Interfaces (Explicit)
 
