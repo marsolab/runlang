@@ -145,6 +145,20 @@ switch read_file("config.txt") {
 - Error sets are **inferred by the compiler**
 - No generics needed — `!T` is a built-in language construct
 
+### Error Context
+
+When propagating errors with `try`, you can attach context using `::`:
+
+```
+content := try read_file(path) :: "loading config"
+```
+
+If the expression returns an error, the context string is attached to the error
+before it propagates. This builds a chain of context as errors bubble up through
+the call stack, making it easy to trace the origin of failures.
+
+Plain `try` (without context) still propagates errors unchanged.
+
 ## Type System
 
 ### Primitive Types

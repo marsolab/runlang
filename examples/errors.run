@@ -3,14 +3,14 @@ import "fmt"
 import "os"
 
 fn read_config(path: string) !string {
-    file := try os.open(path)
+    file := try os.open(path) :: "opening config file"
     defer file.close()
-    return try file.read_all()
+    return try file.read_all() :: "reading config contents"
 }
 
 fn main() {
     switch read_config("config.txt") {
         .ok(content) :: fmt.println(content),
-        .err(e) :: fmt.println("failed to read config")
+        .err(e) :: fmt.println("failed to read config:", e)
     }
 }

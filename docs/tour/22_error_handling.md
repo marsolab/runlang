@@ -46,3 +46,24 @@ switch do_work() {
 ```
 
 This approach makes error paths visible and forces you to handle them — errors cannot be silently ignored.
+
+## Adding context to errors
+
+When propagating errors with `try`, you can attach a context message using `::`. This helps trace where errors originated as they bubble up through function calls.
+
+```run
+fun load_config(path: string) !Config {
+    content := try read_file(path) :: "reading config file"
+    return try parse_config(content) :: "parsing config"
+}
+```
+
+If `read_file` fails, the error carries the context `"reading config file"` along with it. As the error propagates further up the call stack, each `try` with `::` adds another layer of context, building a trace:
+
+```
+error: not_found
+  reading config file (config.run:2)
+  initializing app (main.run:10)
+```
+
+Context is optional — plain `try` still works exactly as before.
