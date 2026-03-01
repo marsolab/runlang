@@ -975,10 +975,24 @@ pub const Parser = struct {
             const tok = self.pos;
             self.advance();
             const operand = try self.parseUnary();
+            var context_node: NodeIndex = null_node;
+            if (self.peekTag() == .colon_colon) {
+                self.advance();
+                if (self.peekTag() == .string_literal) {
+                    context_node = try self.tree.addNode(.{
+                        .tag = .string_literal,
+                        .main_token = self.pos,
+                        .data = .{ .lhs = null_node, .rhs = null_node },
+                    });
+                    self.advance();
+                } else {
+                    try self.addError(.expected_string_literal, self.currentLoc(), null);
+                }
+            }
             return self.tree.addNode(.{
                 .tag = .try_expr,
                 .main_token = tok,
-                .data = .{ .lhs = operand, .rhs = null_node },
+                .data = .{ .lhs = operand, .rhs = context_node },
             });
         }
         return self.parsePostfix();
@@ -2293,4 +2307,86 @@ test "parse multiple type declarations" {
         if (node.tag == .type_decl) type_decl_count += 1;
     }
     try std.testing.expectEqual(@as(u32, 2), type_decl_count);
+}
+
+test "parse try without context" {
+    const source = "fn main() {\n    x := try do_work()\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .try_expr) {
+            // rhs should be null_node when no context is provided
+            try std.testing.expectEqual(null_node, node.data.rhs);
+            return;
+        }
+    }
+    return error.TestUnexpectedResult; // no try_expr found
+}
+
+test "parse try with context string" {
+    const source = "fn main() {\n    x := try read_file(path) :: \"loading config\"\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .try_expr) {
+            // rhs should point to a string_literal node (not null_node)
+            try std.testing.expect(node.data.rhs != null_node);
+            const context_node = parser.tree.nodes.items[node.data.rhs];
+            try std.testing.expectEqual(Node.Tag.string_literal, context_node.tag);
+            return;
+        }
+    }
+    return error.TestUnexpectedResult; // no try_expr found
+}
+
+test "parse try context in return statement" {
+    const source = "fn load() !int {\n    return try parse(data) :: \"parsing data\"\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .try_expr) {
+            try std.testing.expect(node.data.rhs != null_node);
+            return;
+        }
+    }
+    return error.TestUnexpectedResult;
+}
+
+test "parse try context error on missing string" {
+    const source = "fn main() {\n    x := try do_work() :: 42\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    // Should have an error because :: is not followed by a string literal
+    try std.testing.expect(parser.tree.errors.items.len > 0);
+    try std.testing.expectEqual(Ast.ErrorTag.expected_string_literal, parser.tree.errors.items[0].tag);
 }

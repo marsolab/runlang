@@ -31,6 +31,7 @@ pub const Ast = struct {
         expected_type,
         expected_identifier,
         expected_block,
+        expected_string_literal,
         invalid_token,
         unexpected_eof,
     };
@@ -216,7 +217,8 @@ pub const Node = struct {
         addr_of_const,
         /// `expr.*` or `*expr` (dereference)
         deref,
-        /// `try expr`
+        /// `try expr` or `try expr :: "context"`
+        /// lhs = operand, rhs = context string expr (or null_node)
         try_expr,
         /// Range expression: `a..b`
         /// lhs = start, rhs = end
