@@ -33,6 +33,7 @@ Run's generational references provide memory safety without a garbage collector 
 - Interface implementations are explicit — declared via `implements` block in struct
 - Error handling is explicit — errors cannot be silently ignored
 - Visibility is explicit — `pub` or private, nothing in between
+- Unsafe operations are explicit — `import "unsafe"` signals low-level code at file level
 
 ## Go's pragmatism meets systems control
 

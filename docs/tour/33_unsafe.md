@@ -1,16 +1,56 @@
-# Unsafe Blocks
+# The unsafe Package
 
-Run is safe by default, but sometimes you need to bypass safety checks for performance-critical code. The `unsafe` keyword marks regions where the compiler's safety guarantees are relaxed.
+Run is safe by default. Memory safety comes from generational references, concurrency safety comes from channels. But sometimes you need to go lower — raw pointer manipulation, type layout inspection, or shared memory with manual synchronization.
 
-## Shared memory
+For that, there's the `unsafe` package. It's a standard library package, not a keyword or special syntax. Just like Go's `import "unsafe"`, importing it is the signal.
 
-The primary use of `unsafe` in Run is for shared mutable state between concurrent tasks. Normally, concurrency in Run uses channels for communication. When you need shared memory instead, you must be explicit about it.
+## Importing unsafe
 
 ```run
 package main
 
-use "fmt"
-use "sync"
+import "fmt"
+import "unsafe"
+
+fun main() {
+    var x int = 42
+    var p unsafe.Pointer = unsafe.ptr(&x)
+    fmt.println("size of int:", unsafe.sizeof(int))
+    fmt.println("pointer:", p)
+}
+```
+
+No block wrapping. No special keyword. `import "unsafe"` in a file tells you and your team: this file does low-level operations.
+
+## What the package provides
+
+```run
+import "unsafe"
+
+// Raw pointer type — can be converted to/from any &T or @T
+var p unsafe.Pointer = unsafe.ptr(&my_value)
+
+// Convert back to a typed pointer
+var typed &int = unsafe.cast(&int, p)
+
+// Type layout
+var size int = unsafe.sizeof(MyStruct)
+var align int = unsafe.alignof(MyStruct)
+var off int = unsafe.offsetof(MyStruct, "field_name")
+
+// Create a slice from a raw pointer and length
+var s []byte = unsafe.slice(raw_ptr, 1024)
+```
+
+## Shared memory with sync
+
+When you need shared mutable state between concurrent tasks, use `sync` primitives directly. Engineers know mutexes are dangerous — the language doesn't need to remind you on every line.
+
+```run
+package main
+
+import "fmt"
+import "sync"
 
 fun main() {
     var counter int = 0
@@ -18,30 +58,21 @@ fun main() {
 
     for i in 0..10 {
         run fun() {
-            unsafe {
-                mu.lock()
-                counter = counter + 1
-                mu.unlock()
-            }
+            mu.lock()
+            counter = counter + 1
+            mu.unlock()
         }
     }
 
-    // wait for tasks to finish
-    unsafe {
-        mu.lock()
-        fmt.println("counter:", counter)
-        mu.unlock()
-    }
+    mu.lock()
+    fmt.println("counter:", counter)
+    mu.unlock()
 }
 ```
 
-## Why unsafe?
-
-The `unsafe` block serves as documentation and a search target. When something goes wrong with concurrent code, you know exactly where to look. It also signals to other developers that extra care is needed when modifying this section.
-
 ## Guidelines
 
-- Keep `unsafe` blocks as small as possible
 - Prefer channels over shared memory when performance allows
-- Always protect shared state with synchronization primitives like `sync.Mutex`
-- Comment why the `unsafe` block is necessary
+- Keep files that import `unsafe` focused and small
+- `grep "unsafe"` across your project to audit all low-level code
+- The package is for escaping safety guarantees, not for everyday code
