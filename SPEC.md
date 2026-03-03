@@ -319,8 +319,25 @@ val := <-ch                 // receive
 
 ### Unsafe Shared Memory
 
-For performance-critical code, shared memory with explicit synchronization is allowed
-within `unsafe` blocks.
+For performance-critical code, shared memory with explicit synchronization is allowed.
+Files that use shared memory or synchronization primitives must declare `import unsafe`
+at the top level — a file-level signal inspired by Go's `import "unsafe"` package.
+
+```
+import unsafe
+import "sync"
+
+// Shared memory and sync primitives can now be used in this file
+var mu sync.Mutex
+mu.lock()
+counter = counter + 1
+mu.unlock()
+```
+
+No block syntax around critical sections — the file-level declaration is the signal.
+Engineers already know that mutexes and shared memory are dangerous; `import unsafe`
+makes that intent grep-able and auditable without adding visual clutter to every
+lock/unlock pair.
 
 ## Visibility and Modules
 

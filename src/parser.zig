@@ -462,6 +462,17 @@ pub const Parser = struct {
         _ = self.pos; // skip import keyword position
         self.expect(.kw_import);
 
+        // import unsafe — file-level unsafe declaration
+        if (self.peekTag() == .kw_unsafe) {
+            const unsafe_tok = self.pos;
+            self.advance();
+            return self.tree.addNode(.{
+                .tag = .unsafe_import,
+                .main_token = unsafe_tok,
+                .data = .{ .lhs = null_node, .rhs = null_node },
+            });
+        }
+
         if (self.peekTag() != .string_literal) {
             try self.addError(.expected_expression, self.currentLoc(), null);
             return null_node;
@@ -2389,4 +2400,48 @@ test "parse try context error on missing string" {
     // Should have an error because :: is not followed by a string literal
     try std.testing.expect(parser.tree.errors.items.len > 0);
     try std.testing.expectEqual(Ast.ErrorTag.expected_string_literal, parser.tree.errors.items[0].tag);
+}
+
+test "parse import unsafe" {
+    const source = "import unsafe";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_unsafe = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .unsafe_import) {
+            found_unsafe = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_unsafe);
+}
+
+test "parse import unsafe alongside regular imports" {
+    const source = "import \"fmt\"\nimport unsafe\nimport \"sync\"";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var import_count: u32 = 0;
+    var unsafe_count: u32 = 0;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .import_decl) import_count += 1;
+        if (node.tag == .unsafe_import) unsafe_count += 1;
+    }
+    try std.testing.expectEqual(@as(u32, 2), import_count);
+    try std.testing.expectEqual(@as(u32, 1), unsafe_count);
 }
