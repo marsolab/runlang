@@ -317,27 +317,30 @@ ch <- 42                    // send
 val := <-ch                 // receive
 ```
 
-### Unsafe Shared Memory
+### The `unsafe` Package
 
-For performance-critical code, shared memory with explicit synchronization is allowed.
-Files that use shared memory or synchronization primitives must declare `import unsafe`
-at the top level — a file-level signal inspired by Go's `import "unsafe"` package.
+The `unsafe` package is a standard library package providing low-level operations
+that bypass Run's safety guarantees. Like Go's `import "unsafe"`, its presence in
+a file's imports is the signal that dangerous operations are in use.
 
 ```
-import unsafe
-import "sync"
+import "unsafe"
 
-// Shared memory and sync primitives can now be used in this file
-var mu sync.Mutex
-mu.lock()
-counter = counter + 1
-mu.unlock()
+var p unsafe.Pointer = unsafe.ptr(&x)     // raw pointer
+var n int = unsafe.sizeof(MyStruct)       // type size in bytes
+var off int = unsafe.offsetof(MyStruct, "field")  // field byte offset
 ```
 
-No block syntax around critical sections — the file-level declaration is the signal.
-Engineers already know that mutexes and shared memory are dangerous; `import unsafe`
-makes that intent grep-able and auditable without adding visual clutter to every
-lock/unlock pair.
+- `unsafe.Pointer` — raw pointer type, convertible to/from any `&T` or `@T`
+- `unsafe.ptr(p)` — convert a typed pointer to `unsafe.Pointer`
+- `unsafe.cast(&T, p)` — convert `unsafe.Pointer` back to a typed pointer
+- `unsafe.sizeof(T)` — size of type `T` in bytes
+- `unsafe.alignof(T)` — alignment of type `T`
+- `unsafe.offsetof(T, field)` — byte offset of a field within a struct
+- `unsafe.slice(p, len)` — create a slice from a raw pointer and length
+
+No special keyword or block syntax — `import "unsafe"` is a regular import and
+`grep "unsafe"` finds every file that uses low-level operations.
 
 ## Visibility and Modules
 
@@ -378,6 +381,7 @@ language-level support without requiring user-facing generics.
 - `bytes` — byte slice utilities
 - `math` — math functions
 - `sync` — mutexes, atomics, wait groups
+- `unsafe` — raw pointers, type layout, pointer arithmetic
 - `testing` — test framework
 - `time` — time, duration, timers
 - `log` — structured logging

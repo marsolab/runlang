@@ -121,9 +121,6 @@ pub const Node = struct {
         /// `import "path"`
         /// main_token points to the string literal
         import_decl,
-        /// `import unsafe` — file-level unsafe declaration
-        /// main_token points to the `unsafe` keyword
-        unsafe_import,
 
         // Struct internals
         /// A single struct field: `name: type`
