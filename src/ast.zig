@@ -33,6 +33,7 @@ pub const Ast = struct {
         expected_block,
         expected_string_literal,
         invalid_token,
+        invalid_alloc_type,
         unexpected_eof,
     };
 
@@ -232,6 +233,10 @@ pub const Node = struct {
         /// `.variant` or `.variant(data)` — sum type variant
         /// lhs = data expr (or null_node)
         variant,
+        /// `alloc(type[, capacity][, allocator: expr])`
+        /// lhs = allocated type node, rhs = extra_data start
+        /// extra_data layout: [capacity_expr_or_null, allocator_expr_or_null]
+        alloc_expr,
 
         // Types (used in type position)
         /// Simple named type: `int`, `string`, `MyStruct`
@@ -248,6 +253,8 @@ pub const Node = struct {
         type_slice,
         /// Channel type: `chan T`
         type_chan,
+        /// Map type: `map[K]V`
+        type_map,
         /// Array type: `[N]T`
         type_array,
         /// Anonymous struct type: `struct { field1 type1, field2 type2 }`

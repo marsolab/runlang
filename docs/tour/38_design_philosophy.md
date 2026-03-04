@@ -16,7 +16,7 @@ Built-in types that would normally require generics — slices, maps, channels, 
 // These work without generics — they are built into the language
 names := ["Alice", "Bob"]              // []string
 ages := map[string]int{"Alice": 30}    // map[string]int
-ch := make_chan(int, 10)               // chan int
+ch := alloc(chan[int], 10)             // chan int
 var x: int? = 42                       // int?
 fun read() !string { ... }             // !string
 ```

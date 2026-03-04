@@ -5,8 +5,8 @@ Channels are the primary way to communicate between concurrent tasks in Run. The
 ## Creating channels
 
 ```run
-ch := make_chan(int)       // unbuffered channel
-ch := make_chan(int, 10)   // buffered channel with capacity 10
+ch := alloc(chan[int])      // unbuffered channel
+ch := alloc(chan[int], 10)  // buffered channel with capacity 10
 ```
 
 ## Sending and receiving
@@ -25,7 +25,7 @@ fun producer(ch: chan int) {
 }
 
 fun main() {
-    ch := make_chan(int, 10)
+    ch := alloc(chan[int], 10)
 
     run producer(ch)
 
@@ -45,6 +45,6 @@ An unbuffered channel synchronizes the sender and receiver — the sender blocks
 A buffered channel allows sends to proceed without blocking until the buffer is full. This is useful when the sender and receiver run at different speeds.
 
 ```run
-ch := make_chan(string, 5)
+ch := alloc(chan[string], 5)
 ch <- "hello"  // does not block (buffer has space)
 ```
