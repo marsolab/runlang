@@ -16,7 +16,7 @@ fun find(names: []string, target: string) int? {
     return null
 }
 
-fun main() {
+pub fun main() {
     names := ["Alice", "Bob", "Charlie"]
 
     switch find(names, "Bob") {

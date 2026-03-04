@@ -14,7 +14,7 @@ fun to_fahrenheit(c: Celsius) Fahrenheit {
     return Fahrenheit(f64(c) * 9.0 / 5.0 + 32.0)
 }
 
-fun main() {
+pub fun main() {
     temp := Celsius(100.0)
     fmt.println(to_fahrenheit(temp))
 

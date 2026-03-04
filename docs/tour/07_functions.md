@@ -11,7 +11,7 @@ fun add(a: int, b: int) int {
     return a + b
 }
 
-fun main() {
+pub fun main() {
     result := add(3, 4)
     fmt.println(result)
 }

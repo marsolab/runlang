@@ -58,7 +58,7 @@ package main
 
 use "auth"
 
-fun main() {
+pub fun main() {
     session := try auth.login("admin", "secret")
 }
 ```

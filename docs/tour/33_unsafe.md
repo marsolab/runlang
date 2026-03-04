@@ -12,7 +12,7 @@ package main
 import "fmt"
 import "unsafe"
 
-fun main() {
+pub fun main() {
     var x int = 42
     var p unsafe.Pointer = unsafe.ptr(&x)
     fmt.println("size of int:", unsafe.sizeof(int))
@@ -52,7 +52,7 @@ package main
 import "fmt"
 import "sync"
 
-fun main() {
+pub fun main() {
     var counter int = 0
     var mu sync.Mutex
 

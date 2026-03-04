@@ -24,7 +24,7 @@ fun producer(ch: chan int) {
     }
 }
 
-fun main() {
+pub fun main() {
     ch := alloc(chan[int], 10)
 
     run producer(ch)

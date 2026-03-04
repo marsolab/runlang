@@ -37,7 +37,7 @@ pub Config struct {
     port: int
 }
 
-fun (self: @Config) string() string {
+fun (c: @Config) string() string {
     return fmt.sprintf("%s:%d", self.host, self.port)
 }
 
@@ -48,7 +48,7 @@ fun load_config(path: string) !Config {
     return Config{ host: host, port: port }
 }
 
-fun main() {
+pub fun main() {
     switch load_config("server.conf") {
         .ok(config) :: {
             fmt.println("starting server on", config.string())

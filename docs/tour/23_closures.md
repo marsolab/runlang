@@ -11,7 +11,7 @@ fun apply(x: int, f: fun(int) int) int {
     return f(x)
 }
 
-fun main() {
+pub fun main() {
     double := fun(x: int) int { return x * 2 }
     fmt.println(apply(5, double)) // 10
 }
@@ -34,7 +34,7 @@ fun make_counter() fun() int {
     }
 }
 
-fun main() {
+pub fun main() {
     counter := make_counter()
     fmt.println(counter()) // 1
     fmt.println(counter()) // 2

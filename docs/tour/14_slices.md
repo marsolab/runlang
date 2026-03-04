@@ -18,7 +18,7 @@ package main
 
 use "fmt"
 
-fun main() {
+pub fun main() {
     names := ["Alice", "Bob", "Charlie"]
 
     for name in names {

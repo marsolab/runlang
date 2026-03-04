@@ -32,7 +32,7 @@ package main
 use "fmt"
 use "os"
 
-fun main() {
+pub fun main() {
     switch os.open("config.txt") {
         .ok(file) :: {
             defer file.close()

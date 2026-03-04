@@ -20,7 +20,7 @@ pub Node struct {
     next: &Node?
 }
 
-fun main() {
+pub fun main() {
     let node := Node{ value: 42, next: null }
     // node is freed when main returns
 }

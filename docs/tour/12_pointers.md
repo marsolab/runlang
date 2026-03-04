@@ -15,7 +15,7 @@ fun increment(p: &int) {
     p.* = p.* + 1
 }
 
-fun main() {
+pub fun main() {
     var x int = 10
     increment(&x)
     fmt.println(x) // 11

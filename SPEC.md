@@ -70,28 +70,28 @@ let a = compute()   // immutable, type inference
 ## Functions
 
 ```
-pub fn add(a int, b int) int {
+pub fun add(a int, b int) int {
     return a + b
 }
 
-fn private_helper(x int) int {
+fun private_helper(x int) int {
     return x * 2
 }
 ```
 
 - Zig-style signature: return type after parameters, no arrow
 - `pub` keyword for public visibility, private by default
-- Full closures supported: `fn(x int) int { return x + 1 }`
+- Full closures supported: `fun(x int) int { return x + 1 }`
 
 ### Methods (Go-style Receivers)
 
 Methods are functions with a **receiver** parameter, declared outside the struct:
 
 ```
-fn (name ReceiverType) method_name(params) return_type { body }
+fun (name ReceiverType) method_name(params) return_type { body }
 ```
 
-The receiver appears in parentheses between `fn` and the method name — identical to Go's
+The receiver appears in parentheses between `fun` and the method name — identical to Go's
 method declaration syntax. Methods are not defined inside the struct body; the struct
 contains only data.
 
@@ -102,12 +102,12 @@ pub Point struct {
 }
 
 // Read-only receiver — cannot modify p
-fn (p @Point) length() f64 {
+fun (p @Point) length() f64 {
     return math.sqrt(p.x * p.x + p.y * p.y)
 }
 
 // Read/write receiver — can modify p
-fn (p &Point) translate(dx f64, dy f64) {
+fun (p &Point) translate(dx f64, dy f64) {
     p.x = p.x + dx
     p.y = p.y + dy
 }
@@ -121,7 +121,7 @@ fn (p &Point) translate(dx f64, dy f64) {
 Methods can be made public with `pub`:
 
 ```
-pub fn (p @Point) distance(other @Point) f64 {
+pub fun (p @Point) distance(other @Point) f64 {
     dx := p.x - other.x
     dy := p.y - other.y
     return math.sqrt(dx * dx + dy * dy)
@@ -136,7 +136,7 @@ both valid.
 Functions can return multiple values using anonymous structs (Zig-style):
 
 ```
-fn divmod(a int, b int) struct { quotient int, remainder int } {
+fun divmod(a int, b int) struct { quotient int, remainder int } {
     return .{ quotient: a / b, remainder: a % b }
 }
 
@@ -149,15 +149,15 @@ result.remainder  // 1
 - Anonymous struct types can be used anywhere a type is expected
 - Anonymous struct literals use `.{ field: value }` syntax
 - Fields can be separated by commas or newlines
-- Works with error unions: `fn parse(s string) !struct { value int, rest string }`
-- Works with pointers: `fn make() &struct { x int, y int }`
+- Works with error unions: `fun parse(s string) !struct { value int, rest string }`
+- Works with pointers: `fun make() &struct { x int, y int }`
 
 ## Error Handling
 
 Zig-style error unions. A function that can fail returns `!T`:
 
 ```
-fn read_file(path string) !string {
+fun read_file(path string) !string {
     // returns string on success, error on failure
 }
 
@@ -221,7 +221,7 @@ pub Point struct {
 
 ```
 pub interface Stringer {
-    fn to_string() string
+    fun to_string() string
 }
 
 pub Point struct {
@@ -233,7 +233,7 @@ pub Point struct {
     y f64
 }
 
-fn (p @Point) to_string() string {
+fun (p @Point) to_string() string {
     return fmt.sprintf("(%f, %f)", p.x, p.y)
 }
 ```
@@ -313,7 +313,7 @@ switch value {
 ### Defer
 
 ```
-fn process() !void {
+fun process() !void {
     file := try os.open("data.txt")
     defer file.close()
 
@@ -329,7 +329,7 @@ fn process() !void {
 
 ```
 run my_function()
-run fn() { do_work() }
+run fun() { do_work() }
 ```
 
 - `run` spawns a green thread (goroutine-style)

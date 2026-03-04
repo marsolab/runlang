@@ -18,7 +18,7 @@ fun color_name(c: Color) string {
     }
 }
 
-fun main() {
+pub fun main() {
     c := Color.red
     fmt.println(color_name(c))
 

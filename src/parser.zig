@@ -1867,7 +1867,7 @@ test "parse method with receiver using colons" {
 }
 
 test "parse fun keyword as alias for fn" {
-    const source = "fun main() {\n    return\n}";
+    const source = "pub fun main() {\n    return\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);

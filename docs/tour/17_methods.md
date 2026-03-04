@@ -21,7 +21,7 @@ fun (r &Rectangle) scale(factor f64) {
     r.height = r.height * factor
 }
 
-fun main() {
+pub fun main() {
     var r := Rectangle{ width: 3.0, height: 4.0 }
     fmt.println(r.area()) // 12.0
 

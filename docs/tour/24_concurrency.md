@@ -15,7 +15,7 @@ fun say(msg: string) {
     }
 }
 
-fun main() {
+pub fun main() {
     run say("hello")
     say("world")
 }
@@ -38,7 +38,7 @@ fun worker(id: int) {
     fmt.println("worker", id, "done")
 }
 
-fun main() {
+pub fun main() {
     for i in 0..5 {
         run worker(i)
     }

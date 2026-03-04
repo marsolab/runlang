@@ -33,7 +33,7 @@ fun print_it(s: Stringer) {
     fmt.println(s.string())
 }
 
-pub fun main() {
+pub pub fun main() {
     p := Point{ x: 1.0, y: 2.0 }
     print_it(p)
 }

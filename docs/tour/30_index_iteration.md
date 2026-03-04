@@ -7,7 +7,7 @@ package main
 
 use "fmt"
 
-fun main() {
+pub fun main() {
     names := ["Alice", "Bob", "Charlie"]
 
     for i, name in names {
@@ -28,7 +28,7 @@ package main
 
 use "fmt"
 
-fun main() {
+pub fun main() {
     scores := [85, 92, 78, 95, 88]
 
     var best_index int = 0
@@ -54,7 +54,7 @@ package main
 
 use "fmt"
 
-fun main() {
+pub fun main() {
     ages := map[string]int{
         "Alice": 30,
         "Bob": 25,

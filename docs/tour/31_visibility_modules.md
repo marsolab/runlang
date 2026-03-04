@@ -53,7 +53,7 @@ package main
 use "math"
 use "fmt"
 
-fun main() {
+pub fun main() {
     v := math.Vec3{ x: 1.0, y: 2.0, z: 3.0 }
     fmt.println(v.length())
 }

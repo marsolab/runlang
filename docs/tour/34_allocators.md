@@ -11,7 +11,7 @@ package main
 
 use "fmt"
 
-fun main() {
+pub fun main() {
     names := alloc([]string, 3)
     names = append(names, "Alice")
     names = append(names, "Bob")
@@ -30,7 +30,7 @@ package main
 use "fmt"
 use "mem"
 
-fun main() {
+pub fun main() {
     arena := mem.arena_allocator(1024 * 1024)  // 1 MB arena
     defer arena.deinit()
 

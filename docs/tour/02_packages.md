@@ -14,7 +14,7 @@ package main
 use "fmt"
 use "math/rand"
 
-fun main() {
+pub pub fun main() {
     fmt.println("A random number:", rand.intn(100))
 }
 ```

@@ -16,7 +16,7 @@ fun describe(x: int) string {
     }
 }
 
-fun main() {
+pub fun main() {
     fmt.println(describe(2))
     fmt.println(describe(99))
 }

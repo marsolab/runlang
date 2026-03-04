@@ -9,7 +9,7 @@ package main
 
 use "fmt"
 
-fun main() {
+pub fun main() {
     a := 10
     b := 3
 
@@ -32,7 +32,7 @@ package main
 
 use "fmt"
 
-fun main() {
+pub fun main() {
     x := 5
     y := 10
 
@@ -54,7 +54,7 @@ package main
 
 use "fmt"
 
-fun main() {
+pub fun main() {
     a := true
     b := false
 

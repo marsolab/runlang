@@ -14,7 +14,7 @@ fun read_config(path: string) !string {
     return try file.read_all()
 }
 
-fun main() {
+pub fun main() {
     switch read_config("config.txt") {
         .ok(content) :: fmt.println(content),
         .err(e) :: fmt.println("failed to read config"),

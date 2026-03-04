@@ -7,7 +7,7 @@ package main
 
 use "fmt"
 
-fun main() {
+pub fun main() {
     ages := map[string]int{
         "Alice": 30,
         "Bob": 25,
