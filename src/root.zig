@@ -9,6 +9,7 @@ pub const Ast = @import("ast.zig").Ast;
 pub const Node = @import("ast.zig").Node;
 pub const NodeIndex = @import("ast.zig").NodeIndex;
 pub const Parser = @import("parser.zig").Parser;
+pub const naming = @import("naming.zig");
 
 const std = @import("std");
 
