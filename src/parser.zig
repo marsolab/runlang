@@ -13,6 +13,7 @@ pub const Parser = struct {
     pos: u32,
     source: []const u8,
     tree: Ast,
+    allow_struct_literals: bool,
 
     pub const Error = error{OutOfMemory};
 
@@ -22,6 +23,7 @@ pub const Parser = struct {
             .pos = 0,
             .source = source,
             .tree = Ast.init(allocator, source),
+            .allow_struct_literals = true,
         };
     }
 
@@ -681,6 +683,9 @@ pub const Parser = struct {
         // Check for `in` keyword: `for item in collection { }`
         if (self.peekTag() == .kw_in) {
             self.advance();
+            const prev_allow_struct_literals = self.allow_struct_literals;
+            self.allow_struct_literals = false;
+            defer self.allow_struct_literals = prev_allow_struct_literals;
             const iterable = try self.parseExpr();
             // Store the iteration variable (first) and iterable in extra data
             _ = try self.tree.addExtra(first);
@@ -1026,7 +1031,7 @@ pub const Parser = struct {
                     // Struct literal: Type{ field: val, ... }
                     // Only valid after an identifier (type name) or field access
                     const node_tag = self.tree.nodes.items[node].tag;
-                    if (node_tag == .ident or node_tag == .field_access) {
+                    if (self.allow_struct_literals and (node_tag == .ident or node_tag == .field_access)) {
                         node = try self.parseStructLiteral(node);
                     } else {
                         break;
