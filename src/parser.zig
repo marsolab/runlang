@@ -1168,6 +1168,42 @@ pub const Parser = struct {
         });
     }
 
+    fn parseAllocExpr(self: *Parser) Error!NodeIndex {
+        const tok = self.pos;
+        self.expect(.kw_alloc);
+        self.expectToken(.l_paren);
+
+        const alloc_type = try self.parseType();
+        if (!self.isAllocType(alloc_type)) {
+            try self.addError(.invalid_alloc_type, self.currentLoc(), null);
+        }
+
+        var capacity: NodeIndex = null_node;
+        var allocator_expr: NodeIndex = null_node;
+
+        if (self.peekTag() == .comma) {
+            self.advance();
+            capacity = try self.parseExpr();
+
+            if (self.peekTag() == .comma) {
+                self.advance();
+                allocator_expr = try self.parseExpr();
+            }
+        }
+
+        self.expectToken(.r_paren);
+
+        const extra_start: u32 = @intCast(self.tree.extra_data.items.len);
+        _ = try self.tree.addExtra(capacity);
+        _ = try self.tree.addExtra(allocator_expr);
+
+        return self.tree.addNode(.{
+            .tag = .alloc_expr,
+            .main_token = tok,
+            .data = .{ .lhs = alloc_type, .rhs = extra_start },
+        });
+    }
+
     fn parsePrimary(self: *Parser) Error!NodeIndex {
         return switch (self.peekTag()) {
             .int_literal => {
@@ -1271,6 +1307,9 @@ pub const Parser = struct {
                 // Closure: fn(params) ret { body }
                 return self.parseClosure();
             },
+            .kw_alloc => {
+                return self.parseAllocExpr();
+            },
             .eof => {
                 try self.addError(.unexpected_eof, self.currentLoc(), null);
                 return null_node;
@@ -1356,15 +1395,44 @@ pub const Parser = struct {
             });
         }
 
-        // Channel: chan T
+        // Channel: chan T or chan[T]
         if (self.peekTag() == .kw_chan) {
             const tok = self.pos;
             self.advance();
-            const inner = try self.parseType();
+
+            var inner: NodeIndex = null_node;
+            if (self.peekTag() == .l_bracket) {
+                self.advance();
+                inner = try self.parseType();
+                self.expectToken(.r_bracket);
+            } else {
+                inner = try self.parseType();
+            }
+
             return self.tree.addNode(.{
                 .tag = .type_chan,
                 .main_token = tok,
                 .data = .{ .lhs = inner, .rhs = null_node },
+            });
+        }
+
+        // Map: map[K]V
+        if (self.peekTag() == .kw_map) {
+            const tok = self.pos;
+            self.advance();
+            self.expectToken(.l_bracket);
+            const key_type = try self.parseType();
+            self.expectToken(.r_bracket);
+            const value_type = try self.parseType();
+
+            const extra_start: u32 = @intCast(self.tree.extra_data.items.len);
+            _ = try self.tree.addExtra(key_type);
+            _ = try self.tree.addExtra(value_type);
+
+            return self.tree.addNode(.{
+                .tag = .type_map,
+                .main_token = tok,
+                .data = .{ .lhs = extra_start, .rhs = null_node },
             });
         }
 
@@ -1428,10 +1496,16 @@ pub const Parser = struct {
         return null_node;
     }
 
+    fn isAllocType(self: *const Parser, node: NodeIndex) bool {
+        if (node == null_node) return false;
+        const tag = self.tree.nodes.items[node].tag;
+        return tag == .type_slice or tag == .type_map or tag == .type_chan;
+    }
+
     fn isTypeStart(self: *const Parser) bool {
         const tag = self.peekTag();
         return tag == .identifier or tag == .ampersand or tag == .at or
-            tag == .bang or tag == .l_bracket or tag == .kw_chan or tag == .kw_struct;
+            tag == .bang or tag == .l_bracket or tag == .kw_chan or tag == .kw_map or tag == .kw_struct;
     }
 
     // --- Helpers ---
@@ -2389,4 +2463,78 @@ test "parse try context error on missing string" {
     // Should have an error because :: is not followed by a string literal
     try std.testing.expect(parser.tree.errors.items.len > 0);
     try std.testing.expectEqual(Ast.ErrorTag.expected_string_literal, parser.tree.errors.items[0].tag);
+}
+
+test "parse alloc expression for slice/map/channel" {
+    const source =
+        "fn main() {\n" ++
+        "    a := alloc([]int, 50)\n" ++
+        "    b := alloc(map[string]string, 10)\n" ++
+        "    c := alloc(chan[int], 10, mem.arena)\n" ++
+        "}\n";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var alloc_count: u32 = 0;
+    var has_map_type = false;
+    var has_chan_type = false;
+
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .alloc_expr) {
+            alloc_count += 1;
+        }
+        if (node.tag == .type_map) has_map_type = true;
+        if (node.tag == .type_chan) has_chan_type = true;
+    }
+
+    try std.testing.expectEqual(@as(u32, 3), alloc_count);
+    try std.testing.expect(has_map_type);
+    try std.testing.expect(has_chan_type);
+}
+
+test "parse alloc defaults without capacity" {
+    const source =
+        "fn main() {\n" ++
+        "    s := alloc([]int)\n" ++
+        "    m := alloc(map[string]string)\n" ++
+        "    c := alloc(chan[int])\n" ++
+        "}\n";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .alloc_expr) {
+            const start = node.data.rhs;
+            try std.testing.expectEqual(null_node, parser.tree.extra_data.items[start]);
+            try std.testing.expectEqual(null_node, parser.tree.extra_data.items[start + 1]);
+        }
+    }
+}
+
+test "parse alloc rejects non-collection type" {
+    const source = "fn main() {\n    a := alloc(int, 1)\n}\n";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len > 0);
+    try std.testing.expectEqual(Ast.ErrorTag.invalid_alloc_type, parser.tree.errors.items[0].tag);
 }
