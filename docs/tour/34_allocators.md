@@ -1,10 +1,10 @@
 # Allocators
 
-Run uses a default global allocator for heap allocations. For performance-critical or specialized use cases, functions can accept an optional custom allocator.
+Run uses a default global allocator for heap allocations. For performance-critical or specialized use cases, `alloc` supports a named custom allocator argument.
 
 ## The default allocator
 
-Most code uses the default allocator without thinking about it. Heap allocations — like creating structs with `&T` or growing slices — happen automatically.
+Most code uses the default allocator without thinking about it. Collection allocations can be explicit with `alloc(...)` and still default to the global allocator.
 
 ```run
 package main
@@ -12,14 +12,17 @@ package main
 use "fmt"
 
 fun main() {
-    names := ["Alice", "Bob", "Charlie"]  // allocated with the default allocator
+    names := alloc([]string, 3)
+    names = append(names, "Alice")
+    names = append(names, "Bob")
+    names = append(names, "Charlie")
     fmt.println(names[0])
 }
 ```
 
 ## Custom allocators
 
-When you need control over how memory is allocated — for example, using an arena for batch allocations or a pool for fixed-size objects — you can pass a custom allocator to functions that support it.
+When you need control over how memory is allocated — for example, using an arena for batch allocations or a pool for fixed-size objects — pass a named allocator argument to `alloc`: `allocator: your_allocator`.
 
 ```run
 package main
@@ -32,8 +35,12 @@ fun main() {
     defer arena.deinit()
 
     // allocations from the arena are freed all at once
-    data := make_buffer(arena, 256)
+    data := alloc([]byte, 256, allocator: arena)
+    jobs := alloc(map[string]int, allocator: arena)
+    queue := alloc(chan[string], 128, allocator: arena)
     process(data)
+    _ = jobs
+    _ = queue
 }
 ```
 

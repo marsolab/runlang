@@ -233,7 +233,7 @@ pub const Node = struct {
         /// `.variant` or `.variant(data)` — sum type variant
         /// lhs = data expr (or null_node)
         variant,
-        /// `alloc(type[, capacity[, allocator]])`
+        /// `alloc(type[, capacity][, allocator: expr])`
         /// lhs = allocated type node, rhs = extra_data start
         /// extra_data layout: [capacity_expr_or_null, allocator_expr_or_null]
         alloc_expr,

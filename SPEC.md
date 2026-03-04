@@ -16,13 +16,42 @@ borrow checker or garbage collector.
 - Non-owning references store a **remembered generation**
 - On dereference, a runtime generation check verifies the object is still alive
 - Owning references auto-free when they go out of scope (deterministic destruction)
-- Default global allocator; functions can accept an **optional custom allocator** parameter
+- Default global allocator; collection allocations can optionally specify a custom allocator
 - No borrow checker, no GC, no reference counting
 
 ### Pointer Types
 
 - `&T` — read/write pointer (default, Go-like semantics)
 - `@T` — read-only pointer (compiler-enforced immutability on pointee)
+
+### Allocation Expressions
+
+Run provides a built-in `alloc` expression for collection and channel allocation:
+
+```run
+s := alloc([]int, 64)
+m := alloc(map[string]string, 32)
+c := alloc(chan[int])
+```
+
+Valid allocation targets are:
+- slices (`[]T`)
+- maps (`map[K]V`)
+- channels (`chan T` or `chan[T]`)
+
+`alloc` arguments:
+- `alloc(type)` — use type defaults
+- `alloc(type, capacity)` — set initial capacity/buffer
+- `alloc(type, capacity, allocator: expr)` — custom allocator
+- `alloc(type, allocator: expr)` — custom allocator with default capacity
+
+Default behavior when capacity is omitted:
+- slice: empty slice with capacity 0 (grows on append)
+- map: map with runtime default buckets
+- channel: unbuffered channel
+
+Custom allocators in `alloc` are **named** via `allocator:` for readability and to avoid positional ambiguity.
+
 
 ## Variables
 
@@ -310,8 +339,8 @@ run fn() { do_work() }
 
 ```
 var ch chan int
-ch := make_chan(int)        // unbuffered
-ch := make_chan(int, 100)   // buffered
+ch := alloc(chan[int])      // unbuffered
+ch := alloc(chan[int], 100) // buffered
 
 ch <- 42                    // send
 val := <-ch                 // receive

@@ -1183,11 +1183,23 @@ pub const Parser = struct {
 
         if (self.peekTag() == .comma) {
             self.advance();
-            capacity = try self.parseExpr();
 
-            if (self.peekTag() == .comma) {
-                self.advance();
-                allocator_expr = try self.parseExpr();
+            if (self.isAllocatorArgStart()) {
+                allocator_expr = try self.parseAllocatorArg();
+            } else {
+                capacity = try self.parseExpr();
+
+                if (self.peekTag() == .comma) {
+                    self.advance();
+                    if (self.isAllocatorArgStart()) {
+                        allocator_expr = try self.parseAllocatorArg();
+                    } else {
+                        // Third alloc argument must be named for readability:
+                        // alloc([]int, 64, allocator: mem.arena)
+                        try self.addError(.expected_identifier, self.currentLoc(), null);
+                        _ = try self.parseExpr();
+                    }
+                }
             }
         }
 
@@ -1202,6 +1214,25 @@ pub const Parser = struct {
             .main_token = tok,
             .data = .{ .lhs = alloc_type, .rhs = extra_start },
         });
+    }
+
+    fn isAllocatorArgStart(self: *const Parser) bool {
+        if (self.peekTag() != .identifier) return false;
+        if (self.peekTagAt(1) != .colon) return false;
+
+        const name = self.tokens[self.pos].slice(self.source);
+        return std.mem.eql(u8, name, "allocator");
+    }
+
+    fn parseAllocatorArg(self: *Parser) Error!NodeIndex {
+        if (!self.isAllocatorArgStart()) {
+            try self.addError(.expected_identifier, self.currentLoc(), null);
+            return null_node;
+        }
+
+        self.advance(); // allocator
+        self.expectToken(.colon);
+        return self.parseExpr();
     }
 
     fn parsePrimary(self: *Parser) Error!NodeIndex {
@@ -2470,7 +2501,7 @@ test "parse alloc expression for slice/map/channel" {
         "fn main() {\n" ++
         "    a := alloc([]int, 50)\n" ++
         "    b := alloc(map[string]string, 10)\n" ++
-        "    c := alloc(chan[int], 10, mem.arena)\n" ++
+        "    c := alloc(chan[int], allocator: mem.arena)\n" ++
         "}\n";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
@@ -2537,4 +2568,40 @@ test "parse alloc rejects non-collection type" {
     _ = try parser.parseFile();
     try std.testing.expect(parser.tree.errors.items.len > 0);
     try std.testing.expectEqual(Ast.ErrorTag.invalid_alloc_type, parser.tree.errors.items[0].tag);
+}
+
+test "parse alloc named allocator after capacity" {
+    const source = "fn main() {\n    s := alloc([]int, 32, allocator: mem.arena)\n}\n";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .alloc_expr) {
+            const start = node.data.rhs;
+            try std.testing.expect(parser.tree.extra_data.items[start] != null_node);
+            try std.testing.expect(parser.tree.extra_data.items[start + 1] != null_node);
+            return;
+        }
+    }
+    return error.TestUnexpectedResult;
+}
+
+test "parse alloc rejects positional third argument" {
+    const source = "fn main() {\n    s := alloc([]int, 32, mem.arena)\n}\n";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len > 0);
 }
