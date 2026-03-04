@@ -2,6 +2,7 @@ const std = @import("std");
 const Token = @import("token.zig").Token;
 const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;
+const naming = @import("naming.zig");
 
 const usage =
     \\Usage: run [command] [options] <file.run>
@@ -154,6 +155,25 @@ fn cmdBuild(allocator: std.mem.Allocator, path: []const u8, command: []const u8)
     if (parser.tree.errors.items.len > 0) {
         for (parser.tree.errors.items) |err| {
             try stderr.print("error: {s} at offset {d}\n", .{ @tagName(err.tag), err.loc.start });
+        }
+        std.process.exit(1);
+    }
+
+    var naming_violations = try naming.checkNaming(allocator, path, &parser.tree, tokens.items);
+    defer naming_violations.deinit(allocator);
+
+    if (naming_violations.items.len > 0) {
+        for (naming_violations.items) |violation| {
+            const rule = switch (violation.tag) {
+                .type_must_be_upper_camel => "type names must start with an uppercase letter and use CamelCase",
+                .variable_must_be_lower_camel => "variable names must start with a lowercase letter and use camelCase",
+                .file_must_be_lower_snake => "file names must start with a lowercase letter and use snake_case",
+            };
+            if (violation.loc.start == 0 and violation.loc.end == 0) {
+                try stderr.print("error: naming violation: {s}: '{s}' ({s})\n", .{ rule, violation.name, path });
+            } else {
+                try stderr.print("error: naming violation at offset {d}: {s}: '{s}'\n", .{ violation.loc.start, rule, violation.name });
+            }
         }
         std.process.exit(1);
     }
