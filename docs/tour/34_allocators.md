@@ -51,3 +51,38 @@ pub fun main() {
 - **Tracking allocators** — for debugging memory usage during development
 
 Most programs never need custom allocators. The default allocator works well for general use. Custom allocators are a tool for optimization once you understand your program's allocation patterns.
+
+## Create your own allocator
+
+
+Implement the `Allocator` interface to create a custom allocator.
+
+```run
+package main
+
+use "fmt"
+use "mem"
+
+pub struct MyAllocator {
+    implements {
+        mem.Allocator
+    }
+    // ...
+}
+
+impl mem.Allocator for MyAllocator {
+    pub fun alloc(size: int) -> *byte {
+        // ...
+    }
+
+    pub fun free(ptr: *byte, size: int) {
+        // ...
+    }
+}
+
+pub fun main() {
+    my_alloc := MyAllocator{}
+    data := alloc([]byte, 1024, allocator: my_alloc)
+    _ = data
+}
+```
