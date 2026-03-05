@@ -76,3 +76,20 @@ x *= 2   // x is now 24
 x /= 4   // x is now 6
 x %= 5   // x is now 1
 ```
+
+## Bitwise operators
+
+Bitwise operators work on integers and are often used with bit masks.
+
+```run
+package main
+
+use "fmt"
+
+pub fun main() {
+    a := 60  // 0011 1100
+    b := 13  // 0000 1101
+
+    fmt.println(a & b)   // 12  0000 1100  bitwise AND
+    fmt.println(a | b)   // 61  0011 1101  bitwise OR
+    fmt.println(a ^ b)   // 49  0011 00

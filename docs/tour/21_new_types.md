@@ -7,19 +7,19 @@ package main
 
 use "fmt"
 
-newtype Celsius f64
-newtype Fahrenheit f64
+type Celsius f64
+type Fahrenheit f64
 
-fun to_fahrenheit(c: Celsius) Fahrenheit {
+fun toFahrenheit(c: Celsius) Fahrenheit {
     return Fahrenheit(f64(c) * 9.0 / 5.0 + 32.0)
 }
 
 pub fun main() {
     temp := Celsius(100.0)
-    fmt.println(to_fahrenheit(temp))
+    fmt.println(toFahrenheit(temp))
 
     // let f Fahrenheit = temp  // error: type mismatch
 }
 ```
 
-Newtypes are useful for preventing accidental misuse of values that share the same underlying representation but have different meanings — like mixing up meters and feet, or user IDs and order IDs.
+New types are useful for preventing accidental misuse of values that share the same underlying representation but have different meanings — like mixing up meters and feet, or user IDs and order IDs.

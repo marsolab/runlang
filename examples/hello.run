@@ -1,6 +1,0 @@
-// Hello World in Run
-import "fmt"
-
-fn main() {
-    fmt.println("Hello, Run!")
-}

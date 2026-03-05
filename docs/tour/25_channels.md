@@ -36,6 +36,41 @@ pub fun main() {
 }
 ```
 
+or range over a channel:
+
+```run
+package main
+
+use "fmt"
+
+fun producer(ch: chan int) {
+    for i in 0..5 {
+        ch <- i  // send
+    }
+    
+    close(ch)
+}
+
+pub fun main() {
+    ch := alloc(chan[int], 10)
+
+    run producer(ch)
+
+    for val in ch {
+        fmt.println(val)
+    }
+}
+```
+
+## Closing channels
+
+Use `close(ch)` to close a channel. This signals to the receiver that no more values will be sent.
+
+```run
+ch := alloc(chan[int])
+close(ch)
+```
+
 ## Unbuffered channels
 
 An unbuffered channel synchronizes the sender and receiver — the sender blocks until the receiver is ready, and vice versa. This makes unbuffered channels useful for direct handoffs between tasks.
