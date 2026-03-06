@@ -1,0 +1,263 @@
+const std = @import("std");
+const Lexer = @import("lexer.zig").Lexer;
+const Parser = @import("parser.zig").Parser;
+const Token = @import("token.zig").Token;
+const naming = @import("naming.zig");
+const Ast = @import("ast.zig").Ast;
+const resolve = @import("resolve.zig");
+const typecheck = @import("typecheck.zig");
+const lower_mod = @import("lower.zig");
+const ir = @import("ir.zig");
+const codegen_c = @import("codegen_c.zig");
+
+const File = std.fs.File;
+
+pub const Command = enum {
+    build,
+    run,
+    check,
+};
+
+pub const CompileOptions = struct {
+    input_path: []const u8,
+    output_path: ?[]const u8 = null,
+    command: Command,
+};
+
+pub const CompileError = error{
+    ParseFailed,
+    NamingFailed,
+    CodegenNotImplemented,
+    CCompileFailed,
+    RunFailed,
+    OutOfMemory,
+    ReadFailed,
+};
+
+/// Run the full compilation pipeline for the given source file.
+pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileError!void {
+    // 1. Read source file
+    const source = readFile(allocator, options.input_path) catch {
+        return CompileError.ReadFailed;
+    };
+    defer allocator.free(source);
+
+    // 2. Lex
+    var lexer = Lexer.init(source);
+    var tokens = lexer.tokenize(allocator) catch {
+        return CompileError.OutOfMemory;
+    };
+    defer tokens.deinit(allocator);
+
+    // 3. Parse
+    var parser = Parser.init(allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = parser.parseFile() catch {
+        return CompileError.OutOfMemory;
+    };
+
+    const stderr = File.stderr().deprecatedWriter();
+
+    if (parser.tree.errors.items.len > 0) {
+        for (parser.tree.errors.items) |err| {
+            stderr.print("error: {s} at offset {d}\n", .{ @tagName(err.tag), err.loc.start }) catch {};
+        }
+        return CompileError.ParseFailed;
+    }
+
+    // 4. Naming conventions check
+    var naming_violations = naming.checkNaming(allocator, options.input_path, &parser.tree, tokens.items) catch {
+        return CompileError.OutOfMemory;
+    };
+    defer naming_violations.deinit(allocator);
+
+    if (naming_violations.items.len > 0) {
+        for (naming_violations.items) |violation| {
+            const rule = switch (violation.tag) {
+                .type_must_be_upper_camel => "type names must start with an uppercase letter and use CamelCase",
+                .variable_must_be_lower_camel => "variable names must start with a lowercase letter and use camelCase",
+                .file_must_be_lower_snake => "file names must start with a lowercase letter and use snake_case",
+            };
+            if (violation.loc.start == 0 and violation.loc.end == 0) {
+                stderr.print("error: naming violation: {s}: '{s}' ({s})\n", .{
+                    rule,
+                    violation.name,
+                    options.input_path,
+                }) catch {};
+            } else {
+                stderr.print("error: naming violation at offset {d}: {s}: '{s}'\n", .{
+                    violation.loc.start,
+                    rule,
+                    violation.name,
+                }) catch {};
+            }
+        }
+        return CompileError.NamingFailed;
+    }
+
+    // For "check" command, we stop after validation.
+    if (options.command == .check) {
+        const stdout = File.stdout().deprecatedWriter();
+        stdout.print("check: {s} OK ({d} nodes)\n", .{
+            options.input_path,
+            parser.tree.nodes.items.len,
+        }) catch {};
+        return;
+    }
+
+    // 5. Name resolution
+    var resolve_result = resolve.resolveNames(allocator, &parser.tree, tokens.items) catch {
+        return CompileError.OutOfMemory;
+    };
+    defer resolve_result.deinit(allocator);
+
+    if (resolve_result.diagnostics.hasErrors()) {
+        resolve_result.diagnostics.render(source, stderr) catch {};
+        return CompileError.ParseFailed;
+    }
+
+    // 6. Type checking (stub for now)
+    var tc_result = typecheck.typeCheck(allocator, &parser.tree, tokens.items, &resolve_result) catch {
+        return CompileError.OutOfMemory;
+    };
+    defer tc_result.deinit(allocator);
+
+    if (tc_result.diagnostics.hasErrors()) {
+        tc_result.diagnostics.render(source, stderr) catch {};
+        return CompileError.ParseFailed;
+    }
+
+    // 7. Lower AST to IR
+    var module = lower_mod.lower(allocator, &parser.tree, tokens.items) catch {
+        return CompileError.OutOfMemory;
+    };
+    defer module.deinit(allocator);
+
+    // 8. Generate C code
+    var cg = codegen_c.CCodegen.init(allocator, &module);
+    defer cg.deinit();
+    const c_source = cg.generate() catch {
+        return CompileError.OutOfMemory;
+    };
+
+    // 9. Write C to temp file and compile with zig cc
+    const tmp_path = "/tmp/run_generated.c";
+    {
+        const tmp_file = std.fs.cwd().createFile(tmp_path, .{}) catch {
+            stderr.writeAll("error: failed to create temp file\n") catch {};
+            return CompileError.CCompileFailed;
+        };
+        defer tmp_file.close();
+        tmp_file.writeAll(c_source) catch {
+            stderr.writeAll("error: failed to write temp file\n") catch {};
+            return CompileError.CCompileFailed;
+        };
+    }
+
+    // Determine output path
+    const out_path = options.output_path orelse blk: {
+        // Strip .run extension, default to basename
+        const basename = std.fs.path.stem(options.input_path);
+        break :blk basename;
+    };
+
+    // Find runtime directory (relative to current working dir)
+    const runtime_dir = "runtime";
+
+    invokeZigCC(allocator, tmp_path, out_path, runtime_dir) catch {
+        stderr.writeAll("error: C compilation failed\n") catch {};
+        return CompileError.CCompileFailed;
+    };
+
+    // Clean up temp file
+    std.fs.cwd().deleteFile(tmp_path) catch {};
+
+    if (options.command == .run) {
+        // Ensure binary path has ./ prefix for execution
+        const exec_path = if (!std.mem.startsWith(u8, out_path, "/") and !std.mem.startsWith(u8, out_path, "./"))
+            try std.fmt.allocPrint(allocator, "./{s}", .{out_path})
+        else
+            out_path;
+        const exit_code = executeAndCleanup(allocator, exec_path) catch {
+            stderr.writeAll("error: failed to execute compiled binary\n") catch {};
+            return CompileError.RunFailed;
+        };
+        if (exit_code != 0) {
+            std.process.exit(exit_code);
+        }
+    } else {
+        const stdout = File.stdout().deprecatedWriter();
+        stdout.print("compiled: {s}\n", .{out_path}) catch {};
+    }
+}
+
+/// Invoke zig cc to compile generated C source with the runtime library.
+/// `c_source_path` is the path to the generated .c file.
+/// `output_path` is the desired binary output path.
+/// `runtime_dir` is the path to the runtime/ directory containing headers and .c files.
+pub fn invokeZigCC(
+    allocator: std.mem.Allocator,
+    c_source_path: []const u8,
+    output_path: []const u8,
+    runtime_dir: []const u8,
+) !void {
+    const runtime_sources = [_][]const u8{
+        "run_main.c",
+        "run_alloc.c",
+        "run_string.c",
+        "run_slice.c",
+        "run_fmt.c",
+        "run_scheduler.c",
+        "run_chan.c",
+    };
+
+    // Build argument list
+    var args: std.ArrayList([]const u8) = .empty;
+    defer args.deinit(allocator);
+
+    try args.append(allocator, "zig");
+    try args.append(allocator, "cc");
+    try args.append(allocator, "-o");
+    try args.append(allocator, output_path);
+    try args.append(allocator, c_source_path);
+
+    // Add runtime .c files with full paths
+    for (&runtime_sources) |name| {
+        const full_path = try std.fs.path.join(allocator, &.{ runtime_dir, name });
+        try args.append(allocator, full_path);
+    }
+
+    // Include path for runtime headers
+    const include_flag = try std.fmt.allocPrint(allocator, "-I{s}", .{runtime_dir});
+    try args.append(allocator, include_flag);
+
+    var child = std.process.Child.init(args.items, allocator);
+    child.stderr_behavior = .Inherit;
+    child.stdout_behavior = .Inherit;
+
+    _ = try child.spawnAndWait();
+}
+
+/// Execute a compiled binary and return its exit code.
+pub fn executeAndCleanup(
+    allocator: std.mem.Allocator,
+    binary_path: []const u8,
+) !u8 {
+    var child = std.process.Child.init(&.{binary_path}, allocator);
+    child.stderr_behavior = .Inherit;
+    child.stdout_behavior = .Inherit;
+
+    const result = try child.spawnAndWait();
+
+    // Clean up binary after execution for "run" command
+    std.fs.cwd().deleteFile(binary_path) catch {};
+
+    return result.Exited;
+}
+
+fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    return try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+}

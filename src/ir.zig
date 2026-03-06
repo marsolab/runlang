@@ -1,0 +1,408 @@
+const std = @import("std");
+
+pub const Ref = u32;
+pub const null_ref: Ref = 0;
+pub const BlockId = u32;
+pub const FuncId = u32;
+
+pub const Inst = struct {
+    op: Op,
+    result: Ref,
+    arg1: Ref,
+    arg2: Ref,
+
+    pub const Op = enum(u8) {
+        // Constants
+        const_int,
+        const_float,
+        const_string,
+        const_bool,
+        const_null,
+
+        // Arithmetic
+        add,
+        sub,
+        mul,
+        div,
+        mod,
+        neg,
+
+        // Comparison
+        eq,
+        ne,
+        lt,
+        le,
+        gt,
+        ge,
+
+        // Logical
+        log_and,
+        log_or,
+        log_not,
+
+        // Memory
+        alloc_local,
+        load,
+        store,
+        field_ptr,
+        index_ptr,
+
+        // Generational references
+        gen_alloc,
+        gen_free,
+        gen_check,
+
+        // Function calls
+        call,
+        ret,
+        ret_void,
+
+        // Control flow
+        br,
+        br_cond,
+
+        // Concurrency
+        spawn,
+        chan_send,
+        chan_recv,
+
+        // Error handling
+        try_unwrap,
+        error_wrap,
+
+        // Closures
+        closure_create,
+
+        // Type conversion
+        cast,
+
+        // Local variables (for C codegen — not SSA)
+        local_set, // arg1 = local_idx, arg2 = value ref
+        local_get, // result = ref, arg1 = local_idx
+
+        // SSA / misc
+        phi,
+        nop,
+
+        pub fn isTerminator(self: Op) bool {
+            return switch (self) {
+                .br, .br_cond, .ret, .ret_void => true,
+                else => false,
+            };
+        }
+    };
+};
+
+pub const BasicBlock = struct {
+    label: u32,
+    insts: std.ArrayList(Inst),
+
+    pub fn init(label: u32) BasicBlock {
+        return .{
+            .label = label,
+            .insts = .empty,
+        };
+    }
+
+    pub fn deinit(self: *BasicBlock, allocator: std.mem.Allocator) void {
+        self.insts.deinit(allocator);
+    }
+
+    pub fn addInst(self: *BasicBlock, allocator: std.mem.Allocator, inst: Inst) !void {
+        try self.insts.append(allocator, inst);
+    }
+
+    pub fn isTerminated(self: *const BasicBlock) bool {
+        if (self.insts.items.len == 0) return false;
+        return self.insts.items[self.insts.items.len - 1].op.isTerminator();
+    }
+};
+
+pub const Function = struct {
+    name: []const u8,
+    params: std.ArrayList(Param),
+    return_type_name: []const u8,
+    blocks: std.ArrayList(BasicBlock),
+    next_ref: Ref,
+
+    pub const Param = struct {
+        name: []const u8,
+        type_name: []const u8,
+        ref: Ref,
+    };
+
+    pub fn init(name: []const u8) Function {
+        return .{
+            .name = name,
+            .params = .empty,
+            .return_type_name = "void",
+            .blocks = .empty,
+            .next_ref = 1, // 0 = null_ref
+        };
+    }
+
+    pub fn deinit(self: *Function, allocator: std.mem.Allocator) void {
+        for (self.blocks.items) |*b| {
+            b.deinit(allocator);
+        }
+        self.blocks.deinit(allocator);
+        self.params.deinit(allocator);
+    }
+
+    pub fn allocRef(self: *Function) Ref {
+        const r = self.next_ref;
+        self.next_ref += 1;
+        return r;
+    }
+
+    pub fn addBlock(self: *Function, allocator: std.mem.Allocator) !BlockId {
+        const id: BlockId = @intCast(self.blocks.items.len);
+        try self.blocks.append(allocator, BasicBlock.init(id));
+        return id;
+    }
+
+    pub fn addParam(self: *Function, allocator: std.mem.Allocator, name: []const u8, type_name: []const u8) !Ref {
+        const r = self.allocRef();
+        try self.params.append(allocator, .{
+            .name = name,
+            .type_name = type_name,
+            .ref = r,
+        });
+        return r;
+    }
+
+    pub fn getBlock(self: *Function, id: BlockId) *BasicBlock {
+        return &self.blocks.items[id];
+    }
+};
+
+pub const StringConstant = struct {
+    value: []const u8,
+    index: u32,
+};
+
+/// Stores call target and argument info for `call` instructions.
+/// The call instruction's arg1 is the index into Module.call_infos.
+pub const CallInfo = struct {
+    target_name: []const u8,
+    args: std.ArrayList(Ref),
+
+    pub fn deinit(self: *CallInfo, allocator: std.mem.Allocator) void {
+        self.args.deinit(allocator);
+    }
+};
+
+/// Metadata for a named local variable emitted as a C local.
+pub const LocalInfo = struct {
+    name: []const u8,
+    c_type: []const u8,
+};
+
+pub const Module = struct {
+    functions: std.ArrayList(Function),
+    string_constants: std.ArrayList(StringConstant),
+    call_infos: std.ArrayList(CallInfo),
+    local_infos: std.ArrayList(LocalInfo),
+    /// Strings allocated by the lowering pass that this module owns.
+    owned_strings: std.ArrayList([]const u8),
+
+    pub fn init() Module {
+        return .{
+            .functions = .empty,
+            .string_constants = .empty,
+            .call_infos = .empty,
+            .local_infos = .empty,
+            .owned_strings = .empty,
+        };
+    }
+
+    pub fn deinit(self: *Module, allocator: std.mem.Allocator) void {
+        for (self.functions.items) |*f| {
+            f.deinit(allocator);
+        }
+        self.functions.deinit(allocator);
+        self.string_constants.deinit(allocator);
+        for (self.call_infos.items) |*ci| {
+            ci.deinit(allocator);
+        }
+        self.call_infos.deinit(allocator);
+        self.local_infos.deinit(allocator);
+        for (self.owned_strings.items) |s| {
+            allocator.free(s);
+        }
+        self.owned_strings.deinit(allocator);
+    }
+
+    pub fn addFunction(self: *Module, allocator: std.mem.Allocator, name: []const u8) !FuncId {
+        const id: FuncId = @intCast(self.functions.items.len);
+        try self.functions.append(allocator, Function.init(name));
+        return id;
+    }
+
+    pub fn getFunction(self: *Module, id: FuncId) *Function {
+        return &self.functions.items[id];
+    }
+
+    /// Add call info and return its index. The call instruction's arg1 should
+    /// be set to this index so codegen can look up the target name and args.
+    pub fn addCallInfo(self: *Module, allocator: std.mem.Allocator, target_name: []const u8, args: []const Ref) !u32 {
+        const index: u32 = @intCast(self.call_infos.items.len);
+        var arg_list: std.ArrayList(Ref) = .empty;
+        for (args) |a| {
+            try arg_list.append(allocator, a);
+        }
+        try self.call_infos.append(allocator, .{
+            .target_name = target_name,
+            .args = arg_list,
+        });
+        return index;
+    }
+
+    pub fn addLocalInfo(self: *Module, allocator: std.mem.Allocator, name: []const u8, c_type: []const u8) !u32 {
+        // Deduplicate by name
+        for (self.local_infos.items, 0..) |li, i| {
+            if (std.mem.eql(u8, li.name, name)) {
+                return @intCast(i);
+            }
+        }
+        const index: u32 = @intCast(self.local_infos.items.len);
+        try self.local_infos.append(allocator, .{ .name = name, .c_type = c_type });
+        return index;
+    }
+
+    pub fn addStringConstant(self: *Module, allocator: std.mem.Allocator, value: []const u8) !u32 {
+        // Deduplicate: check if this string already exists
+        for (self.string_constants.items) |sc| {
+            if (std.mem.eql(u8, sc.value, value)) {
+                return sc.index;
+            }
+        }
+        const index: u32 = @intCast(self.string_constants.items.len);
+        try self.string_constants.append(allocator, .{
+            .value = value,
+            .index = index,
+        });
+        return index;
+    }
+};
+
+// Helper to build instructions concisely
+pub fn makeInst(op: Inst.Op, result: Ref, arg1: Ref, arg2: Ref) Inst {
+    return .{ .op = op, .result = result, .arg1 = arg1, .arg2 = arg2 };
+}
+
+// Tests
+
+test "Module: init and deinit" {
+    var module = Module.init();
+    defer module.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 0), module.functions.items.len);
+    try std.testing.expectEqual(@as(usize, 0), module.string_constants.items.len);
+}
+
+test "Module: addFunction" {
+    var module = Module.init();
+    defer module.deinit(std.testing.allocator);
+
+    const id = try module.addFunction(std.testing.allocator, "main");
+    try std.testing.expectEqual(@as(FuncId, 0), id);
+    try std.testing.expectEqualStrings("main", module.getFunction(id).name);
+
+    const id2 = try module.addFunction(std.testing.allocator, "helper");
+    try std.testing.expectEqual(@as(FuncId, 1), id2);
+}
+
+test "Module: addStringConstant deduplication" {
+    var module = Module.init();
+    defer module.deinit(std.testing.allocator);
+
+    const idx1 = try module.addStringConstant(std.testing.allocator, "hello");
+    const idx2 = try module.addStringConstant(std.testing.allocator, "world");
+    const idx3 = try module.addStringConstant(std.testing.allocator, "hello");
+
+    try std.testing.expectEqual(@as(u32, 0), idx1);
+    try std.testing.expectEqual(@as(u32, 1), idx2);
+    try std.testing.expectEqual(idx1, idx3); // deduplicated
+    try std.testing.expectEqual(@as(usize, 2), module.string_constants.items.len);
+}
+
+test "Function: allocRef starts at 1" {
+    var func = Function.init("test_fn");
+    defer func.deinit(std.testing.allocator);
+
+    const r1 = func.allocRef();
+    const r2 = func.allocRef();
+    const r3 = func.allocRef();
+
+    try std.testing.expectEqual(@as(Ref, 1), r1);
+    try std.testing.expectEqual(@as(Ref, 2), r2);
+    try std.testing.expectEqual(@as(Ref, 3), r3);
+}
+
+test "Function: addBlock and addParam" {
+    var func = Function.init("test_fn");
+    defer func.deinit(std.testing.allocator);
+
+    const b0 = try func.addBlock(std.testing.allocator);
+    try std.testing.expectEqual(@as(BlockId, 0), b0);
+
+    const p_ref = try func.addParam(std.testing.allocator, "x", "int64_t");
+    try std.testing.expectEqual(@as(Ref, 1), p_ref);
+    try std.testing.expectEqualStrings("x", func.params.items[0].name);
+}
+
+test "BasicBlock: addInst and isTerminated" {
+    var block = BasicBlock.init(0);
+    defer block.deinit(std.testing.allocator);
+
+    try std.testing.expect(!block.isTerminated());
+
+    try block.addInst(std.testing.allocator, makeInst(.const_int, 1, 42, 0));
+    try std.testing.expect(!block.isTerminated());
+
+    try block.addInst(std.testing.allocator, makeInst(.ret, 0, 1, 0));
+    try std.testing.expect(block.isTerminated());
+}
+
+test "Inst.Op: isTerminator" {
+    try std.testing.expect(Inst.Op.br.isTerminator());
+    try std.testing.expect(Inst.Op.br_cond.isTerminator());
+    try std.testing.expect(Inst.Op.ret.isTerminator());
+    try std.testing.expect(Inst.Op.ret_void.isTerminator());
+    try std.testing.expect(!Inst.Op.add.isTerminator());
+    try std.testing.expect(!Inst.Op.call.isTerminator());
+    try std.testing.expect(!Inst.Op.const_int.isTerminator());
+}
+
+test "Function: build simple function with instructions" {
+    var module = Module.init();
+    defer module.deinit(std.testing.allocator);
+
+    const fid = try module.addFunction(std.testing.allocator, "run_main__main");
+    var func = module.getFunction(fid);
+    func.return_type_name = "void";
+
+    const b0 = try func.addBlock(std.testing.allocator);
+    var block = func.getBlock(b0);
+
+    // const_string _t1 = "Hello, World!"
+    const str_idx = try module.addStringConstant(std.testing.allocator, "Hello, World!");
+    const t1 = func.allocRef();
+    try block.addInst(std.testing.allocator, makeInst(.const_string, t1, str_idx, 0));
+
+    // call run_fmt_println(_t1)
+    const t2 = func.allocRef();
+    try block.addInst(std.testing.allocator, makeInst(.call, t2, t1, 0));
+
+    // ret_void
+    try block.addInst(std.testing.allocator, makeInst(.ret_void, 0, 0, 0));
+
+    try std.testing.expectEqual(@as(usize, 3), block.insts.items.len);
+    try std.testing.expect(block.isTerminated());
+    try std.testing.expectEqual(@as(usize, 1), module.string_constants.items.len);
+}
+
+test "null_ref is zero" {
+    try std.testing.expectEqual(@as(Ref, 0), null_ref);
+}

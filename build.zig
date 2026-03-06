@@ -15,6 +15,37 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
+    // Runtime C library (static archive for use by the driver during compilation)
+    const runtime_lib = b.addLibrary(.{
+        .name = "runrt",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const runtime_c_sources = .{
+        "runtime/run_alloc.c",
+        "runtime/run_string.c",
+        "runtime/run_slice.c",
+        "runtime/run_fmt.c",
+        "runtime/run_scheduler.c",
+        "runtime/run_chan.c",
+    };
+    inline for (runtime_c_sources) |src| {
+        runtime_lib.root_module.addCSourceFile(.{
+            .file = b.path(src),
+        });
+    }
+    runtime_lib.root_module.addIncludePath(b.path("runtime"));
+    b.installArtifact(runtime_lib);
+
+    // Install runtime headers alongside compiler
+    b.installDirectory(.{
+        .source_dir = b.path("runtime"),
+        .install_dir = .header,
+        .install_subdir = "run",
+    });
+
     // Run command: `zig build run -- <args>`
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());

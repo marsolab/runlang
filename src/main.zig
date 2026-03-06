@@ -3,6 +3,7 @@ const Token = @import("token.zig").Token;
 const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;
 const naming = @import("naming.zig");
+const driver = @import("driver.zig");
 
 const usage =
     \\Usage: run [command] [options] <file.run>
@@ -57,7 +58,7 @@ pub fn main() !void {
         return;
     }
 
-    if (std.mem.eql(u8, command, "build") or std.mem.eql(u8, command, "check")) {
+    if (std.mem.eql(u8, command, "build") or std.mem.eql(u8, command, "check") or std.mem.eql(u8, command, "run")) {
         if (args.len < 3) {
             try File.stderr().writeAll("Error: no input file\n");
             std.process.exit(1);
@@ -138,51 +139,22 @@ fn cmdAst(allocator: std.mem.Allocator, path: []const u8) !void {
 }
 
 fn cmdBuild(allocator: std.mem.Allocator, path: []const u8, command: []const u8) !void {
-    const source = try readFile(allocator, path);
-    defer allocator.free(source);
+    const cmd = if (std.mem.eql(u8, command, "check"))
+        driver.Command.check
+    else if (std.mem.eql(u8, command, "run"))
+        driver.Command.run
+    else
+        driver.Command.build;
 
-    var lexer = Lexer.init(source);
-    var tokens = try lexer.tokenize(allocator);
-    defer tokens.deinit(allocator);
-
-    var parser = Parser.init(allocator, tokens.items, source);
-    defer parser.deinit();
-
-    _ = try parser.parseFile();
-
-    const stderr = File.stderr().deprecatedWriter();
-
-    if (parser.tree.errors.items.len > 0) {
-        for (parser.tree.errors.items) |err| {
-            try stderr.print("error: {s} at offset {d}\n", .{ @tagName(err.tag), err.loc.start });
-        }
-        std.process.exit(1);
-    }
-
-    var naming_violations = try naming.checkNaming(allocator, path, &parser.tree, tokens.items);
-    defer naming_violations.deinit(allocator);
-
-    if (naming_violations.items.len > 0) {
-        for (naming_violations.items) |violation| {
-            const rule = switch (violation.tag) {
-                .type_must_be_upper_camel => "type names must start with an uppercase letter and use CamelCase",
-                .variable_must_be_lower_camel => "variable names must start with a lowercase letter and use camelCase",
-                .file_must_be_lower_snake => "file names must start with a lowercase letter and use snake_case",
-            };
-            if (violation.loc.start == 0 and violation.loc.end == 0) {
-                try stderr.print("error: naming violation: {s}: '{s}' ({s})\n", .{ rule, violation.name, path });
-            } else {
-                try stderr.print("error: naming violation at offset {d}: {s}: '{s}'\n", .{ violation.loc.start, rule, violation.name });
-            }
-        }
-        std.process.exit(1);
-    }
-
-    const stdout = File.stdout().deprecatedWriter();
-    if (std.mem.eql(u8, command, "check")) {
-        try stdout.print("check: {s} OK ({d} nodes)\n", .{ path, parser.tree.nodes.items.len });
-    } else {
-        try stdout.print("parse: {s} OK ({d} nodes)\n", .{ path, parser.tree.nodes.items.len });
-        try stderr.writeAll("note: codegen not yet implemented\n");
-    }
+    driver.compile(allocator, .{
+        .input_path = path,
+        .command = cmd,
+    }) catch |err| switch (err) {
+        error.ParseFailed, error.NamingFailed => std.process.exit(1),
+        error.CodegenNotImplemented => return,
+        else => {
+            File.stderr().deprecatedWriter().print("error: {s}\n", .{@errorName(err)}) catch {};
+            std.process.exit(1);
+        },
+    };
 }

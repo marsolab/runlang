@@ -1,0 +1,16 @@
+use "fmt"
+
+pub fun main() {
+    let x = 10
+    if x > 5 {
+        fmt.println("big")
+    } else {
+        fmt.println("small")
+    }
+
+    var i = 0
+    for i < 3 {
+        fmt.print_int(i)
+        i = i + 1
+    }
+}

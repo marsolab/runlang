@@ -137,6 +137,14 @@ pub const Parser = struct {
         // Parameters
         const params_start = try self.parseParamList();
 
+        // Reserve extra_data slots for receiver and return type immediately
+        // after the param list so the layout is always:
+        //   [param1, ..., paramN, count, receiver_node, ret_type]
+        // Parsing the return type or body could append to extra_data,
+        // so we reserve now and patch later to keep the layout contiguous.
+        const receiver_slot = try self.tree.addExtra(null_node);
+        const ret_type_slot = try self.tree.addExtra(null_node);
+
         // Return type (optional - if next token starts a type, parse it)
         var ret_type: NodeIndex = null_node;
         if (self.isTypeStart()) {
@@ -151,9 +159,9 @@ pub const Parser = struct {
             body = try self.parseBlock();
         }
 
-        // Store receiver and return type in extra data
-        _ = try self.tree.addExtra(receiver_node);
-        _ = try self.tree.addExtra(ret_type);
+        // Patch the reserved slots
+        self.tree.extra_data.items[receiver_slot] = receiver_node;
+        self.tree.extra_data.items[ret_type_slot] = ret_type;
 
         return self.tree.addNode(.{
             .tag = .fn_decl,
@@ -190,19 +198,26 @@ pub const Parser = struct {
 
     fn parseParamList(self: *Parser) Error!u32 {
         self.expectToken(.l_paren);
-        const start: u32 = @intCast(self.tree.extra_data.items.len);
-        var count: u32 = 0;
+
+        // Collect params first — parseParam calls parseType which could
+        // trigger type_anon_struct, adding to extra_data.
+        var params: std.ArrayList(NodeIndex) = .empty;
+        defer params.deinit(self.tree.allocator);
 
         while (self.peekTag() != .r_paren and !self.isAtEnd()) {
-            if (count > 0) {
+            if (params.items.len > 0) {
                 self.expectToken(.comma);
             }
             const param = try self.parseParam();
-            _ = try self.tree.addExtra(param);
-            count += 1;
+            try params.append(self.tree.allocator, param);
         }
         self.expectToken(.r_paren);
-        _ = try self.tree.addExtra(count);
+
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        for (params.items) |p| {
+            _ = try self.tree.addExtra(p);
+        }
+        _ = try self.tree.addExtra(@as(NodeIndex, @intCast(params.items.len)));
         return start;
     }
 
@@ -276,15 +291,17 @@ pub const Parser = struct {
         // Patch the implements count
         self.tree.extra_data.items[count_slot] = implements_count;
 
-        // Parse fields
-        var field_count: u32 = 0;
+        // Collect fields first — parseFieldDecl can call parseExpr for default
+        // values, which may recursively add to extra_data.
+        var field_nodes: std.ArrayList(NodeIndex) = .empty;
+        defer field_nodes.deinit(self.tree.allocator);
+
         while (self.peekTag() != .r_brace and !self.isAtEnd()) {
             self.skipNewlines();
             if (self.peekTag() == .r_brace) break;
 
             const field = try self.parseFieldDecl();
-            _ = try self.tree.addExtra(field);
-            field_count += 1;
+            try field_nodes.append(self.tree.allocator, field);
 
             self.skipNewlines();
             // Optional comma between fields
@@ -293,10 +310,14 @@ pub const Parser = struct {
         }
         self.expectToken(.r_brace);
 
+        for (field_nodes.items) |f| {
+            _ = try self.tree.addExtra(f);
+        }
+
         return self.tree.addNode(.{
             .tag = .struct_decl,
             .main_token = tok,
-            .data = .{ .lhs = start, .rhs = field_count },
+            .data = .{ .lhs = start, .rhs = @as(NodeIndex, @intCast(field_nodes.items.len)) },
         });
     }
 
@@ -339,23 +360,29 @@ pub const Parser = struct {
         self.expectToken(.l_brace);
         self.skipNewlines();
 
-        const start: u32 = @intCast(self.tree.extra_data.items.len);
-        var count: u32 = 0;
+        // Collect method sigs first — parseMethodSig calls parseParamList
+        // which appends to extra_data.
+        var methods: std.ArrayList(NodeIndex) = .empty;
+        defer methods.deinit(self.tree.allocator);
 
         while (self.peekTag() != .r_brace and !self.isAtEnd()) {
             self.skipNewlines();
             if (self.peekTag() == .r_brace) break;
             const method = try self.parseMethodSig();
-            _ = try self.tree.addExtra(method);
-            count += 1;
+            try methods.append(self.tree.allocator, method);
             self.skipNewlines();
         }
         self.expectToken(.r_brace);
 
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        for (methods.items) |m| {
+            _ = try self.tree.addExtra(m);
+        }
+
         return self.tree.addNode(.{
             .tag = .interface_decl,
             .main_token = tok,
-            .data = .{ .lhs = start, .rhs = count },
+            .data = .{ .lhs = start, .rhs = @as(NodeIndex, @intCast(methods.items.len)) },
         });
     }
 
@@ -402,19 +429,23 @@ pub const Parser = struct {
             self.advance(); // consume '='
 
             // Parse sum type variants: .loading | .ready(Data) | .error(string)
-            const start: u32 = @intCast(self.tree.extra_data.items.len);
-            var count: u32 = 0;
+            var variants: std.ArrayList(NodeIndex) = .empty;
+            defer variants.deinit(self.tree.allocator);
 
-            const variant = try self.parseVariantDef();
-            _ = try self.tree.addExtra(variant);
-            count += 1;
+            const first_variant = try self.parseVariantDef();
+            try variants.append(self.tree.allocator, first_variant);
 
             while (self.peekTag() == .pipe) {
                 self.advance();
                 const v = try self.parseVariantDef();
-                _ = try self.tree.addExtra(v);
-                count += 1;
+                try variants.append(self.tree.allocator, v);
             }
+
+            const start: u32 = @intCast(self.tree.extra_data.items.len);
+            for (variants.items) |vv| {
+                _ = try self.tree.addExtra(vv);
+            }
+            const count: u32 = @intCast(variants.items.len);
 
             return self.tree.addNode(.{
                 .tag = .type_alias,
@@ -634,13 +665,15 @@ pub const Parser = struct {
             }
         }
 
-        // Store else in extra data
+        // Store then and else in extra_data so both are retrievable
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        _ = try self.tree.addExtra(then_block);
         _ = try self.tree.addExtra(else_node);
 
         return self.tree.addNode(.{
             .tag = .if_stmt,
             .main_token = tok,
-            .data = .{ .lhs = condition, .rhs = then_block },
+            .data = .{ .lhs = condition, .rhs = start },
         });
     }
 
@@ -652,12 +685,15 @@ pub const Parser = struct {
         self.expectToken(.kw_else);
         const else_expr = try self.parseExpr();
 
+        // Store then and else in extra_data so both are retrievable
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        _ = try self.tree.addExtra(then_expr);
         _ = try self.tree.addExtra(else_expr);
 
         return self.tree.addNode(.{
             .tag = .if_expr,
             .main_token = tok,
-            .data = .{ .lhs = condition, .rhs = then_expr },
+            .data = .{ .lhs = condition, .rhs = start },
         });
     }
 
@@ -716,21 +752,27 @@ pub const Parser = struct {
         self.expectToken(.l_brace);
         self.skipNewlines();
 
-        const start: u32 = @intCast(self.tree.extra_data.items.len);
-        var count: u32 = 0;
+        // Collect arms first — parseSwitchArm can call parseBlock/parseExpr
+        // which append to extra_data, so we batch-append afterwards.
+        var arms: std.ArrayList(NodeIndex) = .empty;
+        defer arms.deinit(self.tree.allocator);
 
         while (self.peekTag() != .r_brace and !self.isAtEnd()) {
             self.skipNewlines();
             if (self.peekTag() == .r_brace) break;
             const arm = try self.parseSwitchArm();
-            _ = try self.tree.addExtra(arm);
-            count += 1;
+            try arms.append(self.tree.allocator, arm);
             self.skipNewlines();
             if (self.peekTag() == .comma) self.advance();
             self.skipNewlines();
         }
         self.expectToken(.r_brace);
-        _ = try self.tree.addExtra(count);
+
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        for (arms.items) |a| {
+            _ = try self.tree.addExtra(a);
+        }
+        _ = try self.tree.addExtra(@as(NodeIndex, @intCast(arms.items.len)));
 
         return self.tree.addNode(.{
             .tag = .switch_stmt,
@@ -811,20 +853,29 @@ pub const Parser = struct {
         self.expectToken(.l_brace);
         self.skipNewlines();
 
-        const start: u32 = @intCast(self.tree.extra_data.items.len);
-        var count: u32 = 0;
+        // Collect statements in a local list first, then batch-append to
+        // extra_data.  Appending inline would interleave with extra_data
+        // written by nested blocks/calls inside the statements, corrupting
+        // the contiguous index range this block expects.
+        var stmts: std.ArrayList(NodeIndex) = .empty;
+        defer stmts.deinit(self.tree.allocator);
 
         while (self.peekTag() != .r_brace and !self.isAtEnd()) {
             self.skipNewlines();
             if (self.peekTag() == .r_brace) break;
             const stmt = try self.parseStmt();
             if (stmt != null_node) {
-                _ = try self.tree.addExtra(stmt);
-                count += 1;
+                try stmts.append(self.tree.allocator, stmt);
             }
             self.skipNewlines();
         }
         self.expectToken(.r_brace);
+
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        for (stmts.items) |s| {
+            _ = try self.tree.addExtra(s);
+        }
+        const count: u32 = @intCast(stmts.items.len);
 
         return self.tree.addNode(.{
             .tag = .block,
@@ -1063,17 +1114,24 @@ pub const Parser = struct {
     fn parseCall(self: *Parser, callee: NodeIndex) Error!NodeIndex {
         const tok = self.pos;
         self.expectToken(.l_paren);
-        const start: u32 = @intCast(self.tree.extra_data.items.len);
-        var count: u32 = 0;
+
+        // Collect args first — arg expressions can contain nested calls
+        // that would interleave extra_data.
+        var args: std.ArrayList(NodeIndex) = .empty;
+        defer args.deinit(self.tree.allocator);
 
         while (self.peekTag() != .r_paren and !self.isAtEnd()) {
-            if (count > 0) self.expectToken(.comma);
+            if (args.items.len > 0) self.expectToken(.comma);
             const arg = try self.parseExpr();
-            _ = try self.tree.addExtra(arg);
-            count += 1;
+            try args.append(self.tree.allocator, arg);
         }
         self.expectToken(.r_paren);
-        _ = try self.tree.addExtra(count);
+
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        for (args.items) |a| {
+            _ = try self.tree.addExtra(a);
+        }
+        _ = try self.tree.addExtra(@as(NodeIndex, @intCast(args.items.len)));
 
         return self.tree.addNode(.{
             .tag = .call,
@@ -1087,14 +1145,16 @@ pub const Parser = struct {
         self.expectToken(.l_brace);
         self.skipNewlines();
 
-        const start: u32 = @intCast(self.tree.extra_data.items.len);
-        var count: u32 = 0;
+        // Collect field inits first — field values can be calls/nested
+        // expressions that append to extra_data.
+        var fields: std.ArrayList(NodeIndex) = .empty;
+        defer fields.deinit(self.tree.allocator);
 
         while (self.peekTag() != .r_brace and !self.isAtEnd()) {
             self.skipNewlines();
             if (self.peekTag() == .r_brace) break;
 
-            if (count > 0) {
+            if (fields.items.len > 0) {
                 self.expectToken(.comma);
                 self.skipNewlines();
             }
@@ -1114,12 +1174,16 @@ pub const Parser = struct {
                 .main_token = field_tok,
                 .data = .{ .lhs = val, .rhs = null_node },
             });
-            _ = try self.tree.addExtra(field_init);
-            count += 1;
+            try fields.append(self.tree.allocator, field_init);
             self.skipNewlines();
         }
         self.expectToken(.r_brace);
-        _ = try self.tree.addExtra(count);
+
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        for (fields.items) |f| {
+            _ = try self.tree.addExtra(f);
+        }
+        _ = try self.tree.addExtra(@as(NodeIndex, @intCast(fields.items.len)));
 
         return self.tree.addNode(.{
             .tag = .struct_literal,
@@ -1132,14 +1196,14 @@ pub const Parser = struct {
         self.expectToken(.l_brace);
         self.skipNewlines();
 
-        const start: u32 = @intCast(self.tree.extra_data.items.len);
-        var count: u32 = 0;
+        var fields: std.ArrayList(NodeIndex) = .empty;
+        defer fields.deinit(self.tree.allocator);
 
         while (self.peekTag() != .r_brace and !self.isAtEnd()) {
             self.skipNewlines();
             if (self.peekTag() == .r_brace) break;
 
-            if (count > 0) {
+            if (fields.items.len > 0) {
                 self.expectToken(.comma);
                 self.skipNewlines();
             }
@@ -1159,12 +1223,16 @@ pub const Parser = struct {
                 .main_token = field_tok,
                 .data = .{ .lhs = val, .rhs = null_node },
             });
-            _ = try self.tree.addExtra(field_init);
-            count += 1;
+            try fields.append(self.tree.allocator, field_init);
             self.skipNewlines();
         }
         self.expectToken(.r_brace);
-        _ = try self.tree.addExtra(count);
+
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        for (fields.items) |f| {
+            _ = try self.tree.addExtra(f);
+        }
+        _ = try self.tree.addExtra(@as(NodeIndex, @intCast(fields.items.len)));
 
         return self.tree.addNode(.{
             .tag = .anon_struct_literal,
@@ -1480,16 +1548,15 @@ pub const Parser = struct {
             self.expectToken(.l_brace);
             self.skipNewlines();
 
-            const start: u32 = @intCast(self.tree.extra_data.items.len);
-            var field_count: u32 = 0;
+            var field_nodes: std.ArrayList(NodeIndex) = .empty;
+            defer field_nodes.deinit(self.tree.allocator);
 
             while (self.peekTag() != .r_brace and !self.isAtEnd()) {
                 self.skipNewlines();
                 if (self.peekTag() == .r_brace) break;
 
                 const field = try self.parseFieldDecl();
-                _ = try self.tree.addExtra(field);
-                field_count += 1;
+                try field_nodes.append(self.tree.allocator, field);
 
                 self.skipNewlines();
                 if (self.peekTag() == .comma) self.advance();
@@ -1497,10 +1564,15 @@ pub const Parser = struct {
             }
             self.expectToken(.r_brace);
 
+            const start: u32 = @intCast(self.tree.extra_data.items.len);
+            for (field_nodes.items) |f| {
+                _ = try self.tree.addExtra(f);
+            }
+
             return self.tree.addNode(.{
                 .tag = .type_anon_struct,
                 .main_token = tok,
-                .data = .{ .lhs = start, .rhs = field_count },
+                .data = .{ .lhs = start, .rhs = @as(NodeIndex, @intCast(field_nodes.items.len)) },
             });
         }
 

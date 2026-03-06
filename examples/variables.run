@@ -1,0 +1,13 @@
+use "fmt"
+
+pub fun main() {
+    let x = 42
+    fmt.print_int(x)
+
+    var y = 10
+    y = y + x
+    fmt.print_int(y)
+
+    let greeting = "hello"
+    fmt.println(greeting)
+}

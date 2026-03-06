@@ -41,4 +41,4 @@ The `lib` directory is used to store the lower level modules of your project.
 
 ### cmd
 
-The `cmd` directory is used to store the command line tools of your project. Each command should be in its own file. The `cmd` 
+The `cmd` directory is used to store the command line tools of your project. Each command should be in its own file. The `cmd`

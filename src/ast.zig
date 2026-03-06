@@ -158,10 +158,12 @@ pub const Node = struct {
         /// lhs = extra_data start, rhs = statement count
         block,
         /// `if cond { then } else { otherwise }`
-        /// lhs = condition, rhs = then block (else stored in extra_data)
+        /// lhs = condition, rhs = extra_data start
+        /// extra_data layout: [then_block, else_node]
         if_stmt,
         /// `if cond :: then_expr else else_expr` (ternary)
-        /// lhs = condition, rhs = then_expr (else_expr stored in extra_data)
+        /// lhs = condition, rhs = extra_data start
+        /// extra_data layout: [then_expr, else_expr]
         if_expr,
         /// `for cond { body }` or `for item in iter { body }`
         /// lhs = condition/iterator, rhs = body block
