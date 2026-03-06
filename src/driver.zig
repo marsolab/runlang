@@ -163,7 +163,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     };
 
     // Find runtime directory (relative to current working dir)
-    const runtime_dir = "runtime";
+    const runtime_dir = "src/runtime";
 
     invokeZigCC(allocator, tmp_path, out_path, runtime_dir) catch {
         stderr.writeAll("error: C compilation failed\n") catch {};

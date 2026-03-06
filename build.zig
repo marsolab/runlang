@@ -24,24 +24,24 @@ pub fn build(b: *std.Build) void {
         }),
     });
     const runtime_c_sources = .{
-        "runtime/run_alloc.c",
-        "runtime/run_string.c",
-        "runtime/run_slice.c",
-        "runtime/run_fmt.c",
-        "runtime/run_scheduler.c",
-        "runtime/run_chan.c",
+        "src/runtime/run_alloc.c",
+        "src/runtime/run_string.c",
+        "src/runtime/run_slice.c",
+        "src/runtime/run_fmt.c",
+        "src/runtime/run_scheduler.c",
+        "src/runtime/run_chan.c",
     };
     inline for (runtime_c_sources) |src| {
         runtime_lib.root_module.addCSourceFile(.{
             .file = b.path(src),
         });
     }
-    runtime_lib.root_module.addIncludePath(b.path("runtime"));
+    runtime_lib.root_module.addIncludePath(b.path("src/runtime"));
     b.installArtifact(runtime_lib);
 
     // Install runtime headers alongside compiler
     b.installDirectory(.{
-        .source_dir = b.path("runtime"),
+        .source_dir = b.path("src/runtime"),
         .install_dir = .header,
         .install_subdir = "run",
     });
