@@ -45,7 +45,7 @@ Be aware that converting from a larger type to a smaller one can lose informatio
 Newtypes require explicit conversion to and from their underlying type:
 
 ```run
-newtype Celsius f64
+type Celsius = f64
 
 temp := Celsius(100.0)
 raw := f64(temp)       // extract the underlying value

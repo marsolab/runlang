@@ -14,10 +14,10 @@ Built-in types that would normally require generics — slices, maps, channels, 
 
 ```run
 // These work without generics — they are built into the language
-names := ["Alice", "Bob"]              // []string
+names := []string{"Alice", "Bob"}      // []string
 ages := map[string]int{"Alice": 30}    // map[string]int
 ch := alloc(chan[int], 10)             // chan int
-var x: int? = 42                       // int?
+var x int? = 42                       // int?
 fun read() !string { ... }             // !string
 ```
 
@@ -33,7 +33,7 @@ Run's generational references provide memory safety without a garbage collector 
 - Interface implementations are explicit — declared via `implements` block in struct
 - Error handling is explicit — errors cannot be silently ignored
 - Visibility is explicit — `pub` or private, nothing in between
-- Unsafe operations are explicit — `import "unsafe"` signals low-level code at file level
+- Unsafe operations are explicit — `use "unsafe"` signals low-level code at file level
 
 ## Go's pragmatism meets systems control
 

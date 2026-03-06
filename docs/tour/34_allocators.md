@@ -63,21 +63,17 @@ package main
 use "fmt"
 use "mem"
 
-pub struct MyAllocator {
-    implements {
-        mem.Allocator
-    }
+pub type MyAllocator struct {
+    implements (mem.Allocator)
     // ...
 }
 
-impl mem.Allocator for MyAllocator {
-    pub fun alloc(size: int) -> *byte {
-        // ...
-    }
+pub fun (a &MyAllocator) alloc(size: int) &byte {
+    // ...
+}
 
-    pub fun free(ptr: *byte, size: int) {
-        // ...
-    }
+pub fun (a &MyAllocator) free(ptr: &byte, size: int) {
+    // ...
 }
 
 pub fun main() {

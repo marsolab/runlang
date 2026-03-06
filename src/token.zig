@@ -113,6 +113,7 @@ pub const Token = struct {
         .{ "run", .kw_run },
         .{ "try", .kw_try },
         .{ "import", .kw_import },
+        .{ "use", .kw_import },
         .{ "struct", .kw_struct },
         .{ "interface", .kw_interface },
         .{ "implements", .kw_implements },

@@ -9,15 +9,15 @@ Everything in Run is private by default. Only items marked with `pub` are access
 ```run
 // math/vector.run
 
-pub Vec3 struct {
+pub type Vec3 struct {
     pub x: f64
     pub y: f64
     pub z: f64
 }
 
 // public — callable from other packages
-pub fun Vec3.length(self: @Vec3) f64 {
-    return math.sqrt(self.x*self.x + self.y*self.y + self.z*self.z)
+pub fun (v @Vec3) length() f64 {
+    return math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z)
 }
 
 // private — only visible within the math package

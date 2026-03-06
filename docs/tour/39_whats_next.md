@@ -24,21 +24,19 @@ package main
 use "fmt"
 use "os"
 
-interface Display {
+pub type Display interface {
     fun string() string
 }
 
-pub Config struct {
-    implements {
-        Display
-    }
+pub type Config struct {
+    implements (Display)
 
     host: string
     port: int
 }
 
-fun (c: @Config) string() string {
-    return fmt.sprintf("%s:%d", self.host, self.port)
+fun (c @Config) string() string {
+    return fmt.sprintf("%s:%d", c.host, c.port)
 }
 
 fun load_config(path: string) !Config {

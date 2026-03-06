@@ -15,13 +15,13 @@ package main
 
 use "fmt"
 
-pub Node struct {
+pub type Node struct {
     value: int
     next: &Node?
 }
 
 pub fun main() {
-    let node := Node{ value: 42, next: null }
+    let node = Node{ value: 42, next: null }
     // node is freed when main returns
 }
 ```
@@ -33,7 +33,7 @@ Non-owning references observe but do not control the lifetime of the pointed-to 
 ```run
 fun sum_list(head: @Node) int {
     var total int = 0
-    var current: @Node? = head
+    var current @Node? = head
     for current != null {
         total = total + current.value
         current = current.next

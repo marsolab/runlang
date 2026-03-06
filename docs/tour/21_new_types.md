@@ -1,14 +1,14 @@
 # Newtypes
 
-The `newtype` keyword creates a distinct type from an existing one. Unlike a type alias, a newtype is not interchangeable with its underlying type — the compiler treats them as different types.
+The `type` keyword creates a distinct type from an existing one. Unlike a type alias, a newtype is not interchangeable with its underlying type — the compiler treats them as different types.
 
 ```run
 package main
 
 use "fmt"
 
-type Celsius f64
-type Fahrenheit f64
+type Celsius = f64
+type Fahrenheit = f64
 
 fun toFahrenheit(c: Celsius) Fahrenheit {
     return Fahrenheit(f64(c) * 9.0 / 5.0 + 32.0)

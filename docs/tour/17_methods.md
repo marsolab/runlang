@@ -7,7 +7,7 @@ package main
 
 use "fmt"
 
-pub Rectangle struct {
+pub type Rectangle struct {
     width: f64
     height: f64
 }
@@ -22,7 +22,7 @@ fun (r &Rectangle) scale(factor f64) {
 }
 
 pub fun main() {
-    var r := Rectangle{ width: 3.0, height: 4.0 }
+    r := Rectangle{ width: 3.0, height: 4.0 }
     fmt.println(r.area()) // 12.0
 
     r.scale(2.0)
@@ -83,7 +83,7 @@ pub fun (p @Point) distance(other @Point) f64 {
 You can define any number of methods on the same type:
 
 ```run
-pub Circle struct {
+pub type Circle struct {
     radius: f64
 }
 

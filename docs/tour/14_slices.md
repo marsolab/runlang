@@ -5,7 +5,7 @@
 Arrays have a fixed size known at compile time.
 
 ```run
-let numbers [5]int = [1, 2, 3, 4, 5]
+let numbers [5]int = [5]int{1, 2, 3, 4, 5}
 fmt.println(numbers[0]) // 1
 ```
 
@@ -19,7 +19,7 @@ package main
 use "fmt"
 
 pub fun main() {
-    names := ["Alice", "Bob", "Charlie"]
+    names := []string{"Alice", "Bob", "Charlie"}
 
     for name in names {
         fmt.println(name)

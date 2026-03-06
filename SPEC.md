@@ -96,7 +96,7 @@ method declaration syntax. Methods are not defined inside the struct body; the s
 contains only data.
 
 ```
-pub Point struct {
+pub type Point struct {
     x f64
     y f64
 }
@@ -207,27 +207,27 @@ Plain `try` (without context) still propagates errors unchanged.
 ### Structs
 
 ```
-pub Point struct {
+pub type Point struct {
     x f64
     y f64
 }
 ```
 
-- Struct name comes **before** the `struct` keyword
+- Type declarations start with the `type` keyword, `pub` modifier for exported types
 - Structs contain only data — no methods inside the body
 - Methods are declared outside with a Go-style receiver (see **Methods** under Functions)
 
 ### Interfaces (Explicit)
 
 ```
-pub interface Stringer {
+pub type Stringer interface {
     fun to_string() string
 }
 
-pub Point struct {
-    implements {
+pub type Point struct {
+    implements(
         Stringer
-    }
+    )
 
     x f64
     y f64
@@ -353,7 +353,7 @@ that bypass Run's safety guarantees. Like Go's `import "unsafe"`, its presence i
 a file's imports is the signal that dangerous operations are in use.
 
 ```
-import "unsafe"
+use "unsafe"
 
 var p unsafe.Pointer = unsafe.ptr(&x)     // raw pointer
 var n int = unsafe.sizeof(MyStruct)       // type size in bytes
@@ -368,7 +368,7 @@ var off int = unsafe.offsetof(MyStruct, "field")  // field byte offset
 - `unsafe.offsetof(T, field)` — byte offset of a field within a struct
 - `unsafe.slice(p, len)` — create a slice from a raw pointer and length
 
-No special keyword or block syntax — `import "unsafe"` is a regular import and
+No special keyword or block syntax — `use "unsafe"` is a regular use statement and
 `grep "unsafe"` finds every file that uses low-level operations.
 
 ## Visibility and Modules
@@ -379,10 +379,10 @@ No special keyword or block syntax — `import "unsafe"` is a regular import and
 
 ```
 // math/vector.run
-pub Vec3 struct { x f64, y f64, z f64 }
+pub type Vec3 struct { x f64, y f64, z f64 }
 
 // main.run
-import "math"
+use "math"
 v := math.Vec3{ x: 1.0, y: 2.0, z: 3.0 }
 ```
 

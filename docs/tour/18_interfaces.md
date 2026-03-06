@@ -7,15 +7,15 @@ package main
 
 use "fmt"
 
-interface Stringer {
+pub type Stringer interface {
     string() string
 }
 
-interface Writer {
+pub type Writer interface {
     write(p []byte) !int
 }
 
-pub Point struct {
+pub type Point struct {
     implements (
         Stringer,
         Writer,
@@ -25,15 +25,15 @@ pub Point struct {
     y: f64
 }
 
-fun (self: @Point) string() string {
-    return fmt.sprintf("(%f, %f)", self.x, self.y)
+fun (p @Point) string() string {
+    return fmt.sprintf("(%f, %f)", p.x, p.y)
 }
 
 fun print_it(s: Stringer) {
     fmt.println(s.string())
 }
 
-pub pub fun main() {
+pub fun main() {
     p := Point{ x: 1.0, y: 2.0 }
     print_it(p)
 }

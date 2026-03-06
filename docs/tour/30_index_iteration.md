@@ -8,7 +8,7 @@ package main
 use "fmt"
 
 pub fun main() {
-    names := ["Alice", "Bob", "Charlie"]
+    names := []string{"Alice", "Bob", "Charlie"}
 
     for i, name in names {
         fmt.println(i, name)
@@ -29,7 +29,7 @@ package main
 use "fmt"
 
 pub fun main() {
-    scores := [85, 92, 78, 95, 88]
+    scores := []int{85, 92, 78, 95, 88}
 
     var best_index int = 0
     var best_score int = scores[0]

@@ -9,9 +9,9 @@ use "fmt"
 
 let pi f64 = 3.14159
 let max_size int = 1024
-let greeting str = "Hello"
+let greeting string = "Hello"
 
-pub pub fun main() {
+pub fun main() {
     fmt.println(pi)
     fmt.println(max_size)
     fmt.println(greeting)

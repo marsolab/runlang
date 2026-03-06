@@ -92,4 +92,26 @@ pub fun main() {
 
     fmt.println(a & b)   // 12  0000 1100  bitwise AND
     fmt.println(a | b)   // 61  0011 1101  bitwise OR
-    fmt.println(a ^ b)   // 49  0011 00
+    fmt.println(a ^ b)   // 49  0011 0001  bitwise XOR
+    fmt.println(~a)       // bitwise NOT
+}
+```
+
+## Shift operators
+
+Shift operators move bits left or right.
+
+```run
+package main
+
+use "fmt"
+
+pub fun main() {
+    // Shift operators
+    let a = 1 << 4   // 16
+    let b = 16 >> 2  // 4
+
+    fmt.println(a)
+    fmt.println(b)
+}
+```

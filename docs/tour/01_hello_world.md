@@ -11,7 +11,7 @@ package main
 
 use "fmt"
 
-pub pub fun main() {
+pub fun main() {
     fmt.println("Hello, World!")
 }
 ```

@@ -26,7 +26,7 @@ Use `let` to declare a variable that cannot be reassigned. An initializer is req
 
 ```run
 let pi f64 = 3.14159
-let name str = "Run"
+let name string = "Run"
 let x = 42         // type inferred
 ```
 
@@ -41,7 +41,7 @@ package main
 
 use "fmt"
 
-pub pub fun main() {
+pub fun main() {
     x := 42
     name := "Run"
     pi := 3.14159

@@ -7,7 +7,7 @@ package main
 
 use "fmt"
 
-pub Point struct {
+pub type Point struct {
     x: f64
     y: f64
 }
@@ -34,7 +34,7 @@ fmt.println(p.x) // 5.0
 Structs can be made public with `pub`. Field visibility follows the same rules — fields are private by default within the struct's package.
 
 ```run
-pub Config struct {
+pub type Config struct {
     pub host: string
     pub port: int
     secret: string  // private to this package

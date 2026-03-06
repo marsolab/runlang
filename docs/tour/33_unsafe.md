@@ -9,8 +9,8 @@ For that, there's the `unsafe` package. It's a standard library package, not a k
 ```run
 package main
 
-import "fmt"
-import "unsafe"
+use "fmt"
+use "unsafe"
 
 pub fun main() {
     var x int = 42
@@ -20,12 +20,12 @@ pub fun main() {
 }
 ```
 
-No block wrapping. No special keyword. `import "unsafe"` in a file tells you and your team: this file does low-level operations.
+No block wrapping. No special keyword. `use "unsafe"` in a file tells you and your team: this file does low-level operations.
 
 ## What the package provides
 
 ```run
-import "unsafe"
+use "unsafe"
 
 // Raw pointer type — can be converted to/from any &T or @T
 var p unsafe.Pointer = unsafe.ptr(&my_value)
@@ -49,8 +49,8 @@ When you need shared mutable state between concurrent tasks, use `sync` primitiv
 ```run
 package main
 
-import "fmt"
-import "sync"
+use "fmt"
+use "sync"
 
 pub fun main() {
     var counter int = 0
@@ -76,3 +76,4 @@ pub fun main() {
 - Keep files that import `unsafe` focused and small
 - `grep "unsafe"` across your project to audit all low-level code
 - The package is for escaping safety guarantees, not for everyday code
+
