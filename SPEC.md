@@ -67,6 +67,25 @@ let a = compute()   // immutable, type inference
 - `let` — immutable binding, must be initialized, cannot be reassigned (compiler-enforced)
 - `:=` — short declaration (mutable, equivalent to `var` with type inference)
 
+## Packages and Imports
+
+Every `.run` source file must begin with a package declaration:
+
+```run
+package main
+```
+
+`package main` is the executable entry package and must define `pub fun main`.
+
+Imports use the `use` keyword:
+
+```run
+use "fmt"
+use "math/rand"
+```
+
+`import` is not a language keyword.
+
 ## Functions
 
 ```
@@ -349,8 +368,8 @@ val := <-ch                 // receive
 ### The `unsafe` Package
 
 The `unsafe` package is a standard library package providing low-level operations
-that bypass Run's safety guarantees. Like Go's `import "unsafe"`, its presence in
-a file's imports is the signal that dangerous operations are in use.
+that bypass Run's safety guarantees. Like Go's unsafe import convention, its presence in
+a file's `use` declarations is the signal that dangerous operations are in use.
 
 ```
 use "unsafe"

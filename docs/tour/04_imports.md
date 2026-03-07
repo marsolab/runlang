@@ -14,11 +14,9 @@ Import paths are the path to the package. They are used to import packages into 
 use "math/rand"
 ```
 
-It can also be written as a grouped import:
+Run currently supports one `use` per line:
 
 ```run
-use (
-    "math/rand"
-    "fmt"
-)
+use "math/rand"
+use "fmt"
 ```

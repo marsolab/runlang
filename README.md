@@ -7,6 +7,11 @@ Run targets developers who want memory safety, performance, and straightforward 
 ## A Quick Look
 
 ```run
+package main
+
+use "fmt"
+use "math"
+
 pub Point struct {
     x f64
     y f64
@@ -29,6 +34,8 @@ pub fun main() !void {
     fmt.println(content)
 }
 ```
+
+Every `.run` file must declare `package <name>`. If `package main` is used, the file must define `pub fun main`.
 
 ## Key Features
 
