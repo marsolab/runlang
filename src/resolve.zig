@@ -569,7 +569,7 @@ pub const Resolver = struct {
 
             // These are handled by their parent
             .fn_decl, .pub_decl, .struct_decl, .interface_decl,
-            .type_alias, .type_decl, .import_decl,
+            .type_alias, .type_decl, .package_decl, .import_decl,
             .field_decl, .method_sig, .param, .receiver,
             .switch_arm, .root,
             => {},
