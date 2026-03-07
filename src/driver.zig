@@ -26,6 +26,7 @@ pub const CompileOptions = struct {
 
 pub const CompileError = error{
     ParseFailed,
+    ConventionFailed,
     NamingFailed,
     CodegenNotImplemented,
     CCompileFailed,
@@ -64,6 +65,10 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
             stderr.print("error: {s} at offset {d}\n", .{ @tagName(err.tag), err.loc.start }) catch {};
         }
         return CompileError.ParseFailed;
+    }
+
+    if (!try validateFileConventions(allocator, &parser.tree, tokens.items, source, stderr)) {
+        return CompileError.ConventionFailed;
     }
 
     // 4. Naming conventions check
@@ -190,6 +195,60 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
         const stdout = File.stdout().deprecatedWriter();
         stdout.print("compiled: {s}\n", .{out_path}) catch {};
     }
+}
+
+fn validateFileConventions(
+    allocator: std.mem.Allocator,
+    tree: *const Ast,
+    tokens: []const Token,
+    source: []const u8,
+    stderr: anytype,
+) !bool {
+    _ = allocator;
+
+    const root = tree.nodes.items[0];
+    const start = root.data.lhs;
+    const count = root.data.rhs;
+    const decl_indices = tree.extra_data.items[start .. start + count];
+
+    var package_name: ?[]const u8 = null;
+    var has_pub_main = false;
+
+    for (decl_indices) |decl_idx| {
+        const decl = tree.nodes.items[decl_idx];
+        switch (decl.tag) {
+            .package_decl => {
+                package_name = tokens[decl.main_token].slice(source);
+            },
+            .pub_decl => {
+                const inner_idx = decl.data.lhs;
+                if (inner_idx == 0) continue;
+                const inner = tree.nodes.items[inner_idx];
+                if (inner.tag == .fn_decl) {
+                    const fn_tok = inner.main_token;
+                    if (fn_tok + 1 < tokens.len and tokens[fn_tok + 1].tag == .identifier) {
+                        const fn_name = tokens[fn_tok + 1].slice(source);
+                        if (std.mem.eql(u8, fn_name, "main")) {
+                            has_pub_main = true;
+                        }
+                    }
+                }
+            },
+            else => {},
+        }
+    }
+
+    if (package_name == null) {
+        stderr.writeAll("error: missing package declaration; every .run file must begin with `package <name>`\n") catch {};
+        return false;
+    }
+
+    if (std.mem.eql(u8, package_name.?, "main") and !has_pub_main) {
+        stderr.writeAll("error: package main must contain `pub fun main`\n") catch {};
+        return false;
+    }
+
+    return true;
 }
 
 /// Invoke zig cc to compile generated C source with the runtime library.

@@ -30,6 +30,8 @@ pub const Ast = struct {
         expected_expression,
         expected_type,
         expected_identifier,
+        expected_package_decl,
+        expected_main_entrypoint,
         expected_block,
         expected_string_literal,
         invalid_token,
@@ -119,7 +121,10 @@ pub const Node = struct {
         /// `type Name Type` — simple type declaration (type alias to another type)
         /// main_token = kw_type, lhs = type node
         type_decl,
-        /// `import "path"`
+        /// `package name`
+        /// main_token points to the package name identifier
+        package_decl,
+        /// `use "path"`
         /// main_token points to the string literal
         import_decl,
 

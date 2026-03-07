@@ -37,6 +37,7 @@ pub fn build(b: *std.Build) void {
         });
     }
     runtime_lib.root_module.addIncludePath(b.path("src/runtime"));
+    runtime_lib.linkLibC();
     b.installArtifact(runtime_lib);
 
     // Install runtime headers alongside compiler
