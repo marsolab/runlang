@@ -14,6 +14,7 @@ pub const Parser = struct {
     source: []const u8,
     tree: Ast,
     allow_struct_literals: bool,
+    package_name_tok: ?u32,
 
     pub const Error = error{OutOfMemory};
 
@@ -24,6 +25,7 @@ pub const Parser = struct {
             .source = source,
             .tree = Ast.init(allocator, source),
             .allow_struct_literals = true,
+            .package_name_tok = null,
         };
     }
 
@@ -38,6 +40,11 @@ pub const Parser = struct {
 
         self.skipNewlines();
 
+        var package_decl: NodeIndex = null_node;
+        if (self.peekTag() == .kw_package) {
+            package_decl = try self.parsePackageDecl();
+        }
+
         while (!self.isAtEnd()) {
             if (self.peekTag() == .newline) {
                 self.advance();
@@ -47,6 +54,10 @@ pub const Parser = struct {
             if (decl != null_node) {
                 try decls.append(self.tree.allocator, decl);
             }
+        }
+
+        if (package_decl != null_node) {
+            try decls.insert(self.tree.allocator, 0, package_decl);
         }
 
         // Store all top-level declarations in extra_data
@@ -68,12 +79,37 @@ pub const Parser = struct {
 
     // --- Top-level parsing ---
 
+    fn parsePackageDecl(self: *Parser) Error!NodeIndex {
+        if (self.peekTag() != .kw_package) return null_node;
+
+        self.advance(); // consume package
+
+        if (self.peekTag() != .identifier) {
+            try self.addError(.expected_identifier, self.currentLoc(), null);
+            return null_node;
+        }
+
+        const pkg_tok = self.pos;
+        self.advance(); // consume package name
+
+        self.package_name_tok = pkg_tok;
+
+        const package_node = try self.tree.addNode(.{
+            .tag = .package_decl,
+            .main_token = pkg_tok,
+            .data = .{ .lhs = null_node, .rhs = null_node },
+        });
+        self.skipNewlines();
+        return package_node;
+    }
+
     fn parseTopLevel(self: *Parser) Error!NodeIndex {
         return switch (self.peekTag()) {
             .kw_pub => self.parsePubDecl(),
             .kw_fn => self.parseFnDecl(),
             .kw_interface => self.parseInterfaceDecl(),
             .kw_type => self.parseTypeAlias(),
+            .kw_package => self.parsePackageDecl(),
             .kw_import => self.parseImportDecl(),
             .kw_var => self.parseVarDecl(),
             .kw_let => self.parseLetDecl(),
@@ -98,6 +134,10 @@ pub const Parser = struct {
             .kw_fn => try self.parseFnDecl(),
             .kw_interface => try self.parseInterfaceDecl(),
             .kw_type => try self.parseTypeAlias(),
+            .kw_package => blk: {
+                try self.addError(.expected_expression, self.currentLoc(), null);
+                break :blk null_node;
+            },
             .kw_var => try self.parseVarDecl(),
             .kw_let => try self.parseLetDecl(),
             .identifier => if (self.peekTagAt(1) == .kw_struct) try self.parseStructDecl() else blk: {
@@ -2681,4 +2721,32 @@ test "parse alloc rejects positional third argument" {
 
     _ = try parser.parseFile();
     try std.testing.expect(parser.tree.errors.items.len > 0);
+}
+
+test "parse package declaration and use import" {
+    const source =
+        \\package main
+        \\use "fmt"
+        \\pub fn main() {
+        \\    fmt.println("hi")
+        \\}
+    ;
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var saw_package = false;
+    var saw_import = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .package_decl) saw_package = true;
+        if (node.tag == .import_decl) saw_import = true;
+    }
+    try std.testing.expect(saw_package);
+    try std.testing.expect(saw_import);
 }
