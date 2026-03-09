@@ -56,3 +56,27 @@ These differ from older Zig versions and are critical to get right:
 ## Current Status
 
 Lexer and parser are complete. No semantic analysis, type checking, or code generation yet.
+
+## Project Management
+
+Before starting any work, always:
+
+1. **Check [GitHub Issues](https://github.com/marsolab/runlang/issues)** for open tasks, priorities, and current assignments
+2. **Check [GitHub Milestones](https://github.com/marsolab/runlang/milestones)** to understand the current development phase and roadmap progression
+3. **Reference the relevant issue number** in commit messages and PR descriptions (e.g., `Fixes #24`)
+4. **Each issue should be addressed in a single, focused PR** — avoid combining unrelated changes
+
+### Development Roadmap (Milestones)
+
+The milestones are ordered by dependency — each builds on the previous:
+
+1. **M1: Type System** — Full type checking (primitives, functions, structs, interfaces, error unions, sum types, inference)
+2. **M2: Memory & Safety** — Generational references, ownership, deterministic destruction, pointer semantics
+3. **M3: Runtime & Concurrency** — Green thread scheduler, channels, map runtime, runtime test suite
+4. **M4: Standard Library Core** — fmt, io, os, strings, testing, math packages
+5. **M5: Tooling & Developer Experience** — Error messages, formatter, test runner, LSP, project scaffolding
+6. **M6: Optimization & Hardening** — DCE, constant folding, E2E tests, fuzzing, benchmarks
+
+### Labels
+
+Component labels for categorizing issues: `type-system`, `runtime`, `stdlib`, `tooling`, `compiler`, `concurrency`, `memory`, `testing`
