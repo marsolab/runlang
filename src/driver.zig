@@ -122,7 +122,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
         return CompileError.ParseFailed;
     }
 
-    // 6. Type checking (stub for now)
+    // 6. Type checking
     var tc_result = typecheck.typeCheck(allocator, &parser.tree, tokens.items, &resolve_result) catch {
         return CompileError.OutOfMemory;
     };
