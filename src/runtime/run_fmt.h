@@ -1,9 +1,10 @@
 #ifndef RUN_FMT_H
 #define RUN_FMT_H
 
-#include <stdint.h>
-#include <stdbool.h>
 #include "run_string.h"
+
+#include <stdbool.h>
+#include <stdint.h>
 
 void run_fmt_println(run_string_t s);
 void run_fmt_print_int(int64_t v);

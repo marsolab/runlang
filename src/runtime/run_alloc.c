@@ -1,6 +1,7 @@
 #include "run_alloc.h"
-#include <stdlib.h>
+
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct {
@@ -26,7 +27,8 @@ void *run_gen_alloc(size_t size) {
 }
 
 void run_gen_free(void *ptr) {
-    if (!ptr) return;
+    if (!ptr)
+        return;
     run_alloc_header_t *header = get_header(ptr);
     header->generation++;
     free(header);
@@ -40,8 +42,7 @@ void run_gen_check(void *ptr, uint64_t expected_gen) {
     run_alloc_header_t *header = get_header(ptr);
     if (header->generation != expected_gen) {
         fprintf(stderr, "run: generation check failed (expected %llu, got %llu)\n",
-                (unsigned long long)expected_gen,
-                (unsigned long long)header->generation);
+                (unsigned long long)expected_gen, (unsigned long long)header->generation);
         abort();
     }
 }

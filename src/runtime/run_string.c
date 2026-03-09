@@ -1,6 +1,7 @@
 #include "run_string.h"
-#include <stdlib.h>
+
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 run_string_t run_string_from_cstr(const char *s) {
@@ -18,8 +19,10 @@ run_string_t run_string_from_parts(const char *ptr, size_t len) {
 }
 
 bool run_string_eq(run_string_t a, run_string_t b) {
-    if (a.len != b.len) return false;
-    if (a.ptr == b.ptr) return true;
+    if (a.len != b.len)
+        return false;
+    if (a.ptr == b.ptr)
+        return true;
     return memcmp(a.ptr, b.ptr, a.len) == 0;
 }
 
