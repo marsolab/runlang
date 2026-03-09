@@ -861,6 +861,19 @@ const TypeChecker = struct {
             init_type = try self.inferExpr(init_node);
         }
 
+        // Reject null assigned to non-nullable type.
+        if (init_node != null_node and self.nodeTag(init_node) == .null_literal) {
+            if (declared_type != types.null_type and !self.type_pool.isNullable(declared_type)) {
+                const loc = self.tokenLoc(main_tok);
+                try self.diagnostics.addErrorFmt(
+                    loc.start,
+                    loc.end,
+                    "cannot assign null to non-nullable type '{s}'",
+                    .{self.typeName(declared_type)},
+                );
+            }
+        }
+
         // If both declared and init present, check compatibility.
         if (type_node != null_node and init_node != null_node) {
             if (declared_type != types.null_type and init_type != types.null_type) {
@@ -908,6 +921,19 @@ const TypeChecker = struct {
         const data = self.nodeData(node);
         const lhs_type = try self.inferExpr(data.lhs);
         const rhs_type = try self.inferExpr(data.rhs);
+
+        // Reject null assigned to non-nullable type.
+        if (self.nodeTag(data.rhs) == .null_literal) {
+            if (lhs_type != types.null_type and !self.type_pool.isNullable(lhs_type)) {
+                const loc = self.tokenLoc(self.nodeMainToken(node));
+                try self.diagnostics.addErrorFmt(
+                    loc.start,
+                    loc.end,
+                    "cannot assign null to non-nullable type '{s}'",
+                    .{self.typeName(lhs_type)},
+                );
+            }
+        }
 
         if (lhs_type != types.null_type and rhs_type != types.null_type) {
             if (!self.typesCompatible(lhs_type, rhs_type)) {
@@ -964,7 +990,7 @@ const TypeChecker = struct {
 
     fn checkSwitchStmt(self: *TypeChecker, node: NodeIndex) CheckError!void {
         const data = self.nodeData(node);
-        _ = try self.inferExpr(data.lhs);
+        const subject_type = try self.inferExpr(data.lhs);
 
         const arms_start = data.rhs;
         const extra = self.tree.extra_data.items;
@@ -982,6 +1008,101 @@ const TypeChecker = struct {
                 }
             }
         }
+
+        // Exhaustiveness checking for error unions and nullable types.
+        if (subject_type != types.null_type) {
+            if (self.type_pool.isErrorUnion(subject_type)) {
+                try self.checkErrorUnionExhaustiveness(node, arm_nodes);
+            } else if (self.type_pool.isNullable(subject_type)) {
+                try self.checkNullableExhaustiveness(node, arm_nodes);
+            }
+        }
+    }
+
+    /// Check that a switch on an error union covers .ok and .err (or has a wildcard _).
+    fn checkErrorUnionExhaustiveness(self: *TypeChecker, node: NodeIndex, arm_nodes: []const NodeIndex) CheckError!void {
+        var has_ok = false;
+        var has_err = false;
+        var has_wildcard = false;
+
+        for (arm_nodes) |arm| {
+            if (arm == null_node) continue;
+            const pattern = self.nodeData(arm).lhs;
+            if (pattern == null_node) continue;
+
+            if (self.isWildcardPattern(pattern)) {
+                has_wildcard = true;
+                break;
+            }
+
+            if (self.nodeTag(pattern) == .variant) {
+                const name = self.variantName(pattern);
+                if (std.mem.eql(u8, name, "ok")) has_ok = true;
+                if (std.mem.eql(u8, name, "err")) has_err = true;
+            }
+        }
+
+        if (!has_wildcard and !(has_ok and has_err)) {
+            const loc = self.tokenLoc(self.nodeMainToken(node));
+            try self.diagnostics.addError(
+                loc.start,
+                loc.end,
+                "non-exhaustive switch on error union: must cover .ok and .err (or use _)",
+            );
+        }
+    }
+
+    /// Check that a switch on a nullable covers .some and null (or has a wildcard _).
+    fn checkNullableExhaustiveness(self: *TypeChecker, node: NodeIndex, arm_nodes: []const NodeIndex) CheckError!void {
+        var has_some = false;
+        var has_null = false;
+        var has_wildcard = false;
+
+        for (arm_nodes) |arm| {
+            if (arm == null_node) continue;
+            const pattern = self.nodeData(arm).lhs;
+            if (pattern == null_node) continue;
+
+            if (self.isWildcardPattern(pattern)) {
+                has_wildcard = true;
+                break;
+            }
+
+            if (self.nodeTag(pattern) == .null_literal) {
+                has_null = true;
+            } else if (self.nodeTag(pattern) == .variant) {
+                const name = self.variantName(pattern);
+                if (std.mem.eql(u8, name, "some")) has_some = true;
+                if (std.mem.eql(u8, name, "null")) has_null = true;
+            }
+        }
+
+        if (!has_wildcard and !(has_some and has_null)) {
+            const loc = self.tokenLoc(self.nodeMainToken(node));
+            try self.diagnostics.addError(
+                loc.start,
+                loc.end,
+                "non-exhaustive switch on nullable: must cover .some and null (or use _)",
+            );
+        }
+    }
+
+    /// Extract the variant name (the identifier after the dot).
+    fn variantName(self: *const TypeChecker, node: NodeIndex) []const u8 {
+        const main_tok = self.nodeMainToken(node);
+        // main_token is the dot; variant name is the next token.
+        if (main_tok + 1 < self.tokens.len) {
+            return self.tokenSlice(main_tok + 1);
+        }
+        return "";
+    }
+
+    /// Check if a pattern is a wildcard `_`.
+    fn isWildcardPattern(self: *const TypeChecker, node: NodeIndex) bool {
+        if (self.nodeTag(node) == .ident) {
+            return std.mem.eql(u8, self.tokenSlice(self.nodeMainToken(node)), "_");
+        }
+        return false;
     }
 
     // ── Expression type inference ────────────────────────────────────────────
@@ -1018,7 +1139,31 @@ const TypeChecker = struct {
             },
 
             .try_expr => blk: {
-                _ = try self.inferExpr(self.nodeData(node).lhs);
+                const operand_type = try self.inferExpr(self.nodeData(node).lhs);
+                const loc = self.tokenLoc(self.nodeMainToken(node));
+
+                // Validate operand is an error union.
+                if (operand_type != types.null_type and !self.type_pool.isErrorUnion(operand_type)) {
+                    try self.diagnostics.addError(
+                        loc.start,
+                        loc.end,
+                        "'try' requires an error union operand",
+                    );
+                }
+
+                // Validate enclosing function returns an error union.
+                if (!self.type_pool.isErrorUnion(self.current_fn_return_type)) {
+                    try self.diagnostics.addError(
+                        loc.start,
+                        loc.end,
+                        "'try' requires enclosing function to return an error union",
+                    );
+                }
+
+                // Unwrap !T → T.
+                if (self.type_pool.unwrapErrorUnion(operand_type)) |payload| {
+                    break :blk payload;
+                }
                 break :blk types.null_type;
             },
 
@@ -1604,6 +1749,15 @@ const TypeChecker = struct {
                     .is_const = true,
                 } }) catch types.null_type;
             },
+            .type_nullable => {
+                // T? — resolve the inner type and wrap in nullable.
+                const inner = self.nodeData(node).lhs;
+                const inner_type = self.resolveTypeNode(inner);
+                if (inner_type == types.null_type) return types.null_type;
+                return self.type_pool.intern(self.allocator, .{ .nullable_type = .{
+                    .inner = inner_type,
+                } }) catch types.null_type;
+            },
             else => types.null_type,
         };
     }
@@ -1614,6 +1768,14 @@ const TypeChecker = struct {
         if (a == b) return true;
         // Both numeric types are compatible for comparisons.
         if (self.type_pool.isNumeric(a) and self.type_pool.isNumeric(b)) return true;
+        // T is assignable to !T (error union wrapping).
+        if (self.type_pool.unwrapErrorUnion(a)) |payload| {
+            if (self.typesCompatible(payload, b)) return true;
+        }
+        // T is assignable to T? (nullable wrapping).
+        if (self.type_pool.unwrapNullable(a)) |inner| {
+            if (self.typesCompatible(inner, b)) return true;
+        }
         return self.type_pool.typeEql(a, b);
     }
 
@@ -1639,6 +1801,7 @@ const TypeChecker = struct {
         const typ = self.type_pool.get(type_id);
         return switch (typ) {
             .error_union_type => "!T",
+            .nullable_type => "T?",
             .fn_type => "fn",
             .struct_type => |st| st.name,
             .interface_type => |it| it.name,
@@ -2733,6 +2896,177 @@ test "typecheck: interface type as function parameter" {
         \\    to_string() string
         \\}
         \\fn print_it(s Stringer) {
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+// ── Error union and nullable type checking tests ────────────────────────────
+
+test "typecheck: error union return type construction" {
+    const result = try testTypeCheck(
+        \\fn read_file() !int {
+        \\    return 42
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: nullable type construction in var decl" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    var x int? = null
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: try on error union valid" {
+    const result = try testTypeCheck(
+        \\fn read_file() !int {
+        \\    return 42
+        \\}
+        \\fn main() !int {
+        \\    var x int = try read_file()
+        \\    return x
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: try on non-error-union operand" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\fn get_val() int {
+        \\    return 42
+        \\}
+        \\fn main() !int {
+        \\    var x int = try get_val()
+        \\    return x
+        \\}
+        \\
+    , "'try' requires an error union operand");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: try in non-error-union function" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\fn read_file() !int {
+        \\    return 42
+        \\}
+        \\fn main() {
+        \\    var x int = try read_file()
+        \\}
+        \\
+    , "'try' requires enclosing function to return an error union");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: null assigned to nullable type" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    var x int? = null
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: null assigned to non-nullable type rejected" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\fn main() {
+        \\    var x int = null
+        \\}
+        \\
+    , "cannot assign null to non-nullable type");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: null assigned to non-nullable in assignment" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\fn main() {
+        \\    var x int = 42
+        \\    x = null
+        \\}
+        \\
+    , "cannot assign null to non-nullable type");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: switch exhaustive on error union" {
+    const result = try testTypeCheck(
+        \\fn read_file() !int {
+        \\    return 42
+        \\}
+        \\fn main() {
+        \\    switch read_file() {
+        \\        .ok(val) :: val,
+        \\        .err(e) :: e,
+        \\    }
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: switch non-exhaustive on error union missing err" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\fn read_file() !int {
+        \\    return 42
+        \\}
+        \\fn main() {
+        \\    switch read_file() {
+        \\        .ok(val) :: val,
+        \\    }
+        \\}
+        \\
+    , "non-exhaustive switch on error union");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: switch exhaustive on nullable" {
+    const result = try testTypeCheck(
+        \\fn find() int? {
+        \\    return 42
+        \\}
+        \\fn main() {
+        \\    switch find() {
+        \\        .some(val) :: val,
+        \\        null :: 0,
+        \\    }
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: switch non-exhaustive on nullable missing null" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\fn find() int? {
+        \\    return 42
+        \\}
+        \\fn main() {
+        \\    switch find() {
+        \\        .some(val) :: val,
+        \\    }
+        \\}
+        \\
+    , "non-exhaustive switch on nullable");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: switch with wildcard on error union" {
+    const result = try testTypeCheck(
+        \\fn read_file() !int {
+        \\    return 42
+        \\}
+        \\fn main() {
+        \\    switch read_file() {
+        \\        _ :: 0,
+        \\    }
         \\}
         \\
     );
