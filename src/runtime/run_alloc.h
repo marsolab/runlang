@@ -1,8 +1,8 @@
 #ifndef RUN_ALLOC_H
 #define RUN_ALLOC_H
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 typedef struct {
     void *ptr;

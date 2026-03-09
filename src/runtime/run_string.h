@@ -1,8 +1,8 @@
 #ifndef RUN_STRING_H
 #define RUN_STRING_H
 
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 typedef struct {
     const char *ptr;

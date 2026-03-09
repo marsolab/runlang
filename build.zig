@@ -4,6 +4,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Sanitizer options for runtime C code
+    const sanitize = b.option(bool, "sanitize", "Enable ASan+UBSan for runtime C code") orelse false;
+    const tsan = b.option(bool, "tsan", "Enable ThreadSanitizer for runtime C code") orelse false;
+
     // Main compiler executable
     const exe = b.addExecutable(.{
         .name = "run",
@@ -31,9 +35,30 @@ pub fn build(b: *std.Build) void {
         "src/runtime/run_scheduler.c",
         "src/runtime/run_chan.c",
     };
+
+    // Build sanitizer flags
+    var sanitizer_flag_buf: [8][]const u8 = undefined;
+    var sanitizer_flag_count: usize = 0;
+    if (sanitize) {
+        sanitizer_flag_buf[sanitizer_flag_count] = "-fsanitize=address,undefined";
+        sanitizer_flag_count += 1;
+        sanitizer_flag_buf[sanitizer_flag_count] = "-fno-omit-frame-pointer";
+        sanitizer_flag_count += 1;
+        sanitizer_flag_buf[sanitizer_flag_count] = "-g";
+        sanitizer_flag_count += 1;
+    }
+    if (tsan) {
+        sanitizer_flag_buf[sanitizer_flag_count] = "-fsanitize=thread";
+        sanitizer_flag_count += 1;
+        sanitizer_flag_buf[sanitizer_flag_count] = "-g";
+        sanitizer_flag_count += 1;
+    }
+    const sanitizer_flags = sanitizer_flag_buf[0..sanitizer_flag_count];
+
     inline for (runtime_c_sources) |src| {
         runtime_lib.root_module.addCSourceFile(.{
             .file = b.path(src),
+            .flags = sanitizer_flags,
         });
     }
     runtime_lib.root_module.addIncludePath(b.path("src/runtime"));

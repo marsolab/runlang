@@ -1,6 +1,7 @@
 #include "run_fmt.h"
-#include <stdio.h>
+
 #include <inttypes.h>
+#include <stdio.h>
 
 void run_fmt_println(run_string_t s) {
     if (s.len > 0) {

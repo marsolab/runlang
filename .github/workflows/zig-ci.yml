@@ -39,3 +39,47 @@ jobs:
 
       - name: Zig test
         run: zig test src/root.zig
+
+  runtime-sanitize:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Build with sanitizers
+        run: zig build -Dsanitize=true
+
+      - name: Test with sanitizers
+        run: zig build test -Dsanitize=true
+
+  clang-tidy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install clang-tidy
+        run: sudo apt-get install -y clang-tidy
+
+      - name: Run clang-tidy
+        run: clang-tidy src/runtime/*.c -- -Isrc/runtime
+
+  clang-format:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: sudo apt-get install -y clang-format
+
+      - name: Check formatting
+        run: clang-format --dry-run --Werror src/runtime/*.c src/runtime/*.h

@@ -1,6 +1,7 @@
 #include "run_slice.h"
-#include <stdlib.h>
+
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 run_slice_t run_slice_new(size_t elem_size, size_t initial_cap) {
