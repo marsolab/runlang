@@ -23,6 +23,10 @@ pub const TypeCheckResult = struct {
     allocated_param_slices: std.ArrayList([]const TypeId),
     /// Field slices allocated for StructType entries; must be freed.
     allocated_field_slices: std.ArrayList([]const types.StructField),
+    /// TypeId slices allocated for struct implements; must be freed.
+    allocated_type_id_slices: std.ArrayList([]const TypeId),
+    /// MethodSig slices allocated for InterfaceType entries; must be freed.
+    allocated_method_sig_slices: std.ArrayList([]const types.MethodSig),
 
     pub fn deinit(self: *TypeCheckResult, allocator: std.mem.Allocator) void {
         for (self.allocated_param_slices.items) |slice| {
@@ -33,6 +37,14 @@ pub const TypeCheckResult = struct {
             allocator.free(slice);
         }
         self.allocated_field_slices.deinit(allocator);
+        for (self.allocated_type_id_slices.items) |slice| {
+            allocator.free(slice);
+        }
+        self.allocated_type_id_slices.deinit(allocator);
+        for (self.allocated_method_sig_slices.items) |slice| {
+            allocator.free(slice);
+        }
+        self.allocated_method_sig_slices.deinit(allocator);
         self.diagnostics.deinit();
         self.type_map.deinit(allocator);
         self.type_pool.deinit(allocator);
@@ -66,6 +78,10 @@ const TypeChecker = struct {
     allocated_param_slices: std.ArrayList([]const TypeId),
     /// Tracks field slices allocated for StructType entries.
     allocated_field_slices: std.ArrayList([]const types.StructField),
+    /// Tracks TypeId slices allocated for struct implements.
+    allocated_type_id_slices: std.ArrayList([]const TypeId),
+    /// Tracks MethodSig slices allocated for InterfaceType entries.
+    allocated_method_sig_slices: std.ArrayList([]const types.MethodSig),
 
     const CheckError = error{OutOfMemory};
 
@@ -90,6 +106,8 @@ const TypeChecker = struct {
             .current_fn_return_type = types.null_type,
             .allocated_param_slices = .empty,
             .allocated_field_slices = .empty,
+            .allocated_type_id_slices = .empty,
+            .allocated_method_sig_slices = .empty,
         };
     }
 
@@ -101,6 +119,8 @@ const TypeChecker = struct {
             .type_pool = self.type_pool,
             .allocated_param_slices = self.allocated_param_slices,
             .allocated_field_slices = self.allocated_field_slices,
+            .allocated_type_id_slices = self.allocated_type_id_slices,
+            .allocated_method_sig_slices = self.allocated_method_sig_slices,
         };
     }
 
@@ -112,7 +132,18 @@ const TypeChecker = struct {
         const count = root.data.rhs;
         const decl_indices = self.tree.extra_data.items[start .. start + count];
 
-        // Pass 0: Register struct types so they can be referenced in type annotations.
+        // Pass 0: Register interface types so they can be referenced.
+        for (decl_indices) |decl_idx| {
+            var node = decl_idx;
+            if (self.nodeTag(node) == .pub_decl) {
+                node = self.nodeData(node).lhs;
+            }
+            if (self.nodeTag(node) == .interface_decl) {
+                try self.registerInterfaceType(node);
+            }
+        }
+
+        // Pass 0b: Register struct types so they can be referenced in type annotations.
         for (decl_indices) |decl_idx| {
             var node = decl_idx;
             if (self.nodeTag(node) == .pub_decl) {
@@ -150,6 +181,97 @@ const TypeChecker = struct {
                 else => {},
             }
         }
+
+        // Pass 3: Check interface satisfaction for all struct declarations.
+        for (decl_indices) |decl_idx| {
+            var node = decl_idx;
+            if (self.nodeTag(node) == .pub_decl) {
+                node = self.nodeData(node).lhs;
+            }
+            if (self.nodeTag(node) == .struct_decl) {
+                try self.checkInterfaceSatisfaction(node);
+            }
+        }
+    }
+
+    // ── Interface type registration ────────────────────────────────────────
+
+    /// Build an InterfaceType from an interface_decl node and register it in the type pool.
+    fn registerInterfaceType(self: *TypeChecker, node: NodeIndex) CheckError!void {
+        const data = self.nodeData(node);
+        const main_tok = self.nodeMainToken(node);
+        const name_tok = main_tok + 1;
+        const name = self.tokenSlice(name_tok);
+        const extra = self.tree.extra_data.items;
+        const methods_start = data.lhs;
+        const method_count = data.rhs;
+
+        // Build MethodSig array for the interface.
+        var method_sigs: std.ArrayList(types.MethodSig) = .empty;
+        defer method_sigs.deinit(self.allocator);
+
+        const method_sig_nodes = extra[methods_start .. methods_start + method_count];
+        for (method_sig_nodes) |msig_node| {
+            if (msig_node == null_node) continue;
+            const msig_data = self.nodeData(msig_node);
+            const msig_name = self.tokenSlice(self.nodeMainToken(msig_node));
+
+            // Build FnType for this method signature.
+            const params_start = msig_data.lhs;
+            const param_count = self.findParamCount(params_start, extra);
+
+            var param_types_list: std.ArrayList(TypeId) = .empty;
+            defer param_types_list.deinit(self.allocator);
+
+            const param_nodes = extra[params_start .. params_start + param_count];
+            for (param_nodes) |param_node| {
+                if (param_node == null_node) {
+                    try param_types_list.append(self.allocator, types.null_type);
+                    continue;
+                }
+                const param_type_node = self.nodeData(param_node).lhs;
+                const param_type = self.resolveTypeNode(param_type_node);
+                try param_types_list.append(self.allocator, param_type);
+            }
+
+            // Return type: extra_data[params_start + param_count + 1]
+            // Note: method_sig has no receiver_node slot (unlike fn_decl which has +2)
+            const ret_type_node = extra[params_start + param_count + 1];
+            const return_type = self.resolveTypeNode(ret_type_node);
+
+            // Allocate param slice and track it.
+            const owned_params = try self.allocator.alloc(TypeId, param_types_list.items.len);
+            @memcpy(owned_params, param_types_list.items);
+            try self.allocated_param_slices.append(self.allocator, owned_params);
+
+            const fn_type_id = try self.type_pool.addType(self.allocator, .{ .fn_type = .{
+                .params = owned_params,
+                .return_type = return_type,
+            } });
+
+            try method_sigs.append(self.allocator, .{
+                .name = msig_name,
+                .type_id = fn_type_id,
+            });
+        }
+
+        // Allocate MethodSig slice and track for cleanup.
+        const owned_methods = try self.allocator.alloc(types.MethodSig, method_sigs.items.len);
+        @memcpy(owned_methods, method_sigs.items);
+        try self.allocated_method_sig_slices.append(self.allocator, owned_methods);
+
+        // Create InterfaceType.
+        const iface_type_id = try self.type_pool.addType(self.allocator, .{ .interface_type = .{
+            .name = name,
+            .methods = owned_methods,
+        } });
+
+        // Update the interface symbol's type_id.
+        if (self.symbols.lookup(name)) |sym_id| {
+            self.symbols.getSymbolPtr(sym_id).type_id = iface_type_id;
+        }
+
+        self.type_map.items[node] = iface_type_id;
     }
 
     // ── Struct type registration ──────────────────────────────────────────
@@ -182,12 +304,34 @@ const TypeChecker = struct {
             };
         }
 
+        // Resolve implements interfaces.
+        const impl_list = self.allocator.alloc(TypeId, implements_count) catch return;
+        self.allocated_type_id_slices.append(self.allocator, impl_list) catch return;
+        for (0..implements_count) |i| {
+            const iface_ident_node = extra[extra_start + 1 + i];
+            if (iface_ident_node == null_node) {
+                impl_list[i] = types.null_type;
+                continue;
+            }
+            const iface_name = self.tokenSlice(self.nodeMainToken(iface_ident_node));
+            if (self.symbols.lookup(iface_name)) |sym_id| {
+                const sym = self.symbols.getSymbol(sym_id);
+                if (sym.type_id != types.null_type) {
+                    impl_list[i] = sym.type_id;
+                } else {
+                    impl_list[i] = types.null_type;
+                }
+            } else {
+                impl_list[i] = types.null_type;
+            }
+        }
+
         // Create StructType in the pool.
         const struct_type_id = self.type_pool.addType(self.allocator, .{ .struct_type = .{
             .name = struct_name,
             .fields = fields,
             .methods = &.{},
-            .implements = &.{},
+            .implements = impl_list,
         } }) catch return;
 
         // Update the type_def symbol's type_id.
@@ -241,6 +385,120 @@ const TypeChecker = struct {
             },
             else => null,
         };
+    }
+
+    // ── Interface satisfaction checking ─────────────────────────────────────
+
+    /// Verify that a struct implements all methods required by its declared interfaces.
+    fn checkInterfaceSatisfaction(self: *TypeChecker, node: NodeIndex) CheckError!void {
+        const data = self.nodeData(node);
+        const struct_name = self.tokenSlice(self.nodeMainToken(node));
+        const extra = self.tree.extra_data.items;
+        const extra_start = data.lhs;
+        const implements_count = extra[extra_start];
+
+        if (implements_count == 0) return;
+
+        // Get the struct's TypeId.
+        const struct_type_id = self.type_map.items[node];
+        if (struct_type_id == types.null_type) return;
+
+        var i: u32 = 0;
+        while (i < implements_count) : (i += 1) {
+            const iface_ident_node = extra[extra_start + 1 + i];
+            if (iface_ident_node == null_node) continue;
+            const iface_name_tok = self.nodeMainToken(iface_ident_node);
+            const iface_name = self.tokenSlice(iface_name_tok);
+            const loc = self.tokenLoc(iface_name_tok);
+
+            // Look up the interface.
+            const iface_sym_id = self.symbols.lookup(iface_name) orelse {
+                try self.diagnostics.addErrorFmt(
+                    loc.start,
+                    loc.end,
+                    "undefined interface '{s}'",
+                    .{iface_name},
+                );
+                continue;
+            };
+
+            const iface_sym = self.symbols.getSymbol(iface_sym_id);
+            if (iface_sym.type_id == types.null_type) {
+                try self.diagnostics.addErrorFmt(
+                    loc.start,
+                    loc.end,
+                    "undefined interface '{s}'",
+                    .{iface_name},
+                );
+                continue;
+            }
+
+            // Verify it's actually an interface type.
+            const iface_type = self.type_pool.get(iface_sym.type_id);
+            const iface_methods = switch (iface_type) {
+                .interface_type => |it| it.methods,
+                else => {
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "'{s}' is not an interface",
+                        .{iface_name},
+                    );
+                    continue;
+                },
+            };
+
+            // Check each required method.
+            for (iface_methods) |required_method| {
+                const method_sym_id = self.symbols.lookupMethod(struct_type_id, required_method.name);
+
+                if (method_sym_id == null) {
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "type '{s}' does not implement interface '{s}': missing method '{s}'",
+                        .{ struct_name, iface_name, required_method.name },
+                    );
+                    continue;
+                }
+
+                // Compare method signatures.
+                const method_sym = self.symbols.getSymbol(method_sym_id.?);
+                if (method_sym.type_id == types.null_type) continue;
+
+                const method_type = self.type_pool.get(method_sym.type_id);
+                const method_fn = switch (method_type) {
+                    .fn_type => |ft| ft,
+                    else => continue,
+                };
+
+                const required_fn = switch (self.type_pool.get(required_method.type_id)) {
+                    .fn_type => |ft| ft,
+                    else => continue,
+                };
+
+                // Compare signatures.
+                if (!self.fnSignaturesMatch(method_fn, required_fn)) {
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "type '{s}' does not implement interface '{s}': method '{s}' has wrong signature",
+                        .{ struct_name, iface_name, required_method.name },
+                    );
+                }
+            }
+        }
+    }
+
+    /// Compare two FnType signatures for compatibility.
+    fn fnSignaturesMatch(self: *TypeChecker, actual: types.FnType, expected: types.FnType) bool {
+        if (actual.params.len != expected.params.len) return false;
+        if (!self.typesCompatible(actual.return_type, expected.return_type)) return false;
+        for (actual.params, expected.params) |a, e| {
+            if (a == types.null_type or e == types.null_type) continue;
+            if (!self.typesCompatible(a, e)) return false;
+        }
+        return true;
     }
 
     // ── Function type registration ──────────────────────────────────────────
@@ -1383,6 +1641,7 @@ const TypeChecker = struct {
             .error_union_type => "!T",
             .fn_type => "fn",
             .struct_type => |st| st.name,
+            .interface_type => |it| it.name,
             .ptr_type => |pt| {
                 if (pt.is_const) return "@T";
                 return "&T";
@@ -2307,6 +2566,173 @@ test "typecheck: struct field with struct type" {
         \\    n := Name{ first: "John", last: "Doe" }
         \\    p := Person{ name: n, age: 30 }
         \\    var f string = p.name.first
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: struct satisfies interface" {
+    const result = try testTypeCheck(
+        \\interface Stringer {
+        \\    to_string() string
+        \\}
+        \\Point struct {
+        \\    implements (
+        \\        Stringer,
+        \\    )
+        \\    x int
+        \\    y int
+        \\}
+        \\fn (p &Point) to_string() string {
+        \\    return "point"
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: struct missing method from interface" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\interface Stringer {
+        \\    to_string() string
+        \\}
+        \\Point struct {
+        \\    implements (
+        \\        Stringer,
+        \\    )
+        \\    x int
+        \\}
+        \\
+    , "missing method");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: method wrong parameter type" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\interface Adder {
+        \\    add(x int) int
+        \\}
+        \\Calc struct {
+        \\    implements (
+        \\        Adder,
+        \\    )
+        \\    val int
+        \\}
+        \\fn (c &Calc) add(x string) int {
+        \\    return 0
+        \\}
+        \\
+    , "wrong signature");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: method wrong return type" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\interface Stringer {
+        \\    to_string() string
+        \\}
+        \\Point struct {
+        \\    implements (
+        \\        Stringer,
+        \\    )
+        \\    x int
+        \\}
+        \\fn (p &Point) to_string() int {
+        \\    return 0
+        \\}
+        \\
+    , "wrong signature");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: method wrong parameter count" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\interface Adder {
+        \\    add(x int) int
+        \\}
+        \\Calc struct {
+        \\    implements (
+        \\        Adder,
+        \\    )
+        \\    val int
+        \\}
+        \\fn (c &Calc) add(x int, y int) int {
+        \\    return 0
+        \\}
+        \\
+    , "wrong signature");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: struct satisfies multiple interfaces" {
+    const result = try testTypeCheck(
+        \\interface Stringer {
+        \\    to_string() string
+        \\}
+        \\interface Adder {
+        \\    add(x int) int
+        \\}
+        \\Widget struct {
+        \\    implements (
+        \\        Stringer,
+        \\        Adder,
+        \\    )
+        \\    val int
+        \\}
+        \\fn (w &Widget) to_string() string {
+        \\    return "widget"
+        \\}
+        \\fn (w &Widget) add(x int) int {
+        \\    return 0
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: one of multiple interfaces not satisfied" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\interface Stringer {
+        \\    to_string() string
+        \\}
+        \\interface Adder {
+        \\    add(x int) int
+        \\}
+        \\Widget struct {
+        \\    implements (
+        \\        Stringer,
+        \\        Adder,
+        \\    )
+        \\    val int
+        \\}
+        \\fn (w &Widget) to_string() string {
+        \\    return "widget"
+        \\}
+        \\
+    , "missing method");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: undefined interface in implements" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\Point struct {
+        \\    implements (
+        \\        NonExistent,
+        \\    )
+        \\    x int
+        \\}
+        \\
+    , "undefined interface");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: interface type as function parameter" {
+    const result = try testTypeCheck(
+        \\interface Stringer {
+        \\    to_string() string
+        \\}
+        \\fn print_it(s Stringer) {
         \\}
         \\
     );
