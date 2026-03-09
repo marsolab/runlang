@@ -37,21 +37,28 @@ pub fn build(b: *std.Build) void {
     };
 
     // Build sanitizer flags
-    var sanitizer_flags: std.BoundedArray([]const u8, 8) = .{};
+    var sanitizer_flag_buf: [8][]const u8 = undefined;
+    var sanitizer_flag_count: usize = 0;
     if (sanitize) {
-        sanitizer_flags.appendAssumeCapacity("-fsanitize=address,undefined");
-        sanitizer_flags.appendAssumeCapacity("-fno-omit-frame-pointer");
-        sanitizer_flags.appendAssumeCapacity("-g");
+        sanitizer_flag_buf[sanitizer_flag_count] = "-fsanitize=address,undefined";
+        sanitizer_flag_count += 1;
+        sanitizer_flag_buf[sanitizer_flag_count] = "-fno-omit-frame-pointer";
+        sanitizer_flag_count += 1;
+        sanitizer_flag_buf[sanitizer_flag_count] = "-g";
+        sanitizer_flag_count += 1;
     }
     if (tsan) {
-        sanitizer_flags.appendAssumeCapacity("-fsanitize=thread");
-        sanitizer_flags.appendAssumeCapacity("-g");
+        sanitizer_flag_buf[sanitizer_flag_count] = "-fsanitize=thread";
+        sanitizer_flag_count += 1;
+        sanitizer_flag_buf[sanitizer_flag_count] = "-g";
+        sanitizer_flag_count += 1;
     }
+    const sanitizer_flags = sanitizer_flag_buf[0..sanitizer_flag_count];
 
     inline for (runtime_c_sources) |src| {
         runtime_lib.root_module.addCSourceFile(.{
             .file = b.path(src),
-            .flags = sanitizer_flags.constSlice(),
+            .flags = sanitizer_flags,
         });
     }
     runtime_lib.root_module.addIncludePath(b.path("src/runtime"));
