@@ -19,6 +19,7 @@ pub const resolve = @import("resolve.zig");
 pub const typecheck = @import("typecheck.zig");
 pub const lower = @import("lower.zig");
 pub const driver = @import("driver.zig");
+pub const lint = @import("lint.zig");
 
 const std = @import("std");
 

@@ -9,6 +9,7 @@ const typecheck = @import("typecheck.zig");
 const lower_mod = @import("lower.zig");
 const ir = @import("ir.zig");
 const codegen_c = @import("codegen_c.zig");
+const lint = @import("lint.zig");
 
 const File = std.fs.File;
 
@@ -28,6 +29,7 @@ pub const CompileError = error{
     ParseFailed,
     ConventionFailed,
     NamingFailed,
+    LintFailed,
     CodegenNotImplemented,
     CCompileFailed,
     RunFailed,
@@ -313,6 +315,61 @@ pub fn executeAndCleanup(
     std.fs.cwd().deleteFile(binary_path) catch {};
 
     return result.Exited;
+}
+
+/// Run the linter on the given source file(s) and print diagnostics.
+pub fn lintFile(allocator: std.mem.Allocator, path: []const u8) CompileError!bool {
+    const source = readFile(allocator, path) catch {
+        return CompileError.ReadFailed;
+    };
+    defer allocator.free(source);
+
+    // Lex
+    var lexer = Lexer.init(source);
+    var tokens = lexer.tokenize(allocator) catch {
+        return CompileError.OutOfMemory;
+    };
+    defer tokens.deinit(allocator);
+
+    // Parse
+    var parser = Parser.init(allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = parser.parseFile() catch {
+        return CompileError.OutOfMemory;
+    };
+
+    const stderr = File.stderr().deprecatedWriter();
+
+    if (parser.tree.errors.items.len > 0) {
+        for (parser.tree.errors.items) |err| {
+            stderr.print("error: {s} at offset {d}\n", .{ @tagName(err.tag), err.loc.start }) catch {};
+        }
+        return CompileError.ParseFailed;
+    }
+
+    // Run linter
+    var runner = lint.LintRunner.init(allocator);
+    defer runner.deinit();
+
+    runner.addBuiltinRules() catch {
+        return CompileError.OutOfMemory;
+    };
+
+    runner.run(&parser.tree, tokens.items, source, path) catch {
+        return CompileError.OutOfMemory;
+    };
+
+    if (runner.results.items.len > 0) {
+        runner.render(source, path, stderr) catch {};
+    }
+
+    if (runner.results.items.len == 0) {
+        const stdout = File.stdout().deprecatedWriter();
+        stdout.print("lint: {s} OK\n", .{path}) catch {};
+    }
+
+    return runner.hasErrors();
 }
 
 fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {

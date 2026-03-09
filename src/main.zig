@@ -12,6 +12,7 @@ const usage =
     \\  build    Compile a .run source file to native binary
     \\  run      Compile and immediately execute
     \\  check    Type-check without generating code
+    \\  lint     Run linter checks on source files
     \\  tokens   Dump lexer token stream (debug)
     \\  ast      Dump parsed AST (debug)
     \\
@@ -55,6 +56,30 @@ pub fn main() !void {
             std.process.exit(1);
         }
         try cmdAst(allocator, args[2]);
+        return;
+    }
+
+    if (std.mem.eql(u8, command, "lint")) {
+        if (args.len < 3) {
+            try File.stderr().writeAll("Error: no input file\n");
+            std.process.exit(1);
+        }
+        var has_errors = false;
+        for (args[2..]) |path| {
+            const file_has_errors = driver.lintFile(allocator, path) catch |err| switch (err) {
+                error.ParseFailed => {
+                    has_errors = true;
+                    continue;
+                },
+                else => {
+                    File.stderr().deprecatedWriter().print("error: {s}: {s}\n", .{ path, @errorName(err) }) catch {};
+                    has_errors = true;
+                    continue;
+                },
+            };
+            if (file_has_errors) has_errors = true;
+        }
+        if (has_errors) std.process.exit(1);
         return;
     }
 
