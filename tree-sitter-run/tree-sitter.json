@@ -1,0 +1,31 @@
+{
+  "grammars": [
+    {
+      "name": "run",
+      "camelcase": "Run",
+      "scope": "source.run",
+      "path": ".",
+      "file-types": [
+        "run"
+      ],
+      "highlights": "queries/highlights.scm",
+      "injection-regex": "^run$"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Tree-sitter grammar for the Run programming language",
+    "links": {
+      "repository": "https://github.com/marsolab/runlang"
+    }
+  },
+  "bindings": {
+    "c": true,
+    "go": true,
+    "node": true,
+    "python": true,
+    "rust": true,
+    "swift": true
+  }
+}

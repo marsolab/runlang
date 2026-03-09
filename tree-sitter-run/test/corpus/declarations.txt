@@ -1,0 +1,210 @@
+================================================================================
+Package declaration
+================================================================================
+
+package main
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (package_declaration
+    name: (identifier)))
+
+================================================================================
+Import declaration
+================================================================================
+
+use "fmt"
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (import_declaration
+    path: (string_literal)))
+
+================================================================================
+Simple function
+================================================================================
+
+fn add(a int, b int) int {
+    return a + b
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameter_list
+      (parameter
+        name: (identifier)
+        type: (simple_type
+          (identifier)))
+      (parameter
+        name: (identifier)
+        type: (simple_type
+          (identifier))))
+    return_type: (simple_type
+      (identifier))
+    body: (block
+      (return_statement
+        (binary_expression
+          left: (identifier)
+          right: (identifier))))))
+
+================================================================================
+Public function with fun keyword
+================================================================================
+
+pub fun main() {
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pub_declaration
+    declaration: (function_declaration
+      name: (identifier)
+      (parameter_list)
+      body: (block))))
+
+================================================================================
+Method with receiver
+================================================================================
+
+fn (p &Point) translate(dx f64, dy f64) {
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    receiver: (receiver
+      name: (identifier)
+      type: (pointer_type
+        (simple_type
+          (identifier))))
+    name: (identifier)
+    (parameter_list
+      (parameter
+        name: (identifier)
+        type: (simple_type
+          (identifier)))
+      (parameter
+        name: (identifier)
+        type: (simple_type
+          (identifier))))
+    body: (block)))
+
+================================================================================
+Struct declaration
+================================================================================
+
+Point struct {
+    x f64
+    y f64
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (struct_declaration
+    name: (identifier)
+    (struct_body
+      (field_declaration
+        name: (identifier)
+        type: (simple_type
+          (identifier)))
+      (field_declaration
+        name: (identifier)
+        type: (simple_type
+          (identifier))))))
+
+================================================================================
+Struct with implements
+================================================================================
+
+Point struct {
+    implements(
+        Stringer
+    )
+    x f64
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (struct_declaration
+    name: (identifier)
+    (struct_body
+      (implements_clause
+        (identifier))
+      (field_declaration
+        name: (identifier)
+        type: (simple_type
+          (identifier))))))
+
+================================================================================
+Interface declaration
+================================================================================
+
+interface Stringer {
+    fn to_string() string
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (interface_declaration
+    name: (identifier)
+    (method_signature
+      name: (identifier)
+      (parameter_list)
+      return_type: (simple_type
+        (identifier)))))
+
+================================================================================
+Sum type declaration
+================================================================================
+
+type State = .loading | .ready(Data) | .error(string)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_declaration
+    name: (identifier)
+    (variant_definition
+      (identifier))
+    (variant_definition
+      (identifier)
+      (simple_type
+        (identifier)))
+    (variant_definition
+      (identifier)
+      (simple_type
+        (identifier)))))
+
+================================================================================
+Variable declarations
+================================================================================
+
+var x int
+var y int = 42
+let z = 10
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (variable_declaration
+    name: (identifier)
+    type: (simple_type
+      (identifier)))
+  (variable_declaration
+    name: (identifier)
+    type: (simple_type
+      (identifier))
+    value: (int_literal))
+  (let_declaration
+    name: (identifier)
+    value: (int_literal)))

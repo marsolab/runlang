@@ -2,5 +2,5 @@
 zig-out/
 main
 main.o
-run
-test
+/run
+/test
