@@ -1,0 +1,90 @@
+================================================================================
+Binary expressions
+================================================================================
+
+fn main() {
+    x + y
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameter_list)
+    body: (block
+      (expression_statement
+        (binary_expression
+          left: (identifier)
+          right: (identifier))))))
+
+================================================================================
+Function calls
+================================================================================
+
+fn main() {
+    foo()
+    bar(1, 2)
+    fmt.println("hello")
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameter_list)
+    body: (block
+      (expression_statement
+        (call_expression
+          function: (identifier)
+          (argument_list)))
+      (expression_statement
+        (call_expression
+          function: (identifier)
+          (argument_list
+            (int_literal)
+            (int_literal))))
+      (expression_statement
+        (call_expression
+          function: (field_access
+            object: (identifier)
+            field: (identifier))
+          (argument_list
+            (string_literal)))))))
+
+================================================================================
+Literals
+================================================================================
+
+fn main() {
+    42
+    3.14
+    "hello"
+    true
+    false
+    null
+    0xFF
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameter_list)
+    body: (block
+      (expression_statement
+        (int_literal))
+      (expression_statement
+        (float_literal))
+      (expression_statement
+        (string_literal))
+      (expression_statement
+        (bool_literal))
+      (expression_statement
+        (bool_literal))
+      (expression_statement
+        (null_literal))
+      (expression_statement
+        (int_literal)))))
