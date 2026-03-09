@@ -969,7 +969,6 @@ const TypeChecker = struct {
         if (self.resolution_map[node]) |sym_id| {
             self.symbols.getSymbolPtr(sym_id).type_id = final_type;
         }
-
         self.type_map.items[node] = final_type;
     }
 
@@ -2185,9 +2184,11 @@ fn testTypeCheck(source: []const u8) !struct { has_errors: bool, error_count: us
     var tc_result = try typeCheck(allocator, &parser.tree, token_list.items, &res);
     defer tc_result.deinit(allocator);
 
+    const has_resolve_errors = res.diagnostics.hasErrors();
+    const has_tc_errors = tc_result.diagnostics.hasErrors();
     return .{
-        .has_errors = tc_result.diagnostics.hasErrors(),
-        .error_count = tc_result.diagnostics.diagnostics.items.len,
+        .has_errors = has_resolve_errors or has_tc_errors,
+        .error_count = res.diagnostics.diagnostics.items.len + tc_result.diagnostics.diagnostics.items.len,
     };
 }
 
@@ -2207,8 +2208,10 @@ fn testTypeCheckHasErrorContaining(source: []const u8, needle: []const u8) !bool
     var tc_result = try typeCheck(allocator, &parser.tree, token_list.items, &res);
     defer tc_result.deinit(allocator);
 
-    if (!tc_result.diagnostics.hasErrors()) return false;
-
+    // Check both resolve and typecheck diagnostics for the needle.
+    for (res.diagnostics.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, needle) != null) return true;
+    }
     for (tc_result.diagnostics.diagnostics.items) |d| {
         if (std.mem.indexOf(u8, d.message, needle) != null) return true;
     }

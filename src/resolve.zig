@@ -847,14 +847,55 @@ pub const Resolver = struct {
     fn resolveSwitchArm(self: *Resolver, node: NodeIndex) ResolveError!void {
         if (node == null_node) return;
         const data = self.nodeData(node);
-        try self.resolveNode(data.lhs); // pattern
-        // Body can be a block or an expression
+
+        // Create a scope for this arm so pattern-bound variables are visible in the body.
+        try self.symbols.pushScope(self.allocator);
+        defer self.symbols.popScope(self.allocator);
+
+        // Resolve the pattern, binding payload variables instead of resolving them as idents.
+        self.resolvePattern(data.lhs);
+
+        // Body can be a block or an expression.
         if (data.rhs != null_node) {
             if (self.nodeTag(data.rhs) == .block) {
                 try self.resolveBlock(data.rhs);
             } else {
                 try self.resolveNode(data.rhs);
             }
+        }
+    }
+
+    /// Resolve a switch arm pattern, binding payload identifiers as variables
+    /// instead of trying to look them up in scope.
+    fn resolvePattern(self: *Resolver, node: NodeIndex) void {
+        if (node == null_node) return;
+        const tag = self.nodeTag(node);
+        switch (tag) {
+            .variant => {
+                // .name or .name(payload) — bind payload if present.
+                const payload = self.nodeData(node).lhs;
+                if (payload != null_node and self.nodeTag(payload) == .ident) {
+                    const name_tok = self.nodeMainToken(payload);
+                    const name = self.tokenSlice(name_tok);
+                    // Skip wildcard `_`.
+                    if (!std.mem.eql(u8, name, "_")) {
+                        const sym_id = self.symbols.define(self.allocator, name, .{
+                            .name = name,
+                            .kind = .variable,
+                            .type_id = types.null_type,
+                            .is_pub = false,
+                            .is_mutable = false,
+                            .decl_node = payload,
+                        }) catch |err| switch (err) {
+                            error.DuplicateSymbol => return,
+                            else => return,
+                        };
+                        self.resolution_map.items[payload] = sym_id;
+                    }
+                }
+            },
+            // Other patterns (ident wildcards, literals, null) need no binding.
+            else => {},
         }
     }
 
