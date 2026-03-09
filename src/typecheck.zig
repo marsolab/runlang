@@ -19,8 +19,14 @@ pub const TypeCheckResult = struct {
     diagnostics: DiagnosticList,
     type_map: std.ArrayList(TypeId),
     type_pool: TypePool,
+    /// Param slices allocated for FnType entries; must be freed.
+    allocated_param_slices: std.ArrayList([]const TypeId),
 
     pub fn deinit(self: *TypeCheckResult, allocator: std.mem.Allocator) void {
+        for (self.allocated_param_slices.items) |slice| {
+            allocator.free(slice);
+        }
+        self.allocated_param_slices.deinit(allocator);
         self.diagnostics.deinit();
         self.type_map.deinit(allocator);
         self.type_pool.deinit(allocator);
@@ -48,6 +54,10 @@ const TypeChecker = struct {
     type_map: std.ArrayList(TypeId),
     diagnostics: DiagnosticList,
     allocator: std.mem.Allocator,
+    /// The return type of the function currently being checked (null_type if void/none).
+    current_fn_return_type: TypeId,
+    /// Tracks param slices allocated for FnType entries.
+    allocated_param_slices: std.ArrayList([]const TypeId),
 
     const CheckError = error{OutOfMemory};
 
@@ -69,6 +79,8 @@ const TypeChecker = struct {
             .type_map = type_map,
             .diagnostics = DiagnosticList.init(allocator),
             .allocator = allocator,
+            .current_fn_return_type = types.null_type,
+            .allocated_param_slices = .empty,
         };
     }
 
@@ -78,6 +90,7 @@ const TypeChecker = struct {
             .diagnostics = self.diagnostics,
             .type_map = self.type_map,
             .type_pool = self.type_pool,
+            .allocated_param_slices = self.allocated_param_slices,
         };
     }
 
@@ -89,6 +102,18 @@ const TypeChecker = struct {
         const count = root.data.rhs;
         const decl_indices = self.tree.extra_data.items[start .. start + count];
 
+        // Pass 1: Register all function signatures so forward/recursive calls work.
+        for (decl_indices) |decl_idx| {
+            var node = decl_idx;
+            if (self.nodeTag(node) == .pub_decl) {
+                node = self.nodeData(node).lhs;
+            }
+            if (self.nodeTag(node) == .fn_decl) {
+                try self.registerFnType(node);
+            }
+        }
+
+        // Pass 2: Type-check bodies and top-level var/let decls.
         for (decl_indices) |decl_idx| {
             var node = decl_idx;
             if (self.nodeTag(node) == .pub_decl) {
@@ -103,13 +128,159 @@ const TypeChecker = struct {
         }
     }
 
+    // ── Function type registration ──────────────────────────────────────────
+
+    /// Extract parameter types and return type from a fn_decl node,
+    /// build a FnType, and store it on the function's symbol.
+    fn registerFnType(self: *TypeChecker, node: NodeIndex) CheckError!void {
+        const data = self.nodeData(node);
+        const params_start = data.lhs;
+        const extra = self.tree.extra_data.items;
+        const param_count = self.findParamCount(params_start, extra);
+
+        // Resolve parameter types.
+        var param_types: std.ArrayList(TypeId) = .empty;
+        defer param_types.deinit(self.allocator);
+        const param_nodes = extra[params_start .. params_start + param_count];
+        for (param_nodes) |param_node| {
+            if (param_node == null_node) {
+                try param_types.append(self.allocator, types.null_type);
+                continue;
+            }
+            const param_type_node = self.nodeData(param_node).lhs;
+            const param_type = self.resolveTypeNode(param_type_node);
+            try param_types.append(self.allocator, param_type);
+        }
+
+        // Resolve return type.
+        // extra_data layout after params: [count, receiver_node, ret_type_node]
+        const ret_type_node = extra[params_start + param_count + 2];
+        const return_type = self.resolveTypeNode(ret_type_node);
+
+        // Allocate param types slice and track for cleanup.
+        const owned_params = try self.allocator.alloc(TypeId, param_types.items.len);
+        @memcpy(owned_params, param_types.items);
+        try self.allocated_param_slices.append(self.allocator, owned_params);
+
+        // Create and register the FnType.
+        const fn_type_id = try self.type_pool.addType(self.allocator, .{ .fn_type = .{
+            .params = owned_params,
+            .return_type = return_type,
+        } });
+
+        // Find the function's symbol and update its type_id.
+        // The resolver registered the function with its name token.
+        const fn_tok = self.nodeMainToken(node);
+        const has_receiver = self.tokens[fn_tok + 1].tag == .l_paren;
+
+        if (has_receiver) {
+            // For methods, find the name token by scanning past receiver parens.
+            const name_tok = self.findMethodNameToken(fn_tok);
+            const name = self.tokenSlice(name_tok);
+            // Look up method symbol by iterating symbols — find by name and decl_node.
+            self.updateSymbolTypeByDeclNode(node, name, fn_type_id);
+        } else {
+            const name_tok = fn_tok + 1;
+            const name = self.tokenSlice(name_tok);
+            if (self.symbols.lookup(name)) |sym_id| {
+                self.symbols.getSymbolPtr(sym_id).type_id = fn_type_id;
+            }
+        }
+
+        self.type_map.items[node] = fn_type_id;
+    }
+
+    /// Find a method's name token by scanning past the receiver parentheses.
+    fn findMethodNameToken(self: *const TypeChecker, fn_tok: u32) u32 {
+        var tok_idx = fn_tok + 2; // skip fn, l_paren
+        // Skip receiver name
+        if (self.tokens[tok_idx].tag == .identifier) tok_idx += 1;
+        // Skip optional colon
+        if (self.tokens[tok_idx].tag == .colon) tok_idx += 1;
+        // Skip receiver type tokens until r_paren
+        var paren_depth: u32 = 1;
+        while (tok_idx < self.tokens.len and paren_depth > 0) {
+            if (self.tokens[tok_idx].tag == .l_paren) paren_depth += 1;
+            if (self.tokens[tok_idx].tag == .r_paren) paren_depth -= 1;
+            tok_idx += 1;
+        }
+        return tok_idx; // token after r_paren = function name
+    }
+
+    /// Update a symbol's type_id by matching on decl_node.
+    fn updateSymbolTypeByDeclNode(self: *TypeChecker, decl_node: NodeIndex, name: []const u8, type_id: TypeId) void {
+        // Search symbols for one with matching name and decl_node.
+        for (self.symbols.symbols.items) |*sym| {
+            if (sym.decl_node == decl_node and std.mem.eql(u8, sym.name, name)) {
+                sym.type_id = type_id;
+                return;
+            }
+        }
+    }
+
     fn checkFnDecl(self: *TypeChecker, node: NodeIndex) CheckError!void {
         const data = self.nodeData(node);
         const body = data.rhs;
         if (body == null_node) return;
 
+        // Extract return type from registered FnType.
+        const fn_type_id = self.type_map.items[node];
+        var return_type: TypeId = types.primitives.void_id;
+        if (fn_type_id != types.null_type) {
+            const fn_type = self.type_pool.get(fn_type_id);
+            switch (fn_type) {
+                .fn_type => |ft| {
+                    return_type = ft.return_type;
+                },
+                else => {},
+            }
+        }
+
+        // Also type-check parameter types against their symbols.
+        const params_start = data.lhs;
+        const extra = self.tree.extra_data.items;
+        const param_count = self.findParamCount(params_start, extra);
+        const param_nodes = extra[params_start .. params_start + param_count];
+
+        if (fn_type_id != types.null_type) {
+            const fn_type = self.type_pool.get(fn_type_id);
+            switch (fn_type) {
+                .fn_type => |ft| {
+                    // Update param symbols with their resolved types.
+                    for (param_nodes, 0..) |param_node, i| {
+                        if (param_node == null_node) continue;
+                        if (self.resolution_map[param_node]) |sym_id| {
+                            if (i < ft.params.len) {
+                                self.symbols.getSymbolPtr(sym_id).type_id = ft.params[i];
+                            }
+                        }
+                    }
+                },
+                else => {},
+            }
+        }
+
+        // Set current function return type for return statement checking.
+        const prev_return_type = self.current_fn_return_type;
+        self.current_fn_return_type = return_type;
+        defer self.current_fn_return_type = prev_return_type;
+
         // Type-check the body block.
         try self.checkBlock(body);
+
+        // Check that all code paths return if the function has a non-void return type.
+        if (return_type != types.null_type and return_type != types.primitives.void_id) {
+            if (!self.blockAlwaysReturns(body)) {
+                const fn_tok = self.nodeMainToken(node);
+                const loc = self.tokenLoc(fn_tok);
+                try self.diagnostics.addErrorFmt(
+                    loc.start,
+                    loc.end,
+                    "function with return type '{s}' does not return on all code paths",
+                    .{self.typeName(return_type)},
+                );
+            }
+        }
     }
 
     fn checkBlock(self: *TypeChecker, node: NodeIndex) CheckError!void {
@@ -132,12 +303,7 @@ const TypeChecker = struct {
             .var_decl, .let_decl => try self.checkVarDecl(node),
             .short_var_decl => try self.checkShortVarDecl(node),
             .assign => try self.checkAssign(node),
-            .return_stmt => {
-                const data = self.nodeData(node);
-                if (data.lhs != null_node) {
-                    _ = try self.inferExpr(data.lhs);
-                }
-            },
+            .return_stmt => try self.checkReturnStmt(node),
             .expr_stmt => {
                 _ = try self.inferExpr(self.nodeData(node).lhs);
             },
@@ -170,6 +336,125 @@ const TypeChecker = struct {
             },
             else => {},
         }
+    }
+
+    // ── Return statement checking ───────────────────────────────────────────
+
+    fn checkReturnStmt(self: *TypeChecker, node: NodeIndex) CheckError!void {
+        const data = self.nodeData(node);
+        const return_tok = self.nodeMainToken(node);
+        const loc = self.tokenLoc(return_tok);
+
+        if (data.lhs != null_node) {
+            // Return with a value.
+            const expr_type = try self.inferExpr(data.lhs);
+
+            // Check: function without return type should not return a value.
+            if (self.current_fn_return_type == types.null_type or
+                self.current_fn_return_type == types.primitives.void_id)
+            {
+                try self.diagnostics.addError(
+                    loc.start,
+                    loc.end,
+                    "function without return type cannot return a value",
+                );
+                return;
+            }
+
+            // Check return value type matches declared return type.
+            if (expr_type != types.null_type and self.current_fn_return_type != types.null_type) {
+                if (!self.typesCompatible(self.current_fn_return_type, expr_type)) {
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "return type mismatch: expected '{s}', got '{s}'",
+                        .{ self.typeName(self.current_fn_return_type), self.typeName(expr_type) },
+                    );
+                }
+            }
+        } else {
+            // Bare return (no value) — error if function has a non-void return type.
+            if (self.current_fn_return_type != types.null_type and
+                self.current_fn_return_type != types.primitives.void_id)
+            {
+                try self.diagnostics.addErrorFmt(
+                    loc.start,
+                    loc.end,
+                    "function expects return type '{s}', but returns without a value",
+                    .{self.typeName(self.current_fn_return_type)},
+                );
+            }
+        }
+    }
+
+    // ── Return path analysis ────────────────────────────────────────────────
+
+    /// Check whether a block always returns (all code paths return a value).
+    fn blockAlwaysReturns(self: *const TypeChecker, node: NodeIndex) bool {
+        if (node == null_node) return false;
+        const data = self.nodeData(node);
+        const start = data.lhs;
+        const count = data.rhs;
+        if (count == 0) return false;
+
+        const stmt_indices = self.tree.extra_data.items[start .. start + count];
+        // Check if the last statement always returns.
+        const last_stmt = stmt_indices[stmt_indices.len - 1];
+        return self.stmtAlwaysReturns(last_stmt);
+    }
+
+    /// Check whether a statement always returns.
+    fn stmtAlwaysReturns(self: *const TypeChecker, node: NodeIndex) bool {
+        if (node == null_node) return false;
+        const tag = self.nodeTag(node);
+        return switch (tag) {
+            .return_stmt => true,
+            .block => self.blockAlwaysReturns(node),
+            .if_stmt => self.ifStmtAlwaysReturns(node),
+            .switch_stmt => self.switchStmtAlwaysReturns(node),
+            else => false,
+        };
+    }
+
+    /// An if statement always returns only if both branches exist and both always return.
+    fn ifStmtAlwaysReturns(self: *const TypeChecker, node: NodeIndex) bool {
+        const data = self.nodeData(node);
+        const extra = self.tree.extra_data.items;
+        const then_block = extra[data.rhs];
+        const else_node = extra[data.rhs + 1];
+
+        if (else_node == null_node) return false; // no else branch
+
+        const then_returns = self.blockAlwaysReturns(then_block);
+        if (!then_returns) return false;
+
+        // Else branch can be another if_stmt or a block.
+        if (self.nodeTag(else_node) == .if_stmt) {
+            return self.ifStmtAlwaysReturns(else_node);
+        }
+        return self.blockAlwaysReturns(else_node);
+    }
+
+    /// A switch always returns if every arm always returns.
+    fn switchStmtAlwaysReturns(self: *const TypeChecker, node: NodeIndex) bool {
+        const data = self.nodeData(node);
+        const arms_start = data.rhs;
+        const extra = self.tree.extra_data.items;
+        const arm_count = self.findTrailingCount(arms_start, extra);
+        if (arm_count == 0) return false;
+
+        const arm_nodes = extra[arms_start .. arms_start + arm_count];
+        for (arm_nodes) |arm| {
+            if (arm == null_node) return false;
+            const arm_data = self.nodeData(arm);
+            if (arm_data.rhs == null_node) return false;
+            if (self.nodeTag(arm_data.rhs) == .block) {
+                if (!self.blockAlwaysReturns(arm_data.rhs)) return false;
+            } else if (self.nodeTag(arm_data.rhs) != .return_stmt) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // ── Variable declarations ────────────────────────────────────────────────
@@ -334,19 +619,7 @@ const TypeChecker = struct {
             .binary_op => try self.inferBinaryOp(node),
             .unary_op => try self.inferUnaryOp(node),
 
-            .call => blk: {
-                // Infer callee and args, but we can't determine return type yet.
-                const data = self.nodeData(node);
-                _ = try self.inferExpr(data.lhs);
-                const args_start = data.rhs;
-                const extra = self.tree.extra_data.items;
-                const arg_count = self.findTrailingCount(args_start, extra);
-                const arg_nodes = extra[args_start .. args_start + arg_count];
-                for (arg_nodes) |arg| {
-                    _ = try self.inferExpr(arg);
-                }
-                break :blk types.null_type;
-            },
+            .call => try self.inferCall(node),
 
             .field_access => blk: {
                 _ = try self.inferExpr(self.nodeData(node).lhs);
@@ -408,6 +681,71 @@ const TypeChecker = struct {
 
         self.type_map.items[node] = result;
         return result;
+    }
+
+    /// Infer the type of a function call expression.
+    /// Validates argument count and types against the callee's signature.
+    fn inferCall(self: *TypeChecker, node: NodeIndex) CheckError!TypeId {
+        const data = self.nodeData(node);
+        const callee_type = try self.inferExpr(data.lhs);
+
+        // Collect argument types.
+        const args_start = data.rhs;
+        const extra = self.tree.extra_data.items;
+        const arg_count = self.findTrailingCount(args_start, extra);
+        const arg_nodes = extra[args_start .. args_start + arg_count];
+
+        var arg_types: [64]TypeId = undefined;
+        const actual_count: u32 = @intCast(arg_nodes.len);
+        for (arg_nodes, 0..) |arg, i| {
+            arg_types[i] = try self.inferExpr(arg);
+        }
+
+        // If callee type is unknown, we can't check further.
+        if (callee_type == types.null_type) return types.null_type;
+
+        // Look up the FnType from the callee's type.
+        const callee_resolved = self.type_pool.get(callee_type);
+        switch (callee_resolved) {
+            .fn_type => |fn_type| {
+                const expected_count: u32 = @intCast(fn_type.params.len);
+                const call_tok = self.nodeMainToken(node);
+
+                // Check argument count.
+                if (actual_count != expected_count) {
+                    const loc = self.tokenLoc(call_tok);
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "function expects {d} argument(s), got {d}",
+                        .{ expected_count, actual_count },
+                    );
+                    return fn_type.return_type;
+                }
+
+                // Check each argument type.
+                for (fn_type.params, 0..) |param_type, i| {
+                    if (param_type == types.null_type) continue;
+                    const arg_type = arg_types[i];
+                    if (arg_type == types.null_type) continue;
+                    if (!self.typesCompatible(param_type, arg_type)) {
+                        // Report at the argument token location.
+                        const arg_node = arg_nodes[i];
+                        const arg_tok = self.nodeMainToken(arg_node);
+                        const loc = self.tokenLoc(arg_tok);
+                        try self.diagnostics.addErrorFmt(
+                            loc.start,
+                            loc.end,
+                            "argument {d} type mismatch: expected '{s}', got '{s}'",
+                            .{ i + 1, self.typeName(param_type), self.typeName(arg_type) },
+                        );
+                    }
+                }
+
+                return fn_type.return_type;
+            },
+            else => return types.null_type,
+        }
     }
 
     fn inferIdent(self: *TypeChecker, node: NodeIndex) TypeId {
@@ -551,6 +889,15 @@ const TypeChecker = struct {
                 const name = self.tokenSlice(self.nodeMainToken(node));
                 return TypePool.lookupPrimitive(name) orelse types.null_type;
             },
+            .type_error_union => {
+                // !T — resolve the inner type and wrap in error union.
+                const inner = self.nodeData(node).lhs;
+                const inner_type = self.resolveTypeNode(inner);
+                if (inner_type == types.null_type) return types.null_type;
+                return self.type_pool.intern(self.allocator, .{ .error_union_type = .{
+                    .payload = inner_type,
+                } }) catch types.null_type;
+            },
             else => types.null_type,
         };
     }
@@ -564,20 +911,29 @@ const TypeChecker = struct {
         return self.type_pool.typeEql(a, b);
     }
 
-    fn typeName(_: *TypeChecker, type_id: TypeId) []const u8 {
-        return switch (type_id) {
-            types.primitives.void_id => "void",
-            types.primitives.bool_id => "bool",
-            types.primitives.int_id => "int",
-            types.primitives.uint_id => "uint",
-            types.primitives.i32_id => "i32",
-            types.primitives.i64_id => "i64",
-            types.primitives.u32_id => "u32",
-            types.primitives.u64_id => "u64",
-            types.primitives.byte_id => "byte",
-            types.primitives.f32_id => "f32",
-            types.primitives.f64_id => "f64",
-            types.primitives.string_id => "string",
+    fn typeName(self: *TypeChecker, type_id: TypeId) []const u8 {
+        if (type_id < types.primitives.count) {
+            return switch (type_id) {
+                types.primitives.void_id => "void",
+                types.primitives.bool_id => "bool",
+                types.primitives.int_id => "int",
+                types.primitives.uint_id => "uint",
+                types.primitives.i32_id => "i32",
+                types.primitives.i64_id => "i64",
+                types.primitives.u32_id => "u32",
+                types.primitives.u64_id => "u64",
+                types.primitives.byte_id => "byte",
+                types.primitives.f32_id => "f32",
+                types.primitives.f64_id => "f64",
+                types.primitives.string_id => "string",
+                else => "<unknown>",
+            };
+        }
+        // For non-primitive types, check if it's an error union.
+        const typ = self.type_pool.get(type_id);
+        return switch (typ) {
+            .error_union_type => "!T",
+            .fn_type => "fn",
             else => "<unknown>",
         };
     }
@@ -614,6 +970,10 @@ const TypeChecker = struct {
         }
         return 0;
     }
+
+    fn findParamCount(self: *const TypeChecker, params_start: u32, extra: []const NodeIndex) u32 {
+        return self.findTrailingCount(params_start, extra);
+    }
 };
 
 // ── Tests ───────────────────────────────────────────────────────────────────────
@@ -642,6 +1002,32 @@ fn testTypeCheck(source: []const u8) !struct { has_errors: bool, error_count: us
         .error_count = tc_result.diagnostics.diagnostics.items.len,
     };
 }
+
+fn testTypeCheckHasErrorContaining(source: []const u8, needle: []const u8) !bool {
+    const allocator = std.testing.allocator;
+    var lexer = Lexer.init(source);
+    var token_list = try lexer.tokenize(allocator);
+    defer token_list.deinit(allocator);
+
+    var parser = Parser.init(allocator, token_list.items, source);
+    defer parser.deinit();
+    _ = try parser.parseFile();
+
+    var res = try resolve.resolveNames(allocator, &parser.tree, token_list.items);
+    defer res.deinit(allocator);
+
+    var tc_result = try typeCheck(allocator, &parser.tree, token_list.items, &res);
+    defer tc_result.deinit(allocator);
+
+    if (!tc_result.diagnostics.hasErrors()) return false;
+
+    for (tc_result.diagnostics.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, needle) != null) return true;
+    }
+    return false;
+}
+
+// ── Existing tests (preserved) ──────────────────────────────────────────────────
 
 test "typecheck: stub passes through" {
     const result = try testTypeCheck("fn main() {\n}\n");
@@ -907,4 +1293,256 @@ test "typecheck: let type mismatch" {
         \\
     );
     try std.testing.expect(result.has_errors);
+}
+
+// ── Function signature type checking tests ──────────────────────────────────────
+
+test "typecheck: function call correct args" {
+    const result = try testTypeCheck(
+        \\fn add(a int, b int) int {
+        \\    return a + b
+        \\}
+        \\fn main() {
+        \\    var x int = add(1, 2)
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: function call wrong arg count" {
+    const result = try testTypeCheck(
+        \\fn add(a int, b int) int {
+        \\    return a + b
+        \\}
+        \\fn main() {
+        \\    add(1)
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: function call too many args" {
+    const result = try testTypeCheck(
+        \\fn add(a int, b int) int {
+        \\    return a + b
+        \\}
+        \\fn main() {
+        \\    add(1, 2, 3)
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: function call arg type mismatch" {
+    const result = try testTypeCheck(
+        \\fn greet(name string) int {
+        \\    return 0
+        \\}
+        \\fn main() {
+        \\    greet(42)
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: function return type checked" {
+    const result = try testTypeCheck(
+        \\fn get_num() int {
+        \\    return "hello"
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: function return type valid" {
+    const result = try testTypeCheck(
+        \\fn get_num() int {
+        \\    return 42
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: void function returns value" {
+    const result = try testTypeCheck(
+        \\fn do_stuff() {
+        \\    return 42
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: void function bare return ok" {
+    const result = try testTypeCheck(
+        \\fn do_stuff() {
+        \\    return
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: non-void function bare return" {
+    const result = try testTypeCheck(
+        \\fn get_num() int {
+        \\    return
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: function missing return on all paths" {
+    const result = try testTypeCheck(
+        \\fn get_num() int {
+        \\    var x int = 42
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: function with if-else returns on all paths" {
+    const result = try testTypeCheck(
+        \\fn abs(x int) int {
+        \\    if x > 0 {
+        \\        return x
+        \\    } else {
+        \\        return -x
+        \\    }
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: function with if but no else missing return" {
+    const result = try testTypeCheck(
+        \\fn maybe(x int) int {
+        \\    if x > 0 {
+        \\        return x
+        \\    }
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: recursive function call" {
+    const result = try testTypeCheck(
+        \\fn factorial(n int) int {
+        \\    if n == 0 {
+        \\        return 1
+        \\    } else {
+        \\        return n
+        \\    }
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: forward function call" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    var x int = helper()
+        \\}
+        \\fn helper() int {
+        \\    return 42
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: function call return type used in assignment" {
+    const result = try testTypeCheck(
+        \\fn get_str() string {
+        \\    return "hello"
+        \\}
+        \\fn main() {
+        \\    var x int = get_str()
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: no-arg function called with args" {
+    const result = try testTypeCheck(
+        \\fn get_num() int {
+        \\    return 42
+        \\}
+        \\fn main() {
+        \\    get_num(1)
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: void function no return needed" {
+    const result = try testTypeCheck(
+        \\fn do_nothing() {
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: function with multiple params type check" {
+    const result = try testTypeCheck(
+        \\fn combine(a string, b int, c bool) int {
+        \\    return b
+        \\}
+        \\fn main() {
+        \\    combine("hi", 42, true)
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: function call second arg wrong type" {
+    const result = try testTypeCheck(
+        \\fn combine(a string, b int) int {
+        \\    return b
+        \\}
+        \\fn main() {
+        \\    combine("hi", "world")
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: error message for arg count mismatch" {
+    // Check the error message mentions expected vs got count
+    const has_2 = try testTypeCheckHasErrorContaining(
+        \\fn add(a int, b int) int {
+        \\    return a + b
+        \\}
+        \\fn main() {
+        \\    add(1)
+        \\}
+        \\
+    , "expects 2");
+    try std.testing.expect(has_2);
+}
+
+test "typecheck: function with only return statement" {
+    const result = try testTypeCheck(
+        \\fn identity(x int) int {
+        \\    return x
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
 }
