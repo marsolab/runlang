@@ -89,31 +89,52 @@ zig build test
 
 ## Current Status
 
-Run is in **early development**. The compiler frontend is functional, but code generation is not yet implemented.
+Run is in **active development**. The compiler can compile and run simple programs through C code generation. The runtime library provides basic memory management, strings, and slices, with green threads and channels stubbed for future implementation.
 
 | Component | Status |
 |---|---|
 | Lexer | Complete |
 | Parser | Complete |
 | Naming conventions | Complete |
-| Semantic analysis | Not started |
-| Type checking | Not started |
-| Code generation | Not started |
+| Name resolution | Complete |
+| Type checking | In progress |
+| IR lowering | Complete |
+| C code generation | Complete |
+| Runtime library | MVP |
 | Standard library | Not started |
 
-This is a great time to get involved — the language design is taking shape, and there are significant pieces to build.
+This is a great time to get involved — the language design is taking shape, and there are significant pieces to build. See [docs/runtime/](docs/runtime/) for the runtime design documentation.
 
 ## Project Structure
 
 ```
 src/
-├── main.zig      CLI entry point and command dispatch
-├── token.zig     Token types (~90 variants) and keyword map
-├── lexer.zig     Single-pass stateless scanner
-├── parser.zig    Recursive descent parser with precedence climbing
-├── ast.zig       Flat AST representation (node array + extra_data)
-├── naming.zig    Naming convention enforcement
-└── root.zig      Module re-exports and test discovery
+├── main.zig          CLI entry point and command dispatch
+├── token.zig         Token types (~90 variants) and keyword map
+├── lexer.zig         Single-pass stateless scanner
+├── parser.zig        Recursive descent parser with precedence climbing
+├── ast.zig           Flat AST representation (node array + extra_data)
+├── naming.zig        Naming convention enforcement
+├── resolve.zig       Name resolution and scope analysis
+├── symbol.zig        Symbol table types
+├── typecheck.zig     Type checking pass
+├── types.zig         Type representation
+├── diagnostics.zig   Diagnostic reporting infrastructure
+├── lower.zig         AST-to-IR lowering
+├── ir.zig            Intermediate representation
+├── codegen_c.zig     C code generation backend
+├── driver.zig        Compilation pipeline orchestration
+├── root.zig          Module re-exports and test discovery
+└── runtime/          C runtime library (librunrt.a)
+    ├── run_alloc.c/h     Generational memory allocation
+    ├── run_string.c/h    Length-tracked strings
+    ├── run_slice.c/h     Dynamic arrays
+    ├── run_fmt.c/h       Print functions
+    ├── run_scheduler.c/h Green thread scheduler (stub)
+    ├── run_chan.c/h       Channel implementation (stub)
+    ├── run_error.h       Error union macro
+    ├── run_main.c        Program entry point
+    └── run_runtime.h     Umbrella header
 ```
 
 ## Contributing
