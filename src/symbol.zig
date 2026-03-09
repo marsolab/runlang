@@ -130,6 +130,11 @@ pub const SymbolTable = struct {
         return self.symbols.items[id];
     }
 
+    /// Get a mutable pointer to the Symbol for a given SymbolId.
+    pub fn getSymbolPtr(self: *SymbolTable, id: SymbolId) *Symbol {
+        return &self.symbols.items[id];
+    }
+
     /// Register a method for a type.
     pub fn defineMethod(self: *SymbolTable, type_id: TypeId, name: []const u8, sym_id: SymbolId) !void {
         try self.method_table.put(.{ .type_id = type_id, .name = name }, sym_id);
