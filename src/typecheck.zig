@@ -3504,13 +3504,13 @@ test "typecheck: sum type registration" {
 test "typecheck: switch exhaustive on sum type" {
     const result = try testTypeCheck(
         \\type State = .loading | .ready(string) | .error(string)
-        \\fn process(s State) int {
+        \\fn main() {
+        \\    var s State = .loading
         \\    switch s {
         \\        .loading :: 0,
         \\        .ready(data) :: 1,
         \\        .error(msg) :: 2,
         \\    }
-        \\    return 0
         \\}
         \\
     );
@@ -3520,12 +3520,12 @@ test "typecheck: switch exhaustive on sum type" {
 test "typecheck: switch non-exhaustive on sum type missing variant" {
     const has_err = try testTypeCheckHasErrorContaining(
         \\type State = .loading | .ready(string) | .error(string)
-        \\fn process(s State) int {
+        \\fn main() {
+        \\    var s State = .loading
         \\    switch s {
         \\        .loading :: 0,
         \\        .ready(data) :: 1,
         \\    }
-        \\    return 0
         \\}
         \\
     , "non-exhaustive switch on 'State'");
@@ -3535,11 +3535,11 @@ test "typecheck: switch non-exhaustive on sum type missing variant" {
 test "typecheck: switch non-exhaustive lists missing variants" {
     const has_err = try testTypeCheckHasErrorContaining(
         \\type Color = .red | .green | .blue
-        \\fn render(c Color) int {
+        \\fn main() {
+        \\    var c Color = .red
         \\    switch c {
         \\        .red :: 0,
         \\    }
-        \\    return 0
         \\}
         \\
     , ".green, .blue");
@@ -3549,12 +3549,12 @@ test "typecheck: switch non-exhaustive lists missing variants" {
 test "typecheck: switch with wildcard on sum type satisfies exhaustiveness" {
     const result = try testTypeCheck(
         \\type Color = .red | .green | .blue
-        \\fn render(c Color) int {
+        \\fn main() {
+        \\    var c Color = .red
         \\    switch c {
         \\        .red :: 0,
         \\        _ :: 1,
         \\    }
-        \\    return 0
         \\}
         \\
     );
@@ -3564,14 +3564,14 @@ test "typecheck: switch with wildcard on sum type satisfies exhaustiveness" {
 test "typecheck: switch duplicate variant on sum type" {
     const has_err = try testTypeCheckHasErrorContaining(
         \\type Color = .red | .green | .blue
-        \\fn render(c Color) int {
+        \\fn main() {
+        \\    var c Color = .red
         \\    switch c {
         \\        .red :: 0,
         \\        .red :: 1,
         \\        .green :: 2,
         \\        .blue :: 3,
         \\    }
-        \\    return 0
         \\}
         \\
     , "duplicate variant '.red'");
@@ -3581,13 +3581,13 @@ test "typecheck: switch duplicate variant on sum type" {
 test "typecheck: switch invalid variant name on sum type" {
     const has_err = try testTypeCheckHasErrorContaining(
         \\type Color = .red | .green | .blue
-        \\fn render(c Color) int {
+        \\fn main() {
+        \\    var c Color = .red
         \\    switch c {
         \\        .red :: 0,
         \\        .green :: 1,
         \\        .yellow :: 2,
         \\    }
-        \\    return 0
         \\}
         \\
     , "is not a variant of type 'Color'");
@@ -3704,12 +3704,12 @@ test "typecheck: sum type without payloads" {
 test "typecheck: switch variant payload not bound when required" {
     const has_err = try testTypeCheckHasErrorContaining(
         \\type Result = .ok(int) | .err(string)
-        \\fn process(r Result) int {
+        \\fn main() {
+        \\    var r Result = .ok(42)
         \\    switch r {
         \\        .ok :: 0,
         \\        .err(msg) :: 1,
         \\    }
-        \\    return 0
         \\}
         \\
     , "carries data but pattern does not bind it");
