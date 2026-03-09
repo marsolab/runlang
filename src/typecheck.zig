@@ -909,6 +909,17 @@ const TypeChecker = struct {
             init_type = try self.inferExpr(init_node);
         }
 
+        // Emit error if we couldn't infer the type from the initializer.
+        if (init_type == types.null_type and init_node != null_node) {
+            const loc = self.tokenLoc(self.nodeMainToken(node));
+            try self.diagnostics.addErrorFmt(
+                loc.start,
+                loc.end,
+                "cannot infer type for short variable declaration",
+                .{},
+            );
+        }
+
         // Update symbol type_id.
         if (self.resolution_map[node]) |sym_id| {
             self.symbols.getSymbolPtr(sym_id).type_id = init_type;
@@ -1133,7 +1144,21 @@ const TypeChecker = struct {
                 break :blk types.null_type;
             },
 
-            .addr_of, .addr_of_const, .deref, .chan_recv => blk: {
+            .addr_of => blk: {
+                const operand_type = try self.inferExpr(self.nodeData(node).lhs);
+                if (operand_type == types.null_type) break :blk types.null_type;
+                break :blk try self.type_pool.intern(self.allocator, .{ .ptr_type = .{ .pointee = operand_type, .is_const = false } });
+            },
+            .addr_of_const => blk: {
+                const operand_type = try self.inferExpr(self.nodeData(node).lhs);
+                if (operand_type == types.null_type) break :blk types.null_type;
+                break :blk try self.type_pool.intern(self.allocator, .{ .ptr_type = .{ .pointee = operand_type, .is_const = true } });
+            },
+            .deref => blk: {
+                const operand_type = try self.inferExpr(self.nodeData(node).lhs);
+                break :blk self.type_pool.unwrapPointer(operand_type) orelse types.null_type;
+            },
+            .chan_recv => blk: {
                 _ = try self.inferExpr(self.nodeData(node).lhs);
                 break :blk types.null_type;
             },
@@ -3067,6 +3092,134 @@ test "typecheck: switch with wildcard on error union" {
         \\    switch read_file() {
         \\        _ :: 0,
         \\    }
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+// ── Short variable declaration inference tests ──────────────────────────────
+
+test "typecheck: short var decl infers float" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    x := 3.14
+        \\    x = "hello"
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: short var decl infers bool" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    x := true
+        \\    x = 42
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: short var decl infers from function call" {
+    const result = try testTypeCheck(
+        \\fn get_num() int {
+        \\    return 42
+        \\}
+        \\fn main() {
+        \\    x := get_num()
+        \\    x = "hello"
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: short var decl infers from function call valid" {
+    const result = try testTypeCheck(
+        \\fn get_num() int {
+        \\    return 42
+        \\}
+        \\fn main() {
+        \\    x := get_num()
+        \\    x = 100
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: short var decl infers from binary op" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    x := 1 + 2
+        \\    x = "hello"
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: short var decl infers from comparison" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    x := 1 < 2
+        \\    x = 42
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: short var decl infers from field access" {
+    const result = try testTypeCheck(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn main() {
+        \\    p := Point{ x: 1, y: 2 }
+        \\    v := p.x
+        \\    v = "hello"
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: short var decl chained inference" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    x := 42
+        \\    y := x
+        \\    y = "hello"
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: short var decl infers from struct literal" {
+    const result = try testTypeCheck(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn main() {
+        \\    p := Point{ x: 1, y: 2 }
+        \\    p = 42
+        \\}
+        \\
+    );
+    try std.testing.expect(result.has_errors);
+}
+
+test "typecheck: short var decl valid reassignment" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    x := 42
+        \\    x = 100
         \\}
         \\
     );
