@@ -21,12 +21,18 @@ pub const TypeCheckResult = struct {
     type_pool: TypePool,
     /// Param slices allocated for FnType entries; must be freed.
     allocated_param_slices: std.ArrayList([]const TypeId),
+    /// Field slices allocated for StructType entries; must be freed.
+    allocated_field_slices: std.ArrayList([]const types.StructField),
 
     pub fn deinit(self: *TypeCheckResult, allocator: std.mem.Allocator) void {
         for (self.allocated_param_slices.items) |slice| {
             allocator.free(slice);
         }
         self.allocated_param_slices.deinit(allocator);
+        for (self.allocated_field_slices.items) |slice| {
+            allocator.free(slice);
+        }
+        self.allocated_field_slices.deinit(allocator);
         self.diagnostics.deinit();
         self.type_map.deinit(allocator);
         self.type_pool.deinit(allocator);
@@ -58,6 +64,8 @@ const TypeChecker = struct {
     current_fn_return_type: TypeId,
     /// Tracks param slices allocated for FnType entries.
     allocated_param_slices: std.ArrayList([]const TypeId),
+    /// Tracks field slices allocated for StructType entries.
+    allocated_field_slices: std.ArrayList([]const types.StructField),
 
     const CheckError = error{OutOfMemory};
 
@@ -81,6 +89,7 @@ const TypeChecker = struct {
             .allocator = allocator,
             .current_fn_return_type = types.null_type,
             .allocated_param_slices = .empty,
+            .allocated_field_slices = .empty,
         };
     }
 
@@ -91,6 +100,7 @@ const TypeChecker = struct {
             .type_map = self.type_map,
             .type_pool = self.type_pool,
             .allocated_param_slices = self.allocated_param_slices,
+            .allocated_field_slices = self.allocated_field_slices,
         };
     }
 
@@ -101,6 +111,20 @@ const TypeChecker = struct {
         const start = root.data.lhs;
         const count = root.data.rhs;
         const decl_indices = self.tree.extra_data.items[start .. start + count];
+
+        // Pass 0: Register struct types so they can be referenced in type annotations.
+        for (decl_indices) |decl_idx| {
+            var node = decl_idx;
+            if (self.nodeTag(node) == .pub_decl) {
+                node = self.nodeData(node).lhs;
+            }
+            if (self.nodeTag(node) == .struct_decl) {
+                try self.registerStructType(node);
+            }
+        }
+
+        // After struct types are registered, re-bind methods with correct TypeIds.
+        try self.rebindMethods();
 
         // Pass 1: Register all function signatures so forward/recursive calls work.
         for (decl_indices) |decl_idx| {
@@ -126,6 +150,97 @@ const TypeChecker = struct {
                 else => {},
             }
         }
+    }
+
+    // ── Struct type registration ──────────────────────────────────────────
+
+    /// Register a struct declaration in the TypePool and update the symbol's type_id.
+    fn registerStructType(self: *TypeChecker, node: NodeIndex) CheckError!void {
+        const data = self.nodeData(node);
+        const name_tok = self.nodeMainToken(node);
+        const struct_name = self.tokenSlice(name_tok);
+
+        // extra_data layout: [implements_count, iface1..ifaceN, field1..fieldM]
+        const extra = self.tree.extra_data.items;
+        const extra_start = data.lhs;
+        const field_count = data.rhs;
+        const implements_count = extra[extra_start];
+        const fields_start = extra_start + 1 + implements_count;
+
+        // Build StructField array.
+        const fields = self.allocator.alloc(types.StructField, field_count) catch return;
+        self.allocated_field_slices.append(self.allocator, fields) catch return;
+        for (0..field_count) |i| {
+            const field_node = extra[fields_start + i];
+            const field_data = self.nodeData(field_node);
+            const field_name_tok = self.nodeMainToken(field_node);
+            const field_name = self.tokenSlice(field_name_tok);
+            const field_type = self.resolveTypeNode(field_data.lhs);
+            fields[i] = .{
+                .name = field_name,
+                .type_id = field_type,
+            };
+        }
+
+        // Create StructType in the pool.
+        const struct_type_id = self.type_pool.addType(self.allocator, .{ .struct_type = .{
+            .name = struct_name,
+            .fields = fields,
+            .methods = &.{},
+            .implements = &.{},
+        } }) catch return;
+
+        // Update the type_def symbol's type_id.
+        if (self.symbols.lookup(struct_name)) |sym_id| {
+            self.symbols.getSymbolPtr(sym_id).type_id = struct_type_id;
+        }
+
+        self.type_map.items[node] = struct_type_id;
+    }
+
+    /// Re-bind methods in the method table with correct struct TypeIds.
+    /// The resolver registered all methods under TypeId 0 (null_type) because
+    /// struct TypeIds weren't assigned yet during name resolution.
+    fn rebindMethods(self: *TypeChecker) CheckError!void {
+        for (self.symbols.symbols.items, 0..) |sym, idx| {
+            if (sym.kind != .method) continue;
+            const decl_node = sym.decl_node;
+            if (decl_node == null_node) continue;
+
+            // Extract receiver type name from the fn_decl node.
+            const fn_data = self.nodeData(decl_node);
+            const params_start = fn_data.lhs;
+            const extra = self.tree.extra_data.items;
+            const param_count = self.findParamCount(params_start, extra);
+            const receiver_node = extra[params_start + param_count + 1];
+            if (receiver_node == null_node) continue;
+
+            const recv_type_node = self.nodeData(receiver_node).lhs;
+            const recv_type_name = self.extractTypeName(recv_type_node);
+            if (recv_type_name == null) continue;
+
+            // Look up the struct's real TypeId and re-register the method.
+            if (self.symbols.lookup(recv_type_name.?)) |type_sym_id| {
+                const type_sym = self.symbols.getSymbol(type_sym_id);
+                if (type_sym.kind == .type_def and type_sym.type_id != types.null_type) {
+                    try self.symbols.defineMethod(type_sym.type_id, sym.name, @intCast(idx));
+                }
+            }
+        }
+    }
+
+    /// Extract the base type name from a type node, unwrapping pointers.
+    fn extractTypeName(self: *const TypeChecker, type_node: NodeIndex) ?[]const u8 {
+        if (type_node == null_node) return null;
+        const tag = self.nodeTag(type_node);
+        return switch (tag) {
+            .type_name, .ident => self.tokenSlice(self.nodeMainToken(type_node)),
+            .type_ptr, .type_const_ptr => {
+                const inner = self.nodeData(type_node).lhs;
+                return self.extractTypeName(inner);
+            },
+            else => null,
+        };
     }
 
     // ── Function type registration ──────────────────────────────────────────
@@ -223,6 +338,7 @@ const TypeChecker = struct {
         const body = data.rhs;
         if (body == null_node) return;
 
+
         // Extract return type from registered FnType.
         const fn_type_id = self.type_map.items[node];
         var return_type: TypeId = types.primitives.void_id;
@@ -247,17 +363,26 @@ const TypeChecker = struct {
             switch (fn_type) {
                 .fn_type => |ft| {
                     // Update param symbols with their resolved types.
+                    // Note: resolution_map doesn't have entries for param nodes,
+                    // so we find param symbols by matching decl_node.
                     for (param_nodes, 0..) |param_node, i| {
                         if (param_node == null_node) continue;
-                        if (self.resolution_map[param_node]) |sym_id| {
-                            if (i < ft.params.len) {
-                                self.symbols.getSymbolPtr(sym_id).type_id = ft.params[i];
-                            }
+                        if (i < ft.params.len) {
+                            self.updateSymbolTypeByDeclNode(param_node, self.tokenSlice(self.nodeMainToken(param_node)), ft.params[i]);
                         }
                     }
                 },
                 else => {},
             }
+        }
+
+        // Update receiver symbol's type for methods.
+        const receiver_node = extra[params_start + param_count + 1];
+        if (receiver_node != null_node) {
+            const recv_type_node = self.nodeData(receiver_node).lhs;
+            const recv_type = self.resolveTypeNode(recv_type_node);
+            const recv_name = self.tokenSlice(self.nodeMainToken(receiver_node));
+            self.updateSymbolTypeByDeclNode(receiver_node, recv_name, recv_type);
         }
 
         // Set current function return type for return statement checking.
@@ -621,10 +746,7 @@ const TypeChecker = struct {
 
             .call => try self.inferCall(node),
 
-            .field_access => blk: {
-                _ = try self.inferExpr(self.nodeData(node).lhs);
-                break :blk types.null_type;
-            },
+            .field_access => try self.inferFieldAccess(node),
 
             .index_access => blk: {
                 _ = try self.inferExpr(self.nodeData(node).lhs);
@@ -650,9 +772,10 @@ const TypeChecker = struct {
 
             .if_expr => try self.inferIfExpr(node),
 
-            .struct_literal, .anon_struct_literal => blk: {
+            .struct_literal => try self.inferStructLiteral(node),
+
+            .anon_struct_literal => blk: {
                 const data = self.nodeData(node);
-                if (data.lhs != null_node) _ = try self.inferExpr(data.lhs);
                 const fields_start = data.rhs;
                 const extra = self.tree.extra_data.items;
                 const field_count = self.findTrailingCount(fields_start, extra);
@@ -687,9 +810,9 @@ const TypeChecker = struct {
     /// Validates argument count and types against the callee's signature.
     fn inferCall(self: *TypeChecker, node: NodeIndex) CheckError!TypeId {
         const data = self.nodeData(node);
-        const callee_type = try self.inferExpr(data.lhs);
+        const callee_node = data.lhs;
 
-        // Collect argument types.
+        // Collect argument types first.
         const args_start = data.rhs;
         const extra = self.tree.extra_data.items;
         const arg_count = self.findTrailingCount(args_start, extra);
@@ -701,15 +824,70 @@ const TypeChecker = struct {
             arg_types[i] = try self.inferExpr(arg);
         }
 
+        // Check if this is a method call (callee is field_access on a struct).
+        if (callee_node != null_node and self.nodeTag(callee_node) == .field_access) {
+            const fa_data = self.nodeData(callee_node);
+            const obj_type_raw = try self.inferExpr(fa_data.lhs);
+            if (obj_type_raw != types.null_type) {
+                // Unwrap pointer to get the struct type.
+                const obj_type = self.type_pool.unwrapPointer(obj_type_raw) orelse obj_type_raw;
+                const resolved = self.type_pool.get(obj_type);
+                switch (resolved) {
+                    .struct_type => {
+                        const method_name_tok = self.nodeMainToken(callee_node) + 1;
+                        const method_name = self.tokenSlice(method_name_tok);
+
+                        if (self.symbols.lookupMethod(obj_type, method_name)) |method_sym_id| {
+                            const method_sym = self.symbols.getSymbol(method_sym_id);
+                            const method_type_id = method_sym.type_id;
+
+                            // Check mutability: if calling through @T (const ptr),
+                            // the method must not require &T (mutable) receiver.
+                            if (method_type_id != types.null_type) {
+                                try self.checkMethodMutability(method_sym, obj_type_raw, method_name, node);
+                            }
+
+                            if (method_type_id != types.null_type) {
+                                return self.checkFnCallArgs(method_type_id, arg_nodes[0..actual_count], arg_types[0..actual_count], node, true);
+                            }
+                            return types.null_type;
+                        }
+                        // Not a method — might be a field that's a function.
+                        // Fall through to regular call checking.
+                    },
+                    else => {},
+                }
+            }
+        }
+
+        const callee_type = try self.inferExpr(callee_node);
+
         // If callee type is unknown, we can't check further.
         if (callee_type == types.null_type) return types.null_type;
 
-        // Look up the FnType from the callee's type.
-        const callee_resolved = self.type_pool.get(callee_type);
+        return self.checkFnCallArgs(callee_type, arg_nodes[0..actual_count], arg_types[0..actual_count], node, false);
+    }
+
+    /// Validate function call arguments against a FnType.
+    /// If is_method is true, skip the first parameter (receiver).
+    fn checkFnCallArgs(
+        self: *TypeChecker,
+        fn_type_id: TypeId,
+        arg_nodes: []const NodeIndex,
+        arg_types_slice: []const TypeId,
+        call_node: NodeIndex,
+        is_method: bool,
+    ) CheckError!TypeId {
+        const callee_resolved = self.type_pool.get(fn_type_id);
         switch (callee_resolved) {
             .fn_type => |fn_type| {
-                const expected_count: u32 = @intCast(fn_type.params.len);
-                const call_tok = self.nodeMainToken(node);
+                // Note: For methods, the receiver is NOT included in FnType.params
+                // (it's stored separately in the AST extra_data), so no skipping needed.
+                _ = is_method;
+                const params = fn_type.params;
+                const expected_count: u32 = @intCast(params.len);
+                const actual_count: u32 = @intCast(arg_nodes.len);
+                const call_tok = self.nodeMainToken(call_node);
 
                 // Check argument count.
                 if (actual_count != expected_count) {
@@ -724,12 +902,12 @@ const TypeChecker = struct {
                 }
 
                 // Check each argument type.
-                for (fn_type.params, 0..) |param_type, i| {
+                for (0..actual_count) |i| {
+                    const param_type = params[i];
                     if (param_type == types.null_type) continue;
-                    const arg_type = arg_types[i];
+                    const arg_type = arg_types_slice[i];
                     if (arg_type == types.null_type) continue;
                     if (!self.typesCompatible(param_type, arg_type)) {
-                        // Report at the argument token location.
                         const arg_node = arg_nodes[i];
                         const arg_tok = self.nodeMainToken(arg_node);
                         const loc = self.tokenLoc(arg_tok);
@@ -748,11 +926,254 @@ const TypeChecker = struct {
         }
     }
 
+    /// Check that a method call respects receiver mutability.
+    /// If the object is accessed via @T (const pointer), the method must not require &T.
+    fn checkMethodMutability(
+        self: *TypeChecker,
+        method_sym: Symbol,
+        obj_type_raw: TypeId,
+        method_name: []const u8,
+        call_node: NodeIndex,
+    ) CheckError!void {
+        // Check if the object is accessed through a const pointer (@T).
+        const is_const_ref = blk: {
+            const obj_resolved = self.type_pool.get(obj_type_raw);
+            break :blk switch (obj_resolved) {
+                .ptr_type => |pt| pt.is_const,
+                else => false,
+            };
+        };
+
+        if (!is_const_ref) return;
+
+        // Check if the method requires a mutable receiver (&T).
+        const decl_node = method_sym.decl_node;
+        if (decl_node == null_node) return;
+
+        const fn_data = self.nodeData(decl_node);
+        const params_start = fn_data.lhs;
+        const extra = self.tree.extra_data.items;
+        const param_count = self.findParamCount(params_start, extra);
+        const receiver_node = extra[params_start + param_count + 1];
+        if (receiver_node == null_node) return;
+
+        const recv_type_node = self.nodeData(receiver_node).lhs;
+        if (recv_type_node == null_node) return;
+
+        // &T receiver = type_ptr, @T receiver = type_const_ptr
+        if (self.nodeTag(recv_type_node) == .type_ptr) {
+            const call_tok = self.nodeMainToken(call_node);
+            const loc = self.tokenLoc(call_tok);
+            try self.diagnostics.addErrorFmt(
+                loc.start,
+                loc.end,
+                "cannot call mutating method '{s}' on read-only reference",
+                .{method_name},
+            );
+        }
+    }
+
     fn inferIdent(self: *TypeChecker, node: NodeIndex) TypeId {
         if (self.resolution_map[node]) |sym_id| {
             return self.symbols.getSymbol(sym_id).type_id;
         }
         return types.null_type;
+    }
+
+    /// Infer the type of a field access expression (obj.field).
+    fn inferFieldAccess(self: *TypeChecker, node: NodeIndex) CheckError!TypeId {
+        const data = self.nodeData(node);
+        const obj_type_raw = try self.inferExpr(data.lhs);
+        if (obj_type_raw == types.null_type) return types.null_type;
+
+        // Unwrap pointer types: &T or @T -> T
+        const obj_type = self.type_pool.unwrapPointer(obj_type_raw) orelse obj_type_raw;
+
+        const resolved = self.type_pool.get(obj_type);
+        switch (resolved) {
+            .struct_type => |st| {
+                const field_name_tok = self.nodeMainToken(node) + 1;
+                const field_name = self.tokenSlice(field_name_tok);
+
+                // Search for the field.
+                for (st.fields) |field| {
+                    if (std.mem.eql(u8, field.name, field_name)) {
+                        return field.type_id;
+                    }
+                }
+
+                // Check if it's a method (don't error — it might be called).
+                if (self.symbols.lookupMethod(obj_type, field_name) != null) {
+                    // Return null_type; method calls are handled by inferCall.
+                    return types.null_type;
+                }
+
+                // Field not found — emit error with suggestion.
+                const loc = self.tokenLoc(field_name_tok);
+                const suggestion = self.findClosestField(st.fields, field_name);
+                if (suggestion) |s| {
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "type '{s}' has no field '{s}'; did you mean '{s}'?",
+                        .{ st.name, field_name, s },
+                    );
+                } else {
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "type '{s}' has no field '{s}'",
+                        .{ st.name, field_name },
+                    );
+                }
+                return types.null_type;
+            },
+            else => return types.null_type,
+        }
+    }
+
+    /// Find the closest matching field name for "did you mean" suggestions.
+    fn findClosestField(self: *const TypeChecker, fields: []const types.StructField, target: []const u8) ?[]const u8 {
+        _ = self;
+        var best: ?[]const u8 = null;
+        var best_dist: usize = std.math.maxInt(usize);
+        for (fields) |field| {
+            const dist = levenshteinDistance(field.name, target);
+            if (dist < best_dist and dist <= 2) {
+                best_dist = dist;
+                best = field.name;
+            }
+        }
+        return best;
+    }
+
+    /// Infer the type of a struct literal expression (TypeName{ field: value, ... }).
+    fn inferStructLiteral(self: *TypeChecker, node: NodeIndex) CheckError!TypeId {
+        const data = self.nodeData(node);
+
+        // Resolve the struct type from the type name node.
+        const type_name_node = data.lhs;
+        var struct_type_id: TypeId = types.null_type;
+
+        if (type_name_node != null_node) {
+            const tag = self.nodeTag(type_name_node);
+            if (tag == .ident) {
+                const name = self.tokenSlice(self.nodeMainToken(type_name_node));
+                if (self.symbols.lookup(name)) |sym_id| {
+                    const sym = self.symbols.getSymbol(sym_id);
+                    if (sym.kind == .type_def and sym.type_id != types.null_type) {
+                        struct_type_id = sym.type_id;
+                    }
+                }
+            }
+        }
+
+        // Collect field initializations.
+        const fields_start = data.rhs;
+        const extra = self.tree.extra_data.items;
+        const field_count = self.findTrailingCount(fields_start, extra);
+        const field_nodes = extra[fields_start .. fields_start + field_count];
+
+        // Infer all field init value types.
+        var init_types: [64]TypeId = undefined;
+        for (field_nodes, 0..) |field, i| {
+            if (field != null_node) {
+                init_types[i] = try self.inferExpr(self.nodeData(field).lhs);
+            } else {
+                init_types[i] = types.null_type;
+            }
+        }
+
+        if (struct_type_id == types.null_type) return types.null_type;
+
+        const resolved = self.type_pool.get(struct_type_id);
+        switch (resolved) {
+            .struct_type => |st| {
+                // Track which declared fields were initialized.
+                var initialized: [64]bool = .{false} ** 64;
+                const decl_field_count = st.fields.len;
+
+                for (field_nodes, 0..) |field, i| {
+                    if (field == null_node) continue;
+                    const init_name_tok = self.nodeMainToken(field);
+                    const init_name = self.tokenSlice(init_name_tok);
+
+                    // Find matching declared field.
+                    var found = false;
+                    for (st.fields, 0..) |decl_field, fi| {
+                        if (std.mem.eql(u8, decl_field.name, init_name)) {
+                            found = true;
+                            initialized[fi] = true;
+
+                            // Check type compatibility.
+                            const init_type = init_types[i];
+                            if (init_type != types.null_type and decl_field.type_id != types.null_type) {
+                                if (!self.typesCompatible(decl_field.type_id, init_type)) {
+                                    const loc = self.tokenLoc(init_name_tok);
+                                    try self.diagnostics.addErrorFmt(
+                                        loc.start,
+                                        loc.end,
+                                        "field '{s}' type mismatch: expected '{s}', got '{s}'",
+                                        .{ init_name, self.typeName(decl_field.type_id), self.typeName(init_type) },
+                                    );
+                                }
+                            }
+                            break;
+                        }
+                    }
+
+                    if (!found) {
+                        const loc = self.tokenLoc(init_name_tok);
+                        try self.diagnostics.addErrorFmt(
+                            loc.start,
+                            loc.end,
+                            "unknown field '{s}' in struct '{s}'",
+                            .{ init_name, st.name },
+                        );
+                    }
+                }
+
+                // Check for missing required fields (no default value).
+                for (0..decl_field_count) |fi| {
+                    if (!initialized[fi]) {
+                        const decl_field = st.fields[fi];
+                        if (!self.fieldHasDefault(struct_type_id, fi)) {
+                            const lit_tok = self.nodeMainToken(node);
+                            const loc = self.tokenLoc(lit_tok);
+                            try self.diagnostics.addErrorFmt(
+                                loc.start,
+                                loc.end,
+                                "missing field '{s}' in '{s}' literal",
+                                .{ decl_field.name, st.name },
+                            );
+                        }
+                    }
+                }
+
+                return struct_type_id;
+            },
+            else => return types.null_type,
+        }
+    }
+
+    /// Check if a struct field has a default value by looking at the struct_decl AST node.
+    fn fieldHasDefault(self: *const TypeChecker, struct_type_id: TypeId, field_index: usize) bool {
+        // Find the struct_decl node by scanning for a type_def symbol with this type_id.
+        for (self.symbols.symbols.items) |sym| {
+            if (sym.kind == .type_def and sym.type_id == struct_type_id) {
+                const decl_node = sym.decl_node;
+                if (decl_node == null_node) return false;
+                const decl_data = self.nodeData(decl_node);
+                const extra = self.tree.extra_data.items;
+                const extra_start = decl_data.lhs;
+                const implements_count = extra[extra_start];
+                const fields_start = extra_start + 1 + implements_count;
+                const field_node = extra[fields_start + field_index];
+                // field_decl: rhs = default value (or null_node)
+                return self.nodeData(field_node).rhs != null_node;
+            }
+        }
+        return false;
     }
 
     fn inferBinaryOp(self: *TypeChecker, node: NodeIndex) CheckError!TypeId {
@@ -887,7 +1308,16 @@ const TypeChecker = struct {
         return switch (tag) {
             .type_name, .ident => {
                 const name = self.tokenSlice(self.nodeMainToken(node));
-                return TypePool.lookupPrimitive(name) orelse types.null_type;
+                // Check primitives first.
+                if (TypePool.lookupPrimitive(name)) |prim| return prim;
+                // Check user-defined types (structs, etc.).
+                if (self.symbols.lookup(name)) |sym_id| {
+                    const sym = self.symbols.getSymbol(sym_id);
+                    if (sym.kind == .type_def and sym.type_id != types.null_type) {
+                        return sym.type_id;
+                    }
+                }
+                return types.null_type;
             },
             .type_error_union => {
                 // !T — resolve the inner type and wrap in error union.
@@ -896,6 +1326,24 @@ const TypeChecker = struct {
                 if (inner_type == types.null_type) return types.null_type;
                 return self.type_pool.intern(self.allocator, .{ .error_union_type = .{
                     .payload = inner_type,
+                } }) catch types.null_type;
+            },
+            .type_ptr => {
+                const inner = self.nodeData(node).lhs;
+                const inner_type = self.resolveTypeNode(inner);
+                if (inner_type == types.null_type) return types.null_type;
+                return self.type_pool.intern(self.allocator, .{ .ptr_type = .{
+                    .pointee = inner_type,
+                    .is_const = false,
+                } }) catch types.null_type;
+            },
+            .type_const_ptr => {
+                const inner = self.nodeData(node).lhs;
+                const inner_type = self.resolveTypeNode(inner);
+                if (inner_type == types.null_type) return types.null_type;
+                return self.type_pool.intern(self.allocator, .{ .ptr_type = .{
+                    .pointee = inner_type,
+                    .is_const = true,
                 } }) catch types.null_type;
             },
             else => types.null_type,
@@ -929,11 +1377,16 @@ const TypeChecker = struct {
                 else => "<unknown>",
             };
         }
-        // For non-primitive types, check if it's an error union.
+        // For non-primitive types, check the type kind.
         const typ = self.type_pool.get(type_id);
         return switch (typ) {
             .error_union_type => "!T",
             .fn_type => "fn",
+            .struct_type => |st| st.name,
+            .ptr_type => |pt| {
+                if (pt.is_const) return "@T";
+                return "&T";
+            },
             else => "<unknown>",
         };
     }
@@ -975,6 +1428,31 @@ const TypeChecker = struct {
         return self.findTrailingCount(params_start, extra);
     }
 };
+
+/// Compute Levenshtein edit distance between two strings.
+fn levenshteinDistance(a: []const u8, b: []const u8) usize {
+    if (a.len == 0) return b.len;
+    if (b.len == 0) return a.len;
+    if (a.len > 32 or b.len > 32) return std.math.maxInt(usize);
+
+    var prev_row: [33]usize = undefined;
+    var curr_row: [33]usize = undefined;
+
+    for (0..b.len + 1) |j| {
+        prev_row[j] = j;
+    }
+
+    for (a, 0..) |ca, i| {
+        curr_row[0] = i + 1;
+        for (b, 0..) |cb, j| {
+            const cost: usize = if (ca == cb) 0 else 1;
+            curr_row[j + 1] = @min(@min(curr_row[j] + 1, prev_row[j + 1] + 1), prev_row[j] + cost);
+        }
+        @memcpy(prev_row[0 .. b.len + 1], curr_row[0 .. b.len + 1]);
+    }
+
+    return prev_row[b.len];
+}
 
 // ── Tests ───────────────────────────────────────────────────────────────────────
 
@@ -1541,6 +2019,294 @@ test "typecheck: function with only return statement" {
     const result = try testTypeCheck(
         \\fn identity(x int) int {
         \\    return x
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+// ── Struct type checking tests ──────────────────────────────────────────────────
+
+test "typecheck: struct literal with correct field types" {
+    const result = try testTypeCheck(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn main() {
+        \\    p := Point{ x: 1, y: 2 }
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: struct literal with type mismatch" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn main() {
+        \\    p := Point{ x: "hello", y: 2 }
+        \\}
+        \\
+    , "field 'x' type mismatch");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: struct literal missing required field" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn main() {
+        \\    p := Point{ x: 1 }
+        \\}
+        \\
+    , "missing field 'y'");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: struct literal unknown field" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn main() {
+        \\    p := Point{ x: 1, y: 2, z: 3 }
+        \\}
+        \\
+    , "unknown field 'z'");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: field access returns correct type" {
+    const result = try testTypeCheck(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn main() {
+        \\    p := Point{ x: 1, y: 2 }
+        \\    var a int = p.x
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: field access type mismatch" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn main() {
+        \\    p := Point{ x: 1, y: 2 }
+        \\    var a string = p.x
+        \\}
+        \\
+    , "type mismatch");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: field access on non-existent field" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn main() {
+        \\    p := Point{ x: 1, y: 2 }
+        \\    var a int = p.z
+        \\}
+        \\
+    , "has no field 'z'");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: field access did you mean suggestion" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\Config struct {
+        \\    name string
+        \\    value int
+        \\}
+        \\fn main() {
+        \\    c := Config{ name: "test", value: 1 }
+        \\    var n string = c.nam
+        \\}
+        \\
+    , "did you mean 'name'");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: nested struct field access" {
+    const result = try testTypeCheck(
+        \\Inner struct {
+        \\    value int
+        \\}
+        \\Outer struct {
+        \\    inner Inner
+        \\}
+        \\fn main() {
+        \\    i := Inner{ value: 42 }
+        \\    o := Outer{ inner: i }
+        \\    var v int = o.inner.value
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: var with struct type annotation" {
+    const result = try testTypeCheck(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn main() {
+        \\    var p Point = Point{ x: 1, y: 2 }
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: var with struct type mismatch" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn main() {
+        \\    var p Point = 42
+        \\}
+        \\
+    , "type mismatch");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: method call with correct args" {
+    const result = try testTypeCheck(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn (self &Point) scale(factor int) int {
+        \\    return self.x
+        \\}
+        \\fn main() {
+        \\    p := Point{ x: 1, y: 2 }
+        \\    var r int = p.scale(3)
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: method call wrong arg count" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn (self &Point) scale(factor int) int {
+        \\    return self.x
+        \\}
+        \\fn main() {
+        \\    p := Point{ x: 1, y: 2 }
+        \\    p.scale(1, 2)
+        \\}
+        \\
+    , "expects 1 argument(s), got 2");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: method call arg type mismatch" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn (self &Point) scale(factor int) int {
+        \\    return self.x
+        \\}
+        \\fn main() {
+        \\    p := Point{ x: 1, y: 2 }
+        \\    p.scale("hello")
+        \\}
+        \\
+    , "argument 1 type mismatch");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: mutating method on const ref" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\Counter struct {
+        \\    count int
+        \\}
+        \\fn (self &Counter) increment() int {
+        \\    return self.count
+        \\}
+        \\fn callIt(c @Counter) int {
+        \\    return c.increment()
+        \\}
+        \\
+    , "cannot call mutating method 'increment' on read-only reference");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: const method on const ref is ok" {
+    const result = try testTypeCheck(
+        \\Counter struct {
+        \\    count int
+        \\}
+        \\fn (self @Counter) getCount() int {
+        \\    return self.count
+        \\}
+        \\fn callIt(c @Counter) int {
+        \\    return c.getCount()
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: method with no args" {
+    const result = try testTypeCheck(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn (self &Point) getX() int {
+        \\    return self.x
+        \\}
+        \\fn main() {
+        \\    p := Point{ x: 1, y: 2 }
+        \\    var x int = p.getX()
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: struct field with struct type" {
+    const result = try testTypeCheck(
+        \\Name struct {
+        \\    first string
+        \\    last string
+        \\}
+        \\Person struct {
+        \\    name Name
+        \\    age int
+        \\}
+        \\fn main() {
+        \\    n := Name{ first: "John", last: "Doe" }
+        \\    p := Person{ name: n, age: 30 }
+        \\    var f string = p.name.first
         \\}
         \\
     );
