@@ -79,7 +79,7 @@ module.exports = grammar({
 
     function_declaration: ($) =>
       seq(
-        choice("fn", "fun"),
+        "fun",
         optional(field("receiver", $.receiver)),
         field("name", $.identifier),
         $.parameter_list,
@@ -178,7 +178,7 @@ module.exports = grammar({
 
     method_signature: ($) =>
       seq(
-        choice("fn", "fun"),
+        "fun",
         field("name", $.identifier),
         $.parameter_list,
         optional(field("return_type", $._type)),
@@ -577,7 +577,7 @@ module.exports = grammar({
 
     closure: ($) =>
       seq(
-        choice("fn", "fun"),
+        "fun",
         $.parameter_list,
         optional(field("return_type", $._type)),
         field("body", $.block),

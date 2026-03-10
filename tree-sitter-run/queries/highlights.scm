@@ -1,7 +1,6 @@
 ; Keywords
 ; Keywords used in sequences (anonymous nodes)
 [
-  "fn"
   "fun"
   "pub"
   "var"
