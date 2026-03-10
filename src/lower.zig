@@ -416,6 +416,33 @@ const LoweringContext = struct {
                 try self.emit(ir.makeInst(op, r, operand, 0));
                 return r;
             },
+            .alloc_expr => {
+                // alloc(Type, capacity?) — emit gen_alloc with a default size
+                // data.lhs = type node, data.rhs = extra_data index for args
+                // For now, use a default allocation size of 8 bytes (pointer-sized)
+                const size_ref = self.allocRef();
+                try self.emit(ir.makeInst(.const_int, size_ref, 8, 0));
+                const ptr_ref = self.allocRef();
+                try self.emit(ir.makeInst(.gen_alloc, ptr_ref, size_ref, 0));
+                // Create a generational reference from the raw pointer
+                const ref_result = self.allocRef();
+                try self.emit(ir.makeInst(.gen_ref_create, ref_result, ptr_ref, 0));
+                return ref_result;
+            },
+            .addr_of, .addr_of_const => {
+                // &expr or @expr — create a generational reference from the operand
+                const operand = try self.lowerExpr(node.data.lhs);
+                const ref_result = self.allocRef();
+                try self.emit(ir.makeInst(.gen_ref_create, ref_result, operand, 0));
+                return ref_result;
+            },
+            .deref => {
+                // *expr — dereference a generational reference with safety check
+                const operand = try self.lowerExpr(node.data.lhs);
+                const deref_result = self.allocRef();
+                try self.emit(ir.makeInst(.gen_ref_deref, deref_result, operand, 0));
+                return deref_result;
+            },
             .field_access => {
                 return try self.lowerExpr(node.data.lhs);
             },

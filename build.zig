@@ -7,6 +7,7 @@ pub fn build(b: *std.Build) void {
     // Sanitizer options for runtime C code
     const sanitize = b.option(bool, "sanitize", "Enable ASan+UBSan for runtime C code") orelse false;
     const tsan = b.option(bool, "tsan", "Enable ThreadSanitizer for runtime C code") orelse false;
+    const no_gen_checks = b.option(bool, "no-gen-checks", "Disable generational reference checks at compile time") orelse false;
 
     // Main compiler executable
     const exe = b.addExecutable(.{
@@ -51,6 +52,10 @@ pub fn build(b: *std.Build) void {
         sanitizer_flag_buf[sanitizer_flag_count] = "-fsanitize=thread";
         sanitizer_flag_count += 1;
         sanitizer_flag_buf[sanitizer_flag_count] = "-g";
+        sanitizer_flag_count += 1;
+    }
+    if (no_gen_checks) {
+        sanitizer_flag_buf[sanitizer_flag_count] = "-DRUN_NO_GEN_CHECKS";
         sanitizer_flag_count += 1;
     }
     const sanitizer_flags = sanitizer_flag_buf[0..sanitizer_flag_count];

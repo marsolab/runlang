@@ -156,7 +156,9 @@ pub const CCodegen = struct {
             .const_string => "run_string_t",
             .const_bool, .eq, .ne, .lt, .le, .gt, .ge, .log_and, .log_or, .log_not => "bool",
             .const_null => "void*",
-            .alloc_local, .field_ptr, .index_ptr, .gen_alloc => "void*",
+            .alloc_local, .field_ptr, .index_ptr, .gen_alloc, .gen_ref_deref => "void*",
+            .gen_get_gen => "uint64_t",
+            .gen_ref_create => "run_gen_ref_t",
             .load => "int64_t", // conservative default
             .call => "int64_t", // caller should set proper type
             .chan_recv => "int64_t",
@@ -271,6 +273,18 @@ pub const CCodegen = struct {
             .gen_check => {
                 try self.emitIndent();
                 try self.writer().print("run_gen_check(_t{d}, _t{d});\n", .{ inst.arg1, inst.arg2 });
+            },
+            .gen_get_gen => {
+                try self.emitIndent();
+                try self.writer().print("_t{d} = run_gen_get(_t{d});\n", .{ inst.result, inst.arg1 });
+            },
+            .gen_ref_create => {
+                try self.emitIndent();
+                try self.writer().print("_t{d} = run_gen_ref_create(_t{d});\n", .{ inst.result, inst.arg1 });
+            },
+            .gen_ref_deref => {
+                try self.emitIndent();
+                try self.writer().print("_t{d} = run_gen_ref_deref(_t{d});\n", .{ inst.result, inst.arg1 });
             },
             .call => {
                 try self.emitIndent();
@@ -589,6 +603,56 @@ test "CCodegen: generational reference instructions" {
     try std.testing.expect(std.mem.indexOf(u8, result, "run_gen_alloc") != null);
     try std.testing.expect(std.mem.indexOf(u8, result, "run_gen_check") != null);
     try std.testing.expect(std.mem.indexOf(u8, result, "run_gen_free") != null);
+}
+
+test "CCodegen: generational ref lifecycle (create, deref, get_gen)" {
+    var module = ir.Module.init();
+    defer module.deinit(std.testing.allocator);
+
+    const fid = try module.addFunction(std.testing.allocator, "run_main__gen_lifecycle");
+    var func = module.getFunction(fid);
+    func.return_type_name = "void";
+
+    const b0 = try func.addBlock(std.testing.allocator);
+    var block = func.getBlock(b0);
+
+    // gen_alloc
+    const t1 = func.allocRef();
+    try block.addInst(std.testing.allocator, ir.makeInst(.const_int, t1, 64, 0));
+    const t2 = func.allocRef();
+    try block.addInst(std.testing.allocator, ir.makeInst(.gen_alloc, t2, t1, 0));
+
+    // gen_ref_create
+    const t3 = func.allocRef();
+    try block.addInst(std.testing.allocator, ir.makeInst(.gen_ref_create, t3, t2, 0));
+
+    // gen_ref_deref
+    const t4 = func.allocRef();
+    try block.addInst(std.testing.allocator, ir.makeInst(.gen_ref_deref, t4, t3, 0));
+
+    // gen_get_gen
+    const t5 = func.allocRef();
+    try block.addInst(std.testing.allocator, ir.makeInst(.gen_get_gen, t5, t2, 0));
+
+    // gen_free
+    try block.addInst(std.testing.allocator, ir.makeInst(.gen_free, 0, t2, 0));
+    try block.addInst(std.testing.allocator, ir.makeInst(.ret_void, 0, 0, 0));
+
+    var cg = CCodegen.init(std.testing.allocator, &module);
+    defer cg.deinit();
+
+    const result = try cg.generate();
+
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_gen_alloc((size_t)_t1)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_gen_ref_create(_t2)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_gen_ref_deref(_t3)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_gen_get(_t2)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_gen_free(_t2)") != null);
+
+    // Check that the correct types are inferred
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_gen_ref_t _t3;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "void* _t4;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "uint64_t _t5;") != null);
 }
 
 test "CCodegen: comparison and logical ops" {
