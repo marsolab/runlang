@@ -7,6 +7,7 @@ const Ast = @import("ast.zig").Ast;
 const resolve = @import("resolve.zig");
 const typecheck = @import("typecheck.zig");
 const lower_mod = @import("lower.zig");
+const ownership = @import("ownership.zig");
 const ir = @import("ir.zig");
 const codegen_c = @import("codegen_c.zig");
 
@@ -130,6 +131,17 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
 
     if (tc_result.diagnostics.hasErrors()) {
         tc_result.diagnostics.render(source, stderr) catch {};
+        return CompileError.ParseFailed;
+    }
+
+    // 6b. Ownership analysis
+    var own_result = ownership.analyzeOwnership(allocator, &parser.tree, tokens.items, &resolve_result) catch {
+        return CompileError.OutOfMemory;
+    };
+    defer own_result.deinit();
+
+    if (own_result.diagnostics.hasErrors()) {
+        own_result.diagnostics.render(source, stderr) catch {};
         return CompileError.ParseFailed;
     }
 

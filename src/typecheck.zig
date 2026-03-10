@@ -1008,6 +1008,27 @@ const TypeChecker = struct {
         const data = self.nodeData(node);
         const lhs_type = try self.inferExpr(data.lhs);
 
+        // Check immutability: prevent reassignment to `let` variables.
+        if (data.lhs != null_node and self.nodeTag(data.lhs) == .ident) {
+            if (self.resolution_map[data.lhs]) |sym_id| {
+                const sym = self.symbols.getSymbol(sym_id);
+                if ((sym.kind == .variable or sym.kind == .param) and !sym.is_mutable) {
+                    const loc = self.tokenLoc(self.nodeMainToken(node));
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "cannot assign to immutable variable '{s}'",
+                        .{sym.name},
+                    );
+                }
+            }
+        }
+
+        // Check const pointer write protection: prevent field assignment through @T.
+        if (data.lhs != null_node and self.nodeTag(data.lhs) == .field_access) {
+            try self.checkConstPtrFieldAssign(data.lhs);
+        }
+
         // If LHS is a sum type and RHS is a variant, validate against the sum type.
         var rhs_type: TypeId = types.null_type;
         if (lhs_type != types.null_type and self.isSumType(lhs_type) and
@@ -1052,6 +1073,44 @@ const TypeChecker = struct {
                     try self.moved_nodes.append(self.allocator, sym.decl_node);
                 }
             }
+        }
+    }
+
+    /// Prevent writing to struct fields through a const pointer (@T).
+    fn checkConstPtrFieldAssign(self: *TypeChecker, field_access_node: NodeIndex) CheckError!void {
+        const fa_data = self.nodeData(field_access_node);
+        const obj_node = fa_data.lhs;
+        if (obj_node == null_node) return;
+
+        // Get the raw type of the object (before pointer unwrapping).
+        var obj_type_raw: TypeId = types.null_type;
+        if (self.nodeTag(obj_node) == .ident) {
+            if (self.resolution_map[obj_node]) |sym_id| {
+                obj_type_raw = self.symbols.getSymbol(sym_id).type_id;
+            }
+        } else if (self.nodeTag(obj_node) == .field_access) {
+            // Nested field access: check recursively
+            obj_type_raw = try self.inferExpr(obj_node);
+        } else if (self.nodeTag(obj_node) == .deref) {
+            obj_type_raw = try self.inferExpr(self.nodeData(obj_node).lhs);
+        }
+
+        if (obj_type_raw == types.null_type) return;
+
+        // Check if the object's type is a const pointer (@T).
+        const resolved = self.type_pool.get(obj_type_raw);
+        switch (resolved) {
+            .ptr_type => |pt| {
+                if (pt.is_const) {
+                    const loc = self.tokenLoc(self.nodeMainToken(field_access_node));
+                    try self.diagnostics.addError(
+                        loc.start,
+                        loc.end,
+                        "cannot assign to field of read-only reference (@T)",
+                    );
+                }
+            },
+            else => {},
         }
     }
 
@@ -1432,7 +1491,20 @@ const TypeChecker = struct {
             },
             .deref => blk: {
                 const operand_type = try self.inferExpr(self.nodeData(node).lhs);
-                break :blk self.type_pool.unwrapPointer(operand_type) orelse types.null_type;
+                if (operand_type == types.null_type) break :blk types.null_type;
+                // Validate that the operand is actually a pointer type.
+                if (self.type_pool.unwrapPointer(operand_type)) |pointee| {
+                    break :blk pointee;
+                } else {
+                    const loc = self.tokenLoc(self.nodeMainToken(node));
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "cannot dereference non-pointer type '{s}'",
+                        .{self.typeName(operand_type)},
+                    );
+                    break :blk types.null_type;
+                }
             },
             .chan_recv => blk: {
                 _ = try self.inferExpr(self.nodeData(node).lhs);
@@ -3791,6 +3863,135 @@ test "typecheck: owned variable without move has no error" {
     const result = try testTypeCheck(
         \\fn main() {
         \\    let s = alloc([]int, 8)
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+// ── M2: Let immutability enforcement tests ──────────────────────────────────
+
+test "typecheck: let reassignment rejected" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\fn main() {
+        \\    let x int = 42
+        \\    x = 100
+        \\}
+        \\
+    , "cannot assign to immutable variable 'x'");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: var reassignment allowed" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    var x int = 42
+        \\    x = 100
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: let string reassignment rejected" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\fn main() {
+        \\    let s string = "hello"
+        \\    s = "world"
+        \\}
+        \\
+    , "cannot assign to immutable variable");
+    try std.testing.expect(has_err);
+}
+
+// ── M2: Const pointer write protection tests ────────────────────────────────
+
+test "typecheck: const ptr field write rejected" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn update(p @Point) {
+        \\    p.x = 42
+        \\}
+        \\
+    , "cannot assign to field of read-only reference (@T)");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: mutable ptr field write allowed" {
+    const result = try testTypeCheck(
+        \\Point struct {
+        \\    x int
+        \\    y int
+        \\}
+        \\fn update(p &Point) {
+        \\    p.x = 42
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+// ── M2: Pointer type compatibility tests ────────────────────────────────────
+
+test "typecheck: pointer type variables" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    var x int = 42
+        \\    var p &int = &x
+        \\    var q @int = @x
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+// ── M2: Pointer type inference tests ────────────────────────────────────────
+
+test "typecheck: addr_of creates mutable pointer" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    var x int = 42
+        \\    var p &int = &x
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: addr_of_const creates const pointer" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    var x int = 42
+        \\    var p @int = @x
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+// ── M2: Ownership and move semantics tests ──────────────────────────────────
+
+test "typecheck: use-after-move in expression" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\fn main() {
+        \\    var s = alloc([]int, 8)
+        \\    var t = 0
+        \\    t = s
+        \\    t = s
+        \\}
+        \\
+    , "use of moved value");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: alloc without move is valid" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    var s = alloc([]int, 8)
+        \\    var t = alloc([]int, 4)
         \\}
         \\
     );
