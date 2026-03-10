@@ -17,15 +17,15 @@
  * Configuration
  * ======================================================================== */
 
-#define RUN_FIXED_STACK_SIZE (64 * 1024) /* 64 KB per G (Phase 1) */
-#define RUN_GUARD_PAGE_SIZE (4 * 1024)   /* 4 KB guard at bottom */
-#define RUN_SCHEDULER_STACK (256 * 1024) /* 256 KB for g0 scheduler stack */
+#define RUN_FIXED_STACK_SIZE ((size_t)64 * 1024) /* 64 KB per G (Phase 1) */
+#define RUN_GUARD_PAGE_SIZE ((size_t)4 * 1024)   /* 4 KB guard at bottom */
+#define RUN_SCHEDULER_STACK ((size_t)256 * 1024) /* 256 KB for g0 scheduler stack */
 #define RUN_MAX_M_COUNT 10000
 #define RUN_PREEMPT_INTERVAL_US 10000 /* 10ms preemption timer */
 
 /* Default max for growable stacks */
-#define RUN_DEFAULT_STACK_MAX (1024 * 1024) /* 1 MB */
-#define RUN_GROWABLE_INITIAL (8 * 1024)     /* 8 KB initial commit */
+#define RUN_DEFAULT_STACK_MAX ((size_t)1024 * 1024) /* 1 MB */
+#define RUN_GROWABLE_INITIAL ((size_t)8 * 1024)     /* 8 KB initial commit */
 
 /* ========================================================================
  * Thread-Local Storage
@@ -155,7 +155,7 @@ size_t run_stack_max_size(void) {
         return stack_max_size_cached;
     const char *env = getenv("RUN_STACK_MAX");
     if (env) {
-        size_t val = (size_t)atol(env);
+        size_t val = (size_t)strtol(env, NULL, 10);
         if (val >= RUN_GROWABLE_INITIAL) {
             stack_max_size_cached = val;
             return val;
@@ -186,7 +186,7 @@ static void *stack_alloc(size_t *out_size, size_t *out_committed) {
     } else {
         void *mem = run_vmem_alloc(RUN_FIXED_STACK_SIZE);
         if (!mem) {
-            fprintf(stderr, "run: failed to allocate stack (%d bytes)\n", RUN_FIXED_STACK_SIZE);
+            fprintf(stderr, "run: failed to allocate stack (%zu bytes)\n", RUN_FIXED_STACK_SIZE);
             abort();
         }
         /* Guard page at the bottom */
@@ -578,7 +578,7 @@ void run_scheduler_init(void) {
     /* Determine number of Ps */
     const char *maxprocs_env = getenv("RUN_MAXPROCS");
     if (maxprocs_env) {
-        int n = atoi(maxprocs_env);
+        int n = (int)strtol(maxprocs_env, NULL, 10);
         if (n > 0 && n <= RUN_MAX_P_COUNT) {
             num_ps = (uint32_t)n;
         }

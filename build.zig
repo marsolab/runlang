@@ -84,6 +84,13 @@ pub fn build(b: *std.Build) void {
     runtime_lib.root_module.addIncludePath(b.path("src/runtime"));
     runtime_lib.linkLibC();
     runtime_lib.linkSystemLibrary("pthread");
+    if (sanitize) {
+        runtime_lib.linkSystemLibrary("asan");
+        runtime_lib.linkSystemLibrary("ubsan");
+    }
+    if (tsan) {
+        runtime_lib.linkSystemLibrary("tsan");
+    }
     b.installArtifact(runtime_lib);
 
     // Install runtime headers alongside compiler
@@ -154,6 +161,13 @@ pub fn build(b: *std.Build) void {
     runtime_test_exe.root_module.addIncludePath(b.path("src/runtime/tests"));
     runtime_test_exe.linkLibC();
     runtime_test_exe.linkSystemLibrary("pthread");
+    if (sanitize) {
+        runtime_test_exe.linkSystemLibrary("asan");
+        runtime_test_exe.linkSystemLibrary("ubsan");
+    }
+    if (tsan) {
+        runtime_test_exe.linkSystemLibrary("tsan");
+    }
     b.installArtifact(runtime_test_exe);
 
     const run_runtime_tests = b.addRunArtifact(runtime_test_exe);
