@@ -76,7 +76,12 @@ The milestones are ordered by dependency — each builds on the previous:
 4. **M4: Standard Library Core** — fmt, io, os, strings, testing, math packages
 5. **M5: Tooling & Developer Experience** — Error messages, formatter, test runner, LSP, project scaffolding
 6. **M6: Optimization & Hardening** — DCE, constant folding, E2E tests, fuzzing, benchmarks
+7. **M7: Universal Assembly Language** — Portable assembly syntax, inline asm blocks, platform-specific asm files, assembler integration with C codegen
+8. **M8: Native SIMD** — First-class vector types (`v4f32`, `v8i32`, etc.), SIMD operations, auto-vectorization hints, platform-specific intrinsic mapping
+9. **M9: NUMA-Aware Runtime** — Topology discovery, NUMA-aware allocators, thread/green-thread affinity, memory placement policies
+
+M7 is the foundation (assembly provides the low-level escape hatch). M8 and M9 can proceed in parallel after M7.
 
 ### Labels
 
-Component labels for categorizing issues: `type-system`, `runtime`, `stdlib`, `tooling`, `compiler`, `concurrency`, `memory`, `testing`
+Component labels for categorizing issues: `type-system`, `runtime`, `stdlib`, `tooling`, `compiler`, `concurrency`, `memory`, `testing`, `assembly`, `simd`, `numa`
