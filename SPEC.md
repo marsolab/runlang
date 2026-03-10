@@ -346,6 +346,27 @@ ch <- 42                    // send
 val := <-ch                 // receive
 ```
 
+### Scheduling Model
+
+Run routines are automatically scheduled by the runtime. The programmer never needs
+to manually yield — the compiler and runtime cooperate to ensure fairness:
+
+- **Cooperative scheduling**: The compiler inserts lightweight preemption checks at
+  function prologues. When a routine has run too long, the runtime sets a flag and
+  the routine yields at the next function call. Blocking operations (channel send/recv,
+  syscalls, mutex acquisition) automatically yield to the scheduler.
+
+- **Syscall awareness**: When a routine enters a blocking syscall, the runtime detaches
+  the OS thread from its scheduling context so other routines can continue executing.
+  The OS thread reattaches after the syscall returns.
+
+- **Preemptive scheduling**: For tight loops without function calls, the runtime uses
+  OS signals to interrupt long-running routines and force a yield. This guarantees
+  fairness even when cooperative yield points cannot be reached.
+
+The scheduling model is transparent to application code. All concurrency primitives
+(`run`, channels, mutexes) integrate directly with the scheduler.
+
 ### The `unsafe` Package
 
 The `unsafe` package is a standard library package providing low-level operations

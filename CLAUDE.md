@@ -72,7 +72,7 @@ The milestones are ordered by dependency — each builds on the previous:
 
 1. **M1: Type System** — Full type checking (primitives, functions, structs, interfaces, error unions, sum types, inference)
 2. **M2: Memory & Safety** — Generational references, ownership, deterministic destruction, pointer semantics
-3. **M3: Runtime & Concurrency** — Green thread scheduler, channels, map runtime, runtime test suite
+3. **M3: Runtime & Concurrency** — GMP green thread scheduler (cooperative scheduling with compiler-inserted yield points, syscall-aware M/P detach, work stealing; preemptive scheduling via signal-based preemption for tight loops), channels, synchronization primitives, runtime test suite
 4. **M4: Standard Library Core** — fmt, io, os, strings, testing, math packages
 5. **M5: Tooling & Developer Experience** — Error messages, formatter, test runner, LSP, project scaffolding
 6. **M6: Optimization & Hardening** — DCE, constant folding, E2E tests, fuzzing, benchmarks
