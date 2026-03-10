@@ -1,0 +1,138 @@
+================================================================================
+If statement
+================================================================================
+
+fun main() {
+    if x > 5 {
+        foo()
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameter_list)
+    body: (block
+      (if_statement
+        condition: (binary_expression
+          left: (identifier)
+          right: (int_literal))
+        consequence: (block
+          (expression_statement
+            (call_expression
+              function: (identifier)
+              (argument_list))))))))
+
+================================================================================
+If-else statement
+================================================================================
+
+fun main() {
+    if x > 5 {
+        foo()
+    } else {
+        bar()
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameter_list)
+    body: (block
+      (if_statement
+        condition: (binary_expression
+          left: (identifier)
+          right: (int_literal))
+        consequence: (block
+          (expression_statement
+            (call_expression
+              function: (identifier)
+              (argument_list))))
+        alternative: (block
+          (expression_statement
+            (call_expression
+              function: (identifier)
+              (argument_list))))))))
+
+================================================================================
+For loop with condition
+================================================================================
+
+fun main() {
+    for i < 10 {
+        foo()
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameter_list)
+    body: (block
+      (for_statement
+        condition: (binary_expression
+          left: (identifier)
+          right: (int_literal))
+        body: (block
+          (expression_statement
+            (call_expression
+              function: (identifier)
+              (argument_list))))))))
+
+================================================================================
+For-in loop
+================================================================================
+
+fun main() {
+    for item in collection {
+        foo(item)
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameter_list)
+    body: (block
+      (for_statement
+        value: (identifier)
+        iterable: (identifier)
+        body: (block
+          (expression_statement
+            (call_expression
+              function: (identifier)
+              (argument_list
+                (identifier)))))))))
+
+================================================================================
+Infinite loop
+================================================================================
+
+fun main() {
+    for {
+        foo()
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameter_list)
+    body: (block
+      (for_statement
+        body: (block
+          (expression_statement
+            (call_expression
+              function: (identifier)
+              (argument_list))))))))
