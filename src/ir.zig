@@ -51,6 +51,9 @@ pub const Inst = struct {
         gen_alloc,
         gen_free,
         gen_check,
+        gen_get_gen, // result = generation of ptr in arg1
+        gen_ref_create, // result = run_gen_ref_t from ptr in arg1
+        gen_ref_deref, // result = checked ptr from run_gen_ref_t in arg1
 
         // Function calls
         call,
@@ -405,4 +408,57 @@ test "Function: build simple function with instructions" {
 
 test "null_ref is zero" {
     try std.testing.expectEqual(@as(Ref, 0), null_ref);
+}
+
+test "Inst.Op: generational ref ops are not terminators" {
+    try std.testing.expect(!Inst.Op.gen_alloc.isTerminator());
+    try std.testing.expect(!Inst.Op.gen_free.isTerminator());
+    try std.testing.expect(!Inst.Op.gen_check.isTerminator());
+    try std.testing.expect(!Inst.Op.gen_get_gen.isTerminator());
+    try std.testing.expect(!Inst.Op.gen_ref_create.isTerminator());
+    try std.testing.expect(!Inst.Op.gen_ref_deref.isTerminator());
+}
+
+test "Function: generational ref alloc and deref sequence" {
+    var module = Module.init();
+    defer module.deinit(std.testing.allocator);
+
+    const fid = try module.addFunction(std.testing.allocator, "run_main__gen_lifecycle");
+    var func = module.getFunction(fid);
+    func.return_type_name = "void";
+
+    const b0 = try func.addBlock(std.testing.allocator);
+    var block = func.getBlock(b0);
+
+    // Allocate 64 bytes
+    const size_ref = func.allocRef();
+    try block.addInst(std.testing.allocator, makeInst(.const_int, size_ref, 64, 0));
+    const ptr_ref = func.allocRef();
+    try block.addInst(std.testing.allocator, makeInst(.gen_alloc, ptr_ref, size_ref, 0));
+
+    // Create a generational reference
+    const ref_ref = func.allocRef();
+    try block.addInst(std.testing.allocator, makeInst(.gen_ref_create, ref_ref, ptr_ref, 0));
+
+    // Dereference the generational reference (with check)
+    const deref_ref = func.allocRef();
+    try block.addInst(std.testing.allocator, makeInst(.gen_ref_deref, deref_ref, ref_ref, 0));
+
+    // Get the generation
+    const gen_ref = func.allocRef();
+    try block.addInst(std.testing.allocator, makeInst(.gen_get_gen, gen_ref, ptr_ref, 0));
+
+    // Free
+    try block.addInst(std.testing.allocator, makeInst(.gen_free, 0, ptr_ref, 0));
+
+    // Return
+    try block.addInst(std.testing.allocator, makeInst(.ret_void, 0, 0, 0));
+
+    try std.testing.expectEqual(@as(usize, 7), block.insts.items.len);
+    try std.testing.expect(block.isTerminated());
+    try std.testing.expectEqual(Inst.Op.gen_alloc, block.insts.items[1].op);
+    try std.testing.expectEqual(Inst.Op.gen_ref_create, block.insts.items[2].op);
+    try std.testing.expectEqual(Inst.Op.gen_ref_deref, block.insts.items[3].op);
+    try std.testing.expectEqual(Inst.Op.gen_get_gen, block.insts.items[4].op);
+    try std.testing.expectEqual(Inst.Op.gen_free, block.insts.items[5].op);
 }
