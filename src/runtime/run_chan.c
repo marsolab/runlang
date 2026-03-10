@@ -1,29 +1,30 @@
 #include "run_chan.h"
+
 #include "run_scheduler.h"
 
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 
 /* ========================================================================
  * Channel Data Structure
  * ======================================================================== */
 
 struct run_chan {
-    pthread_mutex_t  lock;
+    pthread_mutex_t lock;
 
-    size_t           elem_size;    /* size of each element in bytes */
-    size_t           buffer_cap;   /* buffer capacity (0 = unbuffered) */
-    size_t           buffer_len;   /* current number of elements in buffer */
-    size_t           send_idx;     /* next write position in circular buffer */
-    size_t           recv_idx;     /* next read position in circular buffer */
-    void            *buffer;       /* circular buffer (NULL for unbuffered) */
+    size_t elem_size;  /* size of each element in bytes */
+    size_t buffer_cap; /* buffer capacity (0 = unbuffered) */
+    size_t buffer_len; /* current number of elements in buffer */
+    size_t send_idx;   /* next write position in circular buffer */
+    size_t recv_idx;   /* next read position in circular buffer */
+    void *buffer;      /* circular buffer (NULL for unbuffered) */
 
-    run_g_queue_t    send_q;       /* Gs waiting to send */
-    run_g_queue_t    recv_q;       /* Gs waiting to receive */
+    run_g_queue_t send_q; /* Gs waiting to send */
+    run_g_queue_t recv_q; /* Gs waiting to receive */
 
-    bool             closed;
+    bool closed;
 };
 
 /* ========================================================================
@@ -60,7 +61,8 @@ run_chan_t *run_chan_new(size_t elem_size, size_t buffer_cap) {
 }
 
 void run_chan_free(run_chan_t *ch) {
-    if (!ch) return;
+    if (!ch)
+        return;
     pthread_mutex_destroy(&ch->lock);
     free(ch->buffer);
     free(ch);
@@ -116,12 +118,12 @@ void run_chan_send(run_chan_t *ch, const void *data) {
     }
 
     g->status = G_WAITING;
-    g->chan_data_ptr = (void *)data;  /* sender's data stays in place */
+    g->chan_data_ptr = (void *)data; /* sender's data stays in place */
     g->chan_panic = false;
     run_g_queue_push(&ch->send_q, g);
     pthread_mutex_unlock(&ch->lock);
 
-    run_schedule();  /* context switch to scheduler */
+    run_schedule(); /* context switch to scheduler */
     /* Resumed here after a receiver copies our data */
 }
 
@@ -173,7 +175,7 @@ void run_chan_recv(run_chan_t *ch, void *data) {
 
     /* Channel is closed and empty */
     if (ch->closed) {
-        memset(data, 0, ch->elem_size);  /* zero value */
+        memset(data, 0, ch->elem_size); /* zero value */
         pthread_mutex_unlock(&ch->lock);
         return;
     }
@@ -187,12 +189,12 @@ void run_chan_recv(run_chan_t *ch, void *data) {
     }
 
     g->status = G_WAITING;
-    g->chan_data_ptr = data;  /* receiver provides the destination */
+    g->chan_data_ptr = data; /* receiver provides the destination */
     g->chan_panic = false;
     run_g_queue_push(&ch->recv_q, g);
     pthread_mutex_unlock(&ch->lock);
 
-    run_schedule();  /* context switch to scheduler */
+    run_schedule(); /* context switch to scheduler */
     /* Resumed here after a sender copies data to our slot */
 }
 

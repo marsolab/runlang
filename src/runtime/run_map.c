@@ -1,4 +1,5 @@
 #include "run_map.h"
+
 #include "run_string.h"
 
 #include <stdio.h>
@@ -13,27 +14,27 @@
  * This gives O(1) amortized lookups with good cache behavior.
  * ======================================================================== */
 
-#define RUN_MAP_INITIAL_CAP    8
-#define RUN_MAP_LOAD_FACTOR    75   /* percentage: resize at 75% full */
+#define RUN_MAP_INITIAL_CAP 8
+#define RUN_MAP_LOAD_FACTOR 75 /* percentage: resize at 75% full */
 #define RUN_MAP_TOMBSTONE_FLAG 0x80000000u
 
 typedef struct {
-    uint64_t hash;       /* cached hash value */
-    uint32_t psl;        /* probe sequence length (distance from home bucket) */
-    bool     occupied;   /* true if this bucket holds a live entry */
+    uint64_t hash; /* cached hash value */
+    uint32_t psl;  /* probe sequence length (distance from home bucket) */
+    bool occupied; /* true if this bucket holds a live entry */
     /* Followed in memory by: key bytes, then value bytes (stored in entries array) */
 } run_map_bucket_t;
 
 struct run_map {
-    run_map_bucket_t *buckets;  /* array of bucket metadata */
-    char             *entries;  /* packed array of (key, value) pairs */
-    size_t            capacity; /* number of buckets */
-    size_t            count;    /* number of live entries */
-    size_t            key_size;
-    size_t            val_size;
-    size_t            entry_size; /* key_size + val_size */
-    run_hash_fn       hash_fn;
-    run_eq_fn         eq_fn;
+    run_map_bucket_t *buckets; /* array of bucket metadata */
+    char *entries;             /* packed array of (key, value) pairs */
+    size_t capacity;           /* number of buckets */
+    size_t count;              /* number of live entries */
+    size_t key_size;
+    size_t val_size;
+    size_t entry_size; /* key_size + val_size */
+    run_hash_fn hash_fn;
+    run_eq_fn eq_fn;
 };
 
 /* ========================================================================
@@ -70,7 +71,8 @@ bool run_eq_string(const void *a, const void *b, size_t key_size) {
     (void)key_size;
     const run_string_t *sa = (const run_string_t *)a;
     const run_string_t *sb = (const run_string_t *)b;
-    if (sa->len != sb->len) return false;
+    if (sa->len != sb->len)
+        return false;
     return memcmp(sa->ptr, sb->ptr, sa->len) == 0;
 }
 
@@ -87,12 +89,14 @@ static inline void *entry_val(run_map_t *map, size_t idx) {
 }
 
 static uint64_t map_hash(run_map_t *map, const void *key) {
-    if (map->hash_fn) return map->hash_fn(key, map->key_size);
+    if (map->hash_fn)
+        return map->hash_fn(key, map->key_size);
     return fnv1a(key, map->key_size);
 }
 
 static bool map_eq(run_map_t *map, const void *a, const void *b) {
-    if (map->eq_fn) return map->eq_fn(a, b, map->key_size);
+    if (map->eq_fn)
+        return map->eq_fn(a, b, map->key_size);
     return memcmp(a, b, map->key_size) == 0;
 }
 
@@ -102,8 +106,7 @@ static void map_resize(run_map_t *map, size_t new_cap);
  * Map Creation / Destruction
  * ======================================================================== */
 
-run_map_t *run_map_new(size_t key_size, size_t val_size,
-                       run_hash_fn hash_fn, run_eq_fn eq_fn) {
+run_map_t *run_map_new(size_t key_size, size_t val_size, run_hash_fn hash_fn, run_eq_fn eq_fn) {
     run_map_t *map = (run_map_t *)calloc(1, sizeof(run_map_t));
     if (!map) {
         fprintf(stderr, "run: failed to allocate map\n");
@@ -129,7 +132,8 @@ run_map_t *run_map_new(size_t key_size, size_t val_size,
 }
 
 void run_map_free(run_map_t *map) {
-    if (!map) return;
+    if (!map)
+        return;
     free(map->buckets);
     free(map->entries);
     free(map);
@@ -177,7 +181,7 @@ void run_map_set(run_map_t *map, const void *key, const void *val) {
     }
 
     uint64_t hash = map_hash(map, key);
-    size_t idx = hash & (map->capacity - 1);  /* capacity is power of 2 */
+    size_t idx = hash & (map->capacity - 1); /* capacity is power of 2 */
     uint32_t psl = 0;
 
     /* Temporary entry for Robin Hood swapping */
@@ -186,7 +190,7 @@ void run_map_set(run_map_t *map, const void *key, const void *val) {
     uint32_t insert_psl = psl;
 
     /* Copy key+val into a temp buffer for potential swapping */
-    char entry_buf[512];  /* stack buffer for small entries */
+    char entry_buf[512]; /* stack buffer for small entries */
     char *insert_data;
     if (map->entry_size <= sizeof(entry_buf)) {
         insert_data = entry_buf;
@@ -240,7 +244,8 @@ void run_map_set(run_map_t *map, const void *key, const void *val) {
             memcpy(swap_data, entry_key(map, idx), map->entry_size);
             memcpy(entry_key(map, idx), insert_data, map->entry_size);
             memcpy(insert_data, swap_data, map->entry_size);
-            if (swap_data != swap_buf) free(swap_data);
+            if (swap_data != swap_buf)
+                free(swap_data);
         }
 
         idx = (idx + 1) & (map->capacity - 1);
@@ -253,18 +258,20 @@ void run_map_set(run_map_t *map, const void *key, const void *val) {
  * ======================================================================== */
 
 bool run_map_get(run_map_t *map, const void *key, void *val_out) {
-    if (map->count == 0) return false;
+    if (map->count == 0)
+        return false;
 
     uint64_t hash = map_hash(map, key);
     size_t idx = hash & (map->capacity - 1);
     uint32_t psl = 0;
 
     while (1) {
-        if (!map->buckets[idx].occupied) return false;
-        if (map->buckets[idx].psl < psl) return false;  /* Robin Hood early termination */
+        if (!map->buckets[idx].occupied)
+            return false;
+        if (map->buckets[idx].psl < psl)
+            return false; /* Robin Hood early termination */
 
-        if (map->buckets[idx].hash == hash &&
-            map_eq(map, entry_key(map, idx), key)) {
+        if (map->buckets[idx].hash == hash && map_eq(map, entry_key(map, idx), key)) {
             if (val_out) {
                 memcpy(val_out, entry_val(map, idx), map->val_size);
             }
@@ -281,18 +288,20 @@ bool run_map_get(run_map_t *map, const void *key, void *val_out) {
  * ======================================================================== */
 
 bool run_map_delete(run_map_t *map, const void *key) {
-    if (map->count == 0) return false;
+    if (map->count == 0)
+        return false;
 
     uint64_t hash = map_hash(map, key);
     size_t idx = hash & (map->capacity - 1);
     uint32_t psl = 0;
 
     while (1) {
-        if (!map->buckets[idx].occupied) return false;
-        if (map->buckets[idx].psl < psl) return false;
+        if (!map->buckets[idx].occupied)
+            return false;
+        if (map->buckets[idx].psl < psl)
+            return false;
 
-        if (map->buckets[idx].hash == hash &&
-            map_eq(map, entry_key(map, idx), key)) {
+        if (map->buckets[idx].hash == hash && map_eq(map, entry_key(map, idx), key)) {
             /* Found — remove and backward-shift */
             map->buckets[idx].occupied = false;
             map->count--;
@@ -339,8 +348,10 @@ bool run_map_iter_next(run_map_iter_t *iter, const void **key_out, const void **
     while (iter->index < map->capacity) {
         size_t i = iter->index++;
         if (map->buckets[i].occupied) {
-            if (key_out) *key_out = entry_key(map, i);
-            if (val_out) *val_out = entry_val(map, i);
+            if (key_out)
+                *key_out = entry_key(map, i);
+            if (val_out)
+                *val_out = entry_val(map, i);
             return true;
         }
     }

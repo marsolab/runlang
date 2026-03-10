@@ -1,15 +1,15 @@
 #ifndef RUN_SCHEDULER_H
 #define RUN_SCHEDULER_H
 
+#include <pthread.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
-#include <pthread.h>
 
 /* ---------- Forward declarations ---------- */
-typedef struct run_g  run_g_t;
-typedef struct run_m  run_m_t;
-typedef struct run_p  run_p_t;
+typedef struct run_g run_g_t;
+typedef struct run_m run_m_t;
+typedef struct run_p run_p_t;
 
 /* ---------- Context (platform-specific, defined in assembly) ---------- */
 typedef struct {
@@ -25,47 +25,46 @@ typedef struct {
 
 /* Implemented in run_context_amd64.S (or arm64 variant) */
 extern void run_context_switch(run_context_t *from, run_context_t *to);
-extern void run_context_init(run_context_t *ctx, void *stack_top,
-                             void (*entry)(void *), void *arg);
+extern void run_context_init(run_context_t *ctx, void *stack_top, void (*entry)(void *), void *arg);
 
 /* ---------- G — Green Thread ---------- */
 typedef enum {
-    G_IDLE,       /* not yet started */
-    G_RUNNABLE,   /* ready to run, in a run queue */
-    G_RUNNING,    /* currently executing on an M */
-    G_WAITING,    /* blocked (channel, mutex, etc.) */
-    G_DEAD        /* finished execution */
+    G_IDLE,     /* not yet started */
+    G_RUNNABLE, /* ready to run, in a run queue */
+    G_RUNNING,  /* currently executing on an M */
+    G_WAITING,  /* blocked (channel, mutex, etc.) */
+    G_DEAD      /* finished execution */
 } run_g_status_t;
 
 struct run_g {
-    uint64_t         id;
-    run_g_status_t   status;
+    uint64_t id;
+    run_g_status_t status;
 
     /* Stack */
-    void            *stack_base;    /* mmap'd stack memory (lowest address) */
-    size_t           stack_size;    /* total allocated size */
-    size_t           stack_committed; /* committed bytes (for growable stacks) */
+    void *stack_base;       /* mmap'd stack memory (lowest address) */
+    size_t stack_size;      /* total allocated size */
+    size_t stack_committed; /* committed bytes (for growable stacks) */
 
     /* Saved CPU state */
-    run_context_t    context;
+    run_context_t context;
 
     /* Entry point */
-    void           (*entry_fn)(void *);
-    void            *entry_arg;
+    void (*entry_fn)(void *);
+    void *entry_arg;
 
     /* Scheduling */
-    struct run_g    *sched_next;    /* intrusive linked list for run queues */
-    struct run_p    *last_p;        /* last P this G ran on (affinity) */
+    struct run_g *sched_next; /* intrusive linked list for run queues */
+    struct run_p *last_p;     /* last P this G ran on (affinity) */
 
     /* Preemption */
-    volatile bool    preempt;       /* set by timer, checked at function entry */
+    volatile bool preempt; /* set by timer, checked at function entry */
 
     /* Channel integration */
-    void            *chan_data_ptr; /* data pointer for blocking send/recv */
-    bool             chan_panic;    /* true if woken because channel was closed during send */
+    void *chan_data_ptr; /* data pointer for blocking send/recv */
+    bool chan_panic;     /* true if woken because channel was closed during send */
 
     /* Syscall tracking */
-    bool             in_syscall;
+    bool in_syscall;
 };
 
 /* ---------- G Queue (intrusive linked list) ---------- */
@@ -82,41 +81,37 @@ bool run_g_queue_remove(run_g_queue_t *q, run_g_t *g);
 
 /* ---------- M — Machine Thread ---------- */
 struct run_m {
-    uint64_t         id;
-    pthread_t        thread;
+    uint64_t id;
+    pthread_t thread;
 
-    run_g_t         *current_g;     /* G currently executing (NULL if idle) */
-    run_p_t         *current_p;     /* attached P (NULL if spinning/idle) */
+    run_g_t *current_g; /* G currently executing (NULL if idle) */
+    run_p_t *current_p; /* attached P (NULL if spinning/idle) */
 
-    run_g_t         *g0;            /* scheduler goroutine (owns scheduler stack) */
+    run_g_t *g0; /* scheduler goroutine (owns scheduler stack) */
 
     /* Parking */
-    pthread_mutex_t  park_mutex;
-    pthread_cond_t   park_cond;
-    volatile bool    parked;
+    pthread_mutex_t park_mutex;
+    pthread_cond_t park_cond;
+    volatile bool parked;
 
     /* Linked list of all Ms */
-    struct run_m    *all_next;
+    struct run_m *all_next;
 };
 
 /* ---------- P — Processor ---------- */
-typedef enum {
-    P_IDLE,
-    P_RUNNING,
-    P_SYSCALL
-} run_p_status_t;
+typedef enum { P_IDLE, P_RUNNING, P_SYSCALL } run_p_status_t;
 
 #define RUN_MAX_P_COUNT 256
 
 struct run_p {
-    uint32_t         id;
-    run_p_status_t   status;
+    uint32_t id;
+    run_p_status_t status;
 
     /* Local run queue (FIFO linked list) */
-    run_g_queue_t    local_queue;
+    run_g_queue_t local_queue;
 
     /* Bound M */
-    run_m_t         *bound_m;
+    run_m_t *bound_m;
 };
 
 /* ---------- Public API ---------- */

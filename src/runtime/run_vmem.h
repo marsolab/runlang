@@ -4,8 +4,8 @@
 #include <stddef.h>
 
 /* Protection flags for run_vmem_protect. */
-#define RUN_VMEM_NONE      0
-#define RUN_VMEM_READ      1
+#define RUN_VMEM_NONE 0
+#define RUN_VMEM_READ 1
 #define RUN_VMEM_READWRITE 3
 
 /* Allocate `size` bytes of virtual memory (page-aligned, read-write).

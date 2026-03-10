@@ -1,9 +1,9 @@
 #ifndef RUN_MAP_H
 #define RUN_MAP_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
 
 typedef struct run_map run_map_t;
 
@@ -26,8 +26,7 @@ bool run_eq_string(const void *a, const void *b, size_t key_size);
  * val_size: size of value type in bytes
  * hash_fn: hash function (NULL uses default byte-wise hash)
  * eq_fn: equality function (NULL uses memcmp) */
-run_map_t *run_map_new(size_t key_size, size_t val_size,
-                       run_hash_fn hash_fn, run_eq_fn eq_fn);
+run_map_t *run_map_new(size_t key_size, size_t val_size, run_hash_fn hash_fn, run_eq_fn eq_fn);
 
 /* Insert or update a key-value pair. */
 void run_map_set(run_map_t *map, const void *key, const void *val);
@@ -48,7 +47,7 @@ void run_map_free(run_map_t *map);
 
 typedef struct {
     run_map_t *map;
-    size_t     index;  /* current bucket index */
+    size_t index; /* current bucket index */
 } run_map_iter_t;
 
 /* Initialize an iterator over the map. */

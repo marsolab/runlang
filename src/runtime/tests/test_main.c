@@ -17,6 +17,10 @@ int main(void) {
     printf("Run Runtime Test Suite\n");
     printf("======================\n");
 
+    /* Force single-processor mode for deterministic testing.
+     * Multi-threaded scheduling requires lock-free queues (future work). */
+    setenv("RUN_MAXPROCS", "1", 1);
+
     /* Initialize the scheduler (required for scheduler and channel tests) */
     run_scheduler_init();
 

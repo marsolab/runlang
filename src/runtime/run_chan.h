@@ -1,8 +1,8 @@
 #ifndef RUN_CHAN_H
 #define RUN_CHAN_H
 
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 typedef struct run_chan run_chan_t;
 
