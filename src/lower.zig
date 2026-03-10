@@ -27,6 +27,10 @@ pub fn lower(
         .current_block = null,
         .var_map = .empty,
         .scope_stack = .empty,
+        .defer_stack = .empty,
+        .defer_scope_stack = .empty,
+        .owned_stack = .empty,
+        .owned_scope_stack = .empty,
     };
     try ctx.lowerModule();
     return ctx.module;
@@ -44,21 +48,77 @@ const LoweringContext = struct {
     var_map: std.ArrayList(VarEntry),
     scope_stack: std.ArrayList(usize),
 
+    // Ownership tracking: defer statements and owned allocations per scope
+    defer_stack: std.ArrayList(DeferEntry),
+    defer_scope_stack: std.ArrayList(usize),
+    owned_stack: std.ArrayList(OwnedEntry),
+    owned_scope_stack: std.ArrayList(usize),
+
     const VarEntry = struct {
         name: []const u8,
         local_idx: u32,
     };
 
+    const DeferEntry = struct {
+        expr_node: NodeIndex,
+    };
+
+    const OwnedEntry = struct {
+        name: []const u8,
+        local_idx: u32,
+        is_moved: bool,
+    };
+
     fn pushScope(self: *LoweringContext) LowerError!void {
         try self.scope_stack.append(self.allocator, self.var_map.items.len);
+        try self.defer_scope_stack.append(self.allocator, self.defer_stack.items.len);
+        try self.owned_scope_stack.append(self.allocator, self.owned_stack.items.len);
     }
 
-    fn popScope(self: *LoweringContext) void {
+    fn popScope(self: *LoweringContext) LowerError!void {
         if (self.scope_stack.items.len > 0) {
-            const saved = self.scope_stack.items[self.scope_stack.items.len - 1];
+            const defer_boundary = self.defer_scope_stack.pop().?;
+            const owned_boundary = self.owned_scope_stack.pop().?;
+
+            try self.emitScopeCleanup(defer_boundary, owned_boundary);
+
+            self.defer_stack.shrinkRetainingCapacity(defer_boundary);
+            self.owned_stack.shrinkRetainingCapacity(owned_boundary);
+
+            const saved = self.scope_stack.pop().?;
             self.var_map.shrinkRetainingCapacity(saved);
-            _ = self.scope_stack.pop();
         }
+    }
+
+    /// Emit cleanup code for a scope: deferred expressions in LIFO order, then gen_free for owned variables.
+    fn emitScopeCleanup(self: *LoweringContext, defer_boundary: usize, owned_boundary: usize) LowerError!void {
+        // Skip cleanup if the current block is already terminated (e.g., after an explicit return)
+        if (self.current_block) |block| {
+            if (block.isTerminated()) return;
+        } else return;
+
+        // Execute deferred expressions in LIFO order
+        var i = self.defer_stack.items.len;
+        while (i > defer_boundary) {
+            i -= 1;
+            _ = try self.lowerExpr(self.defer_stack.items[i].expr_node);
+        }
+        // Free owned, non-moved variables in LIFO order
+        var j = self.owned_stack.items.len;
+        while (j > owned_boundary) {
+            j -= 1;
+            const entry = self.owned_stack.items[j];
+            if (!entry.is_moved) {
+                const ptr_ref = self.allocRef();
+                try self.emit(ir.makeInst(.local_get, ptr_ref, entry.local_idx, 0));
+                try self.emit(ir.makeInst(.gen_free, 0, ptr_ref, 0));
+            }
+        }
+    }
+
+    /// Emit cleanup for all active scopes (used before return statements).
+    fn emitAllCleanup(self: *LoweringContext) LowerError!void {
+        try self.emitScopeCleanup(0, 0);
     }
 
     fn defineVar(self: *LoweringContext, name: []const u8, c_type: []const u8, init_ref: ir.Ref) LowerError!void {
@@ -119,6 +179,10 @@ const LoweringContext = struct {
 
         self.var_map.deinit(self.allocator);
         self.scope_stack.deinit(self.allocator);
+        self.defer_stack.deinit(self.allocator);
+        self.defer_scope_stack.deinit(self.allocator);
+        self.owned_stack.deinit(self.allocator);
+        self.owned_scope_stack.deinit(self.allocator);
     }
 
     fn lowerTopLevel(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
@@ -164,7 +228,7 @@ const LoweringContext = struct {
             try self.lowerBlock(body);
         }
 
-        self.popScope();
+        try self.popScope();
 
         if (self.current_block != null and !self.current_block.?.isTerminated()) {
             try self.current_block.?.addInst(self.allocator, ir.makeInst(.ret_void, 0, 0, 0));
@@ -194,8 +258,10 @@ const LoweringContext = struct {
             .return_stmt => {
                 if (node.data.lhs != null_node) {
                     const val = try self.lowerExpr(node.data.lhs);
+                    try self.emitAllCleanup();
                     try self.emit(ir.makeInst(.ret, 0, val, 0));
                 } else {
+                    try self.emitAllCleanup();
                     try self.emit(ir.makeInst(.ret_void, 0, 0, 0));
                 }
             },
@@ -207,7 +273,11 @@ const LoweringContext = struct {
             .block => {
                 try self.pushScope();
                 try self.lowerBlock(node_idx);
-                self.popScope();
+                try self.popScope();
+            },
+            .defer_stmt => {
+                // Record the deferred expression; it will be lowered at scope exit
+                try self.defer_stack.append(self.allocator, .{ .expr_node = node.data.lhs });
             },
             .break_stmt, .continue_stmt => {},
             else => {},
@@ -223,6 +293,17 @@ const LoweringContext = struct {
         if (node.data.rhs != null_node) {
             const val = try self.lowerExpr(node.data.rhs);
             try self.defineVar(name, c_type, val);
+
+            // Track ownership for alloc expressions
+            if (self.tree.nodes.items[node.data.rhs].tag == .alloc_expr) {
+                if (self.lookupLocalIdx(name)) |local_idx| {
+                    try self.owned_stack.append(self.allocator, .{
+                        .name = name,
+                        .local_idx = local_idx,
+                        .is_moved = false,
+                    });
+                }
+            }
         } else {
             try self.defineVar(name, c_type, ir.null_ref);
         }
@@ -238,6 +319,17 @@ const LoweringContext = struct {
                 if (node.data.rhs != null_node) {
                     const val = try self.lowerExpr(node.data.rhs);
                     try self.defineVar(name, c_type, val);
+
+                    // Track ownership for alloc expressions
+                    if (self.tree.nodes.items[node.data.rhs].tag == .alloc_expr) {
+                        if (self.lookupLocalIdx(name)) |local_idx| {
+                            try self.owned_stack.append(self.allocator, .{
+                                .name = name,
+                                .local_idx = local_idx,
+                                .is_moved = false,
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -250,8 +342,39 @@ const LoweringContext = struct {
         if (node.data.lhs != null_node) {
             const target = self.tree.nodes.items[node.data.lhs];
             if (target.tag == .ident) {
-                const name = self.tokenSlice(target.main_token);
-                try self.setVar(name, val);
+                const target_name = self.tokenSlice(target.main_token);
+
+                // Move semantics: if RHS is an ident referencing an owned variable,
+                // mark the source as moved and transfer ownership to the target.
+                if (node.data.rhs != null_node) {
+                    const rhs_node = self.tree.nodes.items[node.data.rhs];
+                    if (rhs_node.tag == .ident) {
+                        const src_name = self.tokenSlice(rhs_node.main_token);
+                        self.markOwnedMoved(src_name);
+                        // Transfer ownership to the target
+                        if (self.lookupLocalIdx(target_name)) |local_idx| {
+                            try self.owned_stack.append(self.allocator, .{
+                                .name = target_name,
+                                .local_idx = local_idx,
+                                .is_moved = false,
+                            });
+                        }
+                    }
+                }
+
+                try self.setVar(target_name, val);
+            }
+        }
+    }
+
+    /// Mark an owned variable as moved (ownership transferred away).
+    fn markOwnedMoved(self: *LoweringContext, name: []const u8) void {
+        var i = self.owned_stack.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (std.mem.eql(u8, self.owned_stack.items[i].name, name)) {
+                self.owned_stack.items[i].is_moved = true;
+                return;
             }
         }
     }
@@ -276,7 +399,7 @@ const LoweringContext = struct {
             self.current_block = func.getBlock(then_bb);
             try self.pushScope();
             try self.lowerBlock(then_block_node);
-            self.popScope();
+            try self.popScope();
             if (!self.current_block.?.isTerminated()) {
                 try self.emit(ir.makeInst(.br, 0, after_bb, 0));
             }
@@ -293,7 +416,7 @@ const LoweringContext = struct {
             self.current_block = func.getBlock(then_bb);
             try self.pushScope();
             try self.lowerBlock(then_block_node);
-            self.popScope();
+            try self.popScope();
             if (!self.current_block.?.isTerminated()) {
                 try self.emit(ir.makeInst(.br, 0, after_bb, 0));
             }
@@ -306,7 +429,7 @@ const LoweringContext = struct {
             } else if (else_tag == .block) {
                 try self.lowerBlock(else_node);
             }
-            self.popScope();
+            try self.popScope();
             if (self.current_block != null and !self.current_block.?.isTerminated()) {
                 try self.emit(ir.makeInst(.br, 0, after_bb, 0));
             }
@@ -340,7 +463,7 @@ const LoweringContext = struct {
         self.current_block = func.getBlock(body_bb);
         try self.pushScope();
         try self.lowerBlock(body_node);
-        self.popScope();
+        try self.popScope();
         if (!self.current_block.?.isTerminated()) {
             try self.emit(ir.makeInst(.br, 0, cond_bb, 0));
         }
@@ -705,4 +828,154 @@ test "lower: for loop produces cond/body/after blocks" {
     // Should have a local_info for "i"
     try std.testing.expectEqual(@as(usize, 1), module.local_infos.items.len);
     try std.testing.expectEqualStrings("i", module.local_infos.items[0].name);
+}
+
+// Helper to check if a block contains an instruction with a given op
+fn blockHasOp(block: *const ir.BasicBlock, op: ir.Inst.Op) bool {
+    for (block.insts.items) |inst| {
+        if (inst.op == op) return true;
+    }
+    return false;
+}
+
+test "lower: alloc emits gen_free at scope exit" {
+    var module = try testLower(
+        \\fn main() {
+        \\    let s = alloc([]int, 8)
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    const func = &module.functions.items[0];
+    const block = &func.blocks.items[0];
+
+    // Should contain gen_alloc, gen_ref_create, and gen_free (from scope cleanup)
+    try std.testing.expect(blockHasOp(block, .gen_alloc));
+    try std.testing.expect(blockHasOp(block, .gen_ref_create));
+    try std.testing.expect(blockHasOp(block, .gen_free));
+
+    // gen_free should appear before ret_void
+    var found_free = false;
+    var found_ret_after_free = false;
+    for (block.insts.items) |inst| {
+        if (inst.op == .gen_free) found_free = true;
+        if (found_free and inst.op == .ret_void) found_ret_after_free = true;
+    }
+    try std.testing.expect(found_free);
+    try std.testing.expect(found_ret_after_free);
+}
+
+test "lower: defer emits deferred call at scope exit" {
+    var module = try testLower(
+        \\use "fmt"
+        \\fn main() {
+        \\    defer fmt.println("cleanup")
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    const func = &module.functions.items[0];
+    const block = &func.blocks.items[0];
+
+    // The deferred fmt.println call should be emitted at scope exit
+    try std.testing.expect(blockHasOp(block, .call));
+    try std.testing.expectEqual(@as(usize, 1), module.call_infos.items.len);
+    try std.testing.expectEqualStrings("run_fmt_println", module.call_infos.items[0].target_name);
+}
+
+test "lower: return emits cleanup before ret" {
+    var module = try testLower(
+        \\fn main() {
+        \\    let s = alloc([]int, 8)
+        \\    return
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    const func = &module.functions.items[0];
+    const block = &func.blocks.items[0];
+
+    // gen_free should appear before ret_void (from the return statement's cleanup)
+    var found_free = false;
+    var found_ret_after_free = false;
+    for (block.insts.items) |inst| {
+        if (inst.op == .gen_free) found_free = true;
+        if (found_free and inst.op == .ret_void) found_ret_after_free = true;
+    }
+    try std.testing.expect(found_free);
+    try std.testing.expect(found_ret_after_free);
+}
+
+test "lower: moved variable is not freed (no double-free)" {
+    var module = try testLower(
+        \\fn main() {
+        \\    var s = alloc([]int, 8)
+        \\    var t = 0
+        \\    t = s
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    const func = &module.functions.items[0];
+    const block = &func.blocks.items[0];
+
+    // Should have exactly one gen_free (for 't' which now owns the value),
+    // not two (which would be a double-free).
+    var free_count: usize = 0;
+    for (block.insts.items) |inst| {
+        if (inst.op == .gen_free) free_count += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 1), free_count);
+}
+
+test "lower: nested scopes free inner scope first" {
+    var module = try testLower(
+        \\fn main() {
+        \\    let outer = alloc([]int, 8)
+        \\    {
+        \\        let inner = alloc([]int, 4)
+        \\    }
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    const func = &module.functions.items[0];
+    const block = &func.blocks.items[0];
+
+    // Should have two gen_free instructions (inner scope freed first, then outer)
+    var free_count: usize = 0;
+    for (block.insts.items) |inst| {
+        if (inst.op == .gen_free) free_count += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 2), free_count);
+}
+
+test "lower: defer and alloc combined — defer runs before free" {
+    var module = try testLower(
+        \\use "fmt"
+        \\fn main() {
+        \\    let s = alloc([]int, 8)
+        \\    defer fmt.println("cleanup")
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    const func = &module.functions.items[0];
+    const block = &func.blocks.items[0];
+
+    // Deferred call should appear before gen_free
+    var found_call = false;
+    var found_free_after_call = false;
+    for (block.insts.items) |inst| {
+        if (inst.op == .call) found_call = true;
+        if (found_call and inst.op == .gen_free) found_free_after_call = true;
+    }
+    try std.testing.expect(found_call);
+    try std.testing.expect(found_free_after_call);
 }
