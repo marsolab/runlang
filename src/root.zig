@@ -18,6 +18,7 @@ pub const codegen_c = @import("codegen_c.zig");
 pub const resolve = @import("resolve.zig");
 pub const typecheck = @import("typecheck.zig");
 pub const lower = @import("lower.zig");
+pub const ownership = @import("ownership.zig");
 pub const driver = @import("driver.zig");
 
 const std = @import("std");
