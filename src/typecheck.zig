@@ -27,6 +27,8 @@ pub const TypeCheckResult = struct {
     allocated_type_id_slices: std.ArrayList([]const TypeId),
     /// MethodSig slices allocated for InterfaceType entries; must be freed.
     allocated_method_sig_slices: std.ArrayList([]const types.MethodSig),
+    /// Variant slices allocated for SumType entries; must be freed.
+    allocated_variant_slices: std.ArrayList([]const types.Variant),
 
     pub fn deinit(self: *TypeCheckResult, allocator: std.mem.Allocator) void {
         for (self.allocated_param_slices.items) |slice| {
@@ -45,6 +47,10 @@ pub const TypeCheckResult = struct {
             allocator.free(slice);
         }
         self.allocated_method_sig_slices.deinit(allocator);
+        for (self.allocated_variant_slices.items) |slice| {
+            allocator.free(slice);
+        }
+        self.allocated_variant_slices.deinit(allocator);
         self.diagnostics.deinit();
         self.type_map.deinit(allocator);
         self.type_pool.deinit(allocator);
@@ -82,6 +88,8 @@ const TypeChecker = struct {
     allocated_type_id_slices: std.ArrayList([]const TypeId),
     /// Tracks MethodSig slices allocated for InterfaceType entries.
     allocated_method_sig_slices: std.ArrayList([]const types.MethodSig),
+    /// Tracks Variant slices allocated for SumType entries.
+    allocated_variant_slices: std.ArrayList([]const types.Variant),
 
     const CheckError = error{OutOfMemory};
 
@@ -108,6 +116,7 @@ const TypeChecker = struct {
             .allocated_field_slices = .empty,
             .allocated_type_id_slices = .empty,
             .allocated_method_sig_slices = .empty,
+            .allocated_variant_slices = .empty,
         };
     }
 
@@ -121,6 +130,7 @@ const TypeChecker = struct {
             .allocated_field_slices = self.allocated_field_slices,
             .allocated_type_id_slices = self.allocated_type_id_slices,
             .allocated_method_sig_slices = self.allocated_method_sig_slices,
+            .allocated_variant_slices = self.allocated_variant_slices,
         };
     }
 
@@ -151,6 +161,17 @@ const TypeChecker = struct {
             }
             if (self.nodeTag(node) == .struct_decl) {
                 try self.registerStructType(node);
+            }
+        }
+
+        // Pass 0c: Register sum types (type_alias nodes with variants).
+        for (decl_indices) |decl_idx| {
+            var node = decl_idx;
+            if (self.nodeTag(node) == .pub_decl) {
+                node = self.nodeData(node).lhs;
+            }
+            if (self.nodeTag(node) == .type_alias) {
+                try self.registerSumType(node);
             }
         }
 
@@ -340,6 +361,51 @@ const TypeChecker = struct {
         }
 
         self.type_map.items[node] = struct_type_id;
+    }
+
+    // ── Sum type registration ────────────────────────────────────────────
+
+    /// Register a sum type (type_alias with variants) in the TypePool.
+    fn registerSumType(self: *TypeChecker, node: NodeIndex) CheckError!void {
+        const data = self.nodeData(node);
+        const main_tok = self.nodeMainToken(node);
+        const name_tok = main_tok + 1;
+        const name = self.tokenSlice(name_tok);
+        const extra = self.tree.extra_data.items;
+        const variants_start = data.lhs;
+        const variant_count = data.rhs;
+
+        // Build Variant array from the variant definition nodes.
+        const owned_variants = try self.allocator.alloc(types.Variant, variant_count);
+        try self.allocated_variant_slices.append(self.allocator, owned_variants);
+
+        const variant_nodes = extra[variants_start .. variants_start + variant_count];
+        for (variant_nodes, 0..) |variant_node, i| {
+            if (variant_node == null_node) {
+                owned_variants[i] = .{ .name = "", .payload = types.null_type };
+                continue;
+            }
+            const variant_name = self.variantName(variant_node);
+            const payload_type_node = self.nodeData(variant_node).lhs;
+            const payload_type = if (payload_type_node != null_node)
+                self.resolveTypeNode(payload_type_node)
+            else
+                types.null_type;
+            owned_variants[i] = .{ .name = variant_name, .payload = payload_type };
+        }
+
+        // Create SumType in the pool.
+        const sum_type_id = try self.type_pool.addType(self.allocator, .{ .sum_type = .{
+            .name = name,
+            .variants = owned_variants,
+        } });
+
+        // Update the type_def symbol's type_id.
+        if (self.symbols.lookup(name)) |sym_id| {
+            self.symbols.getSymbolPtr(sym_id).type_id = sum_type_id;
+        }
+
+        self.type_map.items[node] = sum_type_id;
     }
 
     /// Re-bind methods in the method table with correct struct TypeIds.
@@ -858,7 +924,14 @@ const TypeChecker = struct {
 
         // Infer initializer type.
         if (init_node != null_node) {
-            init_type = try self.inferExpr(init_node);
+            // If declared type is a sum type and init is a variant, validate it.
+            if (declared_type != types.null_type and self.isSumType(declared_type) and
+                self.nodeTag(init_node) == .variant)
+            {
+                init_type = try self.validateVariantAgainstSumType(init_node, declared_type);
+            } else {
+                init_type = try self.inferExpr(init_node);
+            }
         }
 
         // Reject null assigned to non-nullable type.
@@ -896,7 +969,6 @@ const TypeChecker = struct {
         if (self.resolution_map[node]) |sym_id| {
             self.symbols.getSymbolPtr(sym_id).type_id = final_type;
         }
-
         self.type_map.items[node] = final_type;
     }
 
@@ -931,7 +1003,16 @@ const TypeChecker = struct {
     fn checkAssign(self: *TypeChecker, node: NodeIndex) CheckError!void {
         const data = self.nodeData(node);
         const lhs_type = try self.inferExpr(data.lhs);
-        const rhs_type = try self.inferExpr(data.rhs);
+
+        // If LHS is a sum type and RHS is a variant, validate against the sum type.
+        var rhs_type: TypeId = types.null_type;
+        if (lhs_type != types.null_type and self.isSumType(lhs_type) and
+            self.nodeTag(data.rhs) == .variant)
+        {
+            rhs_type = try self.validateVariantAgainstSumType(data.rhs, lhs_type);
+        } else {
+            rhs_type = try self.inferExpr(data.rhs);
+        }
 
         // Reject null assigned to non-nullable type.
         if (self.nodeTag(data.rhs) == .null_literal) {
@@ -1020,12 +1101,14 @@ const TypeChecker = struct {
             }
         }
 
-        // Exhaustiveness checking for error unions and nullable types.
+        // Exhaustiveness checking for error unions, nullable types, and sum types.
         if (subject_type != types.null_type) {
             if (self.type_pool.isErrorUnion(subject_type)) {
                 try self.checkErrorUnionExhaustiveness(node, arm_nodes);
             } else if (self.type_pool.isNullable(subject_type)) {
                 try self.checkNullableExhaustiveness(node, arm_nodes);
+            } else if (self.isSumType(subject_type)) {
+                try self.checkSumTypeExhaustiveness(node, arm_nodes, subject_type);
             }
         }
     }
@@ -1098,6 +1181,122 @@ const TypeChecker = struct {
         }
     }
 
+    /// Check if a TypeId refers to a sum type.
+    fn isSumType(self: *TypeChecker, type_id: TypeId) bool {
+        return switch (self.type_pool.get(type_id)) {
+            .sum_type => true,
+            else => false,
+        };
+    }
+
+    /// Check that a switch on a sum type covers all variants (or has a wildcard _).
+    fn checkSumTypeExhaustiveness(
+        self: *TypeChecker,
+        node: NodeIndex,
+        arm_nodes: []const NodeIndex,
+        subject_type: TypeId,
+    ) CheckError!void {
+        const sum = switch (self.type_pool.get(subject_type)) {
+            .sum_type => |s| s,
+            else => return,
+        };
+
+        var has_wildcard = false;
+        // Track which variants are covered (max 64 variants).
+        var covered: [64]bool = .{false} ** 64;
+        const variant_count = sum.variants.len;
+
+        for (arm_nodes) |arm| {
+            if (arm == null_node) continue;
+            const pattern = self.nodeData(arm).lhs;
+            if (pattern == null_node) continue;
+
+            if (self.isWildcardPattern(pattern)) {
+                has_wildcard = true;
+                continue;
+            }
+
+            if (self.nodeTag(pattern) == .variant) {
+                const name = self.variantName(pattern);
+
+                // Find the matching variant in the sum type.
+                var found = false;
+                for (sum.variants, 0..) |v, vi| {
+                    if (std.mem.eql(u8, v.name, name)) {
+                        found = true;
+                        // Check for duplicate variant in switch.
+                        if (vi < 64 and covered[vi]) {
+                            const pat_tok = self.nodeMainToken(pattern);
+                            const loc = self.tokenLoc(pat_tok);
+                            try self.diagnostics.addErrorFmt(
+                                loc.start,
+                                loc.end,
+                                "duplicate variant '.{s}' in switch",
+                                .{name},
+                            );
+                        }
+                        if (vi < 64) covered[vi] = true;
+
+                        // Validate payload: variant with data matched without binding, or vice versa.
+                        const pattern_has_payload = self.nodeData(pattern).lhs != null_node;
+                        const variant_has_payload = v.payload != types.null_type;
+                        if (variant_has_payload and !pattern_has_payload) {
+                            const pat_tok = self.nodeMainToken(pattern);
+                            const loc = self.tokenLoc(pat_tok);
+                            try self.diagnostics.addErrorFmt(
+                                loc.start,
+                                loc.end,
+                                "variant '.{s}' carries data but pattern does not bind it",
+                                .{name},
+                            );
+                        }
+
+                        break;
+                    }
+                }
+
+                if (!found) {
+                    const pat_tok = self.nodeMainToken(pattern);
+                    const loc = self.tokenLoc(pat_tok);
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "'.{s}' is not a variant of type '{s}'",
+                        .{ name, sum.name },
+                    );
+                }
+            }
+        }
+
+        if (!has_wildcard) {
+            // Check that all variants are covered.
+            var missing: std.ArrayList(u8) = .empty;
+            defer missing.deinit(self.allocator);
+            var missing_count: u32 = 0;
+
+            for (0..variant_count) |vi| {
+                if (vi < 64 and !covered[vi]) {
+                    if (missing_count > 0) {
+                        try missing.appendSlice(self.allocator, ", ");
+                    }
+                    try missing.appendSlice(self.allocator, ".");
+                    try missing.appendSlice(self.allocator, sum.variants[vi].name);
+                    missing_count += 1;
+                }
+            }
+
+            if (missing_count > 0) {
+                const loc = self.tokenLoc(self.nodeMainToken(node));
+                try self.diagnostics.addErrorFmt(
+                    loc.start,
+                    loc.end,
+                    "non-exhaustive switch on '{s}': missing variants: {s}",
+                    .{ sum.name, missing.items },
+                );
+            }
+        }
+    }
+
     /// Extract the variant name (the identifier after the dot).
     fn variantName(self: *const TypeChecker, node: NodeIndex) []const u8 {
         const main_tok = self.nodeMainToken(node);
@@ -1106,6 +1305,68 @@ const TypeChecker = struct {
             return self.tokenSlice(main_tok + 1);
         }
         return "";
+    }
+
+    /// Validate a variant expression against an expected sum type.
+    /// Returns the sum TypeId if valid, or null_type if not.
+    fn validateVariantAgainstSumType(
+        self: *TypeChecker,
+        variant_node: NodeIndex,
+        expected_type: TypeId,
+    ) CheckError!TypeId {
+        const sum = switch (self.type_pool.get(expected_type)) {
+            .sum_type => |s| s,
+            else => return types.null_type,
+        };
+
+        const name = self.variantName(variant_node);
+        const payload_node = self.nodeData(variant_node).lhs;
+
+        for (sum.variants) |v| {
+            if (std.mem.eql(u8, v.name, name)) {
+                // Validate payload presence.
+                if (v.payload != types.null_type and payload_node == null_node) {
+                    const loc = self.tokenLoc(self.nodeMainToken(variant_node));
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "variant '.{s}' of '{s}' requires data of type '{s}'",
+                        .{ name, sum.name, self.typeName(v.payload) },
+                    );
+                } else if (v.payload == types.null_type and payload_node != null_node) {
+                    const loc = self.tokenLoc(self.nodeMainToken(variant_node));
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "variant '.{s}' of '{s}' does not carry data",
+                        .{ name, sum.name },
+                    );
+                } else if (v.payload != types.null_type and payload_node != null_node) {
+                    // Check payload type compatibility.
+                    const payload_type = try self.inferExpr(payload_node);
+                    if (payload_type != types.null_type and !self.typesCompatible(v.payload, payload_type)) {
+                        const loc = self.tokenLoc(self.nodeMainToken(variant_node));
+                        try self.diagnostics.addErrorFmt(
+                            loc.start,
+                            loc.end,
+                            "variant '.{s}' payload type mismatch: expected '{s}', got '{s}'",
+                            .{ name, self.typeName(v.payload), self.typeName(payload_type) },
+                        );
+                    }
+                }
+                return expected_type;
+            }
+        }
+
+        // Variant not found in sum type.
+        const loc = self.tokenLoc(self.nodeMainToken(variant_node));
+        try self.diagnostics.addErrorFmt(
+            loc.start,
+            loc.end,
+            "'.{s}' is not a variant of type '{s}'",
+            .{ name, sum.name },
+        );
+        return types.null_type;
     }
 
     /// Check if a pattern is a wildcard `_`.
@@ -1830,6 +2091,7 @@ const TypeChecker = struct {
             .fn_type => "fn",
             .struct_type => |st| st.name,
             .interface_type => |it| it.name,
+            .sum_type => |st| st.name,
             .ptr_type => |pt| {
                 if (pt.is_const) return "@T";
                 return "&T";
@@ -1922,9 +2184,11 @@ fn testTypeCheck(source: []const u8) !struct { has_errors: bool, error_count: us
     var tc_result = try typeCheck(allocator, &parser.tree, token_list.items, &res);
     defer tc_result.deinit(allocator);
 
+    const has_resolve_errors = res.diagnostics.hasErrors();
+    const has_tc_errors = tc_result.diagnostics.hasErrors();
     return .{
-        .has_errors = tc_result.diagnostics.hasErrors(),
-        .error_count = tc_result.diagnostics.diagnostics.items.len,
+        .has_errors = has_resolve_errors or has_tc_errors,
+        .error_count = res.diagnostics.diagnostics.items.len + tc_result.diagnostics.diagnostics.items.len,
     };
 }
 
@@ -1944,8 +2208,10 @@ fn testTypeCheckHasErrorContaining(source: []const u8, needle: []const u8) !bool
     var tc_result = try typeCheck(allocator, &parser.tree, token_list.items, &res);
     defer tc_result.deinit(allocator);
 
-    if (!tc_result.diagnostics.hasErrors()) return false;
-
+    // Check both resolve and typecheck diagnostics for the needle.
+    for (res.diagnostics.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, needle) != null) return true;
+    }
     for (tc_result.diagnostics.diagnostics.items) |d| {
         if (std.mem.indexOf(u8, d.message, needle) != null) return true;
     }
@@ -3224,4 +3490,231 @@ test "typecheck: short var decl valid reassignment" {
         \\
     );
     try std.testing.expect(!result.has_errors);
+}
+
+// ── Sum type and pattern match exhaustiveness tests ─────────────────────────
+
+test "typecheck: sum type registration" {
+    const result = try testTypeCheck(
+        \\type State = .loading | .ready(string) | .error(string)
+        \\fn main() {
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: switch exhaustive on sum type" {
+    const result = try testTypeCheck(
+        \\type State = .loading | .ready(string) | .error(string)
+        \\fn main() {
+        \\    var s State = .loading
+        \\    switch s {
+        \\        .loading :: 0,
+        \\        .ready(data) :: 1,
+        \\        .error(msg) :: 2,
+        \\    }
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: switch non-exhaustive on sum type missing variant" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\type State = .loading | .ready(string) | .error(string)
+        \\fn main() {
+        \\    var s State = .loading
+        \\    switch s {
+        \\        .loading :: 0,
+        \\        .ready(data) :: 1,
+        \\    }
+        \\}
+        \\
+    , "non-exhaustive switch on 'State'");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: switch non-exhaustive lists missing variants" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\type Color = .red | .green | .blue
+        \\fn main() {
+        \\    var c Color = .red
+        \\    switch c {
+        \\        .red :: 0,
+        \\    }
+        \\}
+        \\
+    , ".green, .blue");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: switch with wildcard on sum type satisfies exhaustiveness" {
+    const result = try testTypeCheck(
+        \\type Color = .red | .green | .blue
+        \\fn main() {
+        \\    var c Color = .red
+        \\    switch c {
+        \\        .red :: 0,
+        \\        _ :: 1,
+        \\    }
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: switch duplicate variant on sum type" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\type Color = .red | .green | .blue
+        \\fn main() {
+        \\    var c Color = .red
+        \\    switch c {
+        \\        .red :: 0,
+        \\        .red :: 1,
+        \\        .green :: 2,
+        \\        .blue :: 3,
+        \\    }
+        \\}
+        \\
+    , "duplicate variant '.red'");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: switch invalid variant name on sum type" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\type Color = .red | .green | .blue
+        \\fn main() {
+        \\    var c Color = .red
+        \\    switch c {
+        \\        .red :: 0,
+        \\        .green :: 1,
+        \\        .yellow :: 2,
+        \\    }
+        \\}
+        \\
+    , "is not a variant of type 'Color'");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: variant construction valid" {
+    const result = try testTypeCheck(
+        \\type State = .loading | .ready(string) | .error(string)
+        \\fn main() {
+        \\    var s State = .loading
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: variant construction with payload valid" {
+    const result = try testTypeCheck(
+        \\type State = .loading | .ready(string) | .error(string)
+        \\fn main() {
+        \\    var s State = .ready("hello")
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: variant construction invalid variant name" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\type State = .loading | .ready(string) | .error(string)
+        \\fn main() {
+        \\    var s State = .pending
+        \\}
+        \\
+    , "is not a variant of type 'State'");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: variant construction missing required payload" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\type State = .loading | .ready(string) | .error(string)
+        \\fn main() {
+        \\    var s State = .ready
+        \\}
+        \\
+    , "requires data");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: variant construction payload type mismatch" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\type State = .loading | .ready(string) | .error(string)
+        \\fn main() {
+        \\    var s State = .ready(42)
+        \\}
+        \\
+    , "payload type mismatch");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: variant construction unwanted payload" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\type State = .loading | .ready(string) | .error(string)
+        \\fn main() {
+        \\    var s State = .loading("extra")
+        \\}
+        \\
+    , "does not carry data");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: variant assignment valid" {
+    const result = try testTypeCheck(
+        \\type State = .loading | .ready(string) | .error(string)
+        \\fn main() {
+        \\    var s State = .loading
+        \\    s = .ready("done")
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: variant assignment invalid variant" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\type State = .loading | .ready(string) | .error(string)
+        \\fn main() {
+        \\    var s State = .loading
+        \\    s = .unknown
+        \\}
+        \\
+    , "is not a variant of type 'State'");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: sum type without payloads" {
+    const result = try testTypeCheck(
+        \\type Direction = .north | .south | .east | .west
+        \\fn go(d Direction) int {
+        \\    switch d {
+        \\        .north :: 0,
+        \\        .south :: 1,
+        \\        .east :: 2,
+        \\        .west :: 3,
+        \\    }
+        \\    return 0
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: switch variant payload not bound when required" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\type Result = .ok(int) | .err(string)
+        \\fn main() {
+        \\    var r Result = .ok(42)
+        \\    switch r {
+        \\        .ok :: 0,
+        \\        .err(msg) :: 1,
+        \\    }
+        \\}
+        \\
+    , "carries data but pattern does not bind it");
+    try std.testing.expect(has_err);
 }
