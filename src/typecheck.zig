@@ -80,6 +80,8 @@ const TypeChecker = struct {
     allocator: std.mem.Allocator,
     /// The return type of the function currently being checked (null_type if void/none).
     current_fn_return_type: TypeId,
+    /// Declaration nodes of variables whose ownership has been moved away.
+    moved_nodes: std.ArrayList(NodeIndex),
     /// Tracks param slices allocated for FnType entries.
     allocated_param_slices: std.ArrayList([]const TypeId),
     /// Tracks field slices allocated for StructType entries.
@@ -112,6 +114,7 @@ const TypeChecker = struct {
             .diagnostics = DiagnosticList.init(allocator),
             .allocator = allocator,
             .current_fn_return_type = types.null_type,
+            .moved_nodes = .empty,
             .allocated_param_slices = .empty,
             .allocated_field_slices = .empty,
             .allocated_type_id_slices = .empty,
@@ -122,6 +125,7 @@ const TypeChecker = struct {
 
     fn check(self: *TypeChecker) !TypeCheckResult {
         try self.checkTopLevel();
+        self.moved_nodes.deinit(self.allocator);
         return .{
             .diagnostics = self.diagnostics,
             .type_map = self.type_map,
@@ -1038,6 +1042,17 @@ const TypeChecker = struct {
                 );
             }
         }
+
+        // Move semantics: if RHS is an identifier referencing an owned variable
+        // (one initialized via alloc), mark it as moved.
+        if (self.nodeTag(data.rhs) == .ident) {
+            if (self.resolution_map[data.rhs]) |sym_id| {
+                const sym = self.symbols.getSymbol(sym_id);
+                if (sym.kind == .variable and self.isOwnedDecl(sym.decl_node)) {
+                    try self.moved_nodes.append(self.allocator, sym.decl_node);
+                }
+            }
+        }
     }
 
     // ── Control flow ─────────────────────────────────────────────────────────
@@ -1390,7 +1405,7 @@ const TypeChecker = struct {
             .bool_literal => types.primitives.bool_id,
             .null_literal => types.null_type,
 
-            .ident => self.inferIdent(node),
+            .ident => try self.inferIdent(node),
 
             .binary_op => try self.inferBinaryOp(node),
             .unary_op => try self.inferUnaryOp(node),
@@ -1662,11 +1677,51 @@ const TypeChecker = struct {
         }
     }
 
-    fn inferIdent(self: *TypeChecker, node: NodeIndex) TypeId {
+    fn inferIdent(self: *TypeChecker, node: NodeIndex) CheckError!TypeId {
         if (self.resolution_map[node]) |sym_id| {
-            return self.symbols.getSymbol(sym_id).type_id;
+            const sym = self.symbols.getSymbol(sym_id);
+
+            // Check for use-after-move on owned variables.
+            if (sym.kind == .variable and self.isOwnedDecl(sym.decl_node)) {
+                for (self.moved_nodes.items) |moved_node| {
+                    if (moved_node == sym.decl_node) {
+                        const loc = self.tokenLoc(self.nodeMainToken(node));
+                        try self.diagnostics.addErrorFmt(
+                            loc.start,
+                            loc.end,
+                            "use of moved value '{s}'",
+                            .{sym.name},
+                        );
+                        break;
+                    }
+                }
+            }
+
+            return sym.type_id;
         }
         return types.null_type;
+    }
+
+    /// Check if a declaration node initializes the variable with an alloc expression.
+    fn isOwnedDecl(self: *const TypeChecker, decl_node: NodeIndex) bool {
+        if (decl_node == null_node) return false;
+        const node = self.tree.nodes.items[decl_node];
+        switch (node.tag) {
+            .var_decl, .let_decl => {
+                // data.rhs is the init expression
+                if (node.data.rhs != null_node) {
+                    return self.tree.nodes.items[node.data.rhs].tag == .alloc_expr;
+                }
+            },
+            .short_var_decl => {
+                // data.rhs is the init expression
+                if (node.data.rhs != null_node) {
+                    return self.tree.nodes.items[node.data.rhs].tag == .alloc_expr;
+                }
+            },
+            else => {},
+        }
+        return false;
     }
 
     /// Infer the type of a field access expression (obj.field).
@@ -3717,4 +3772,27 @@ test "typecheck: switch variant payload not bound when required" {
         \\
     , "carries data but pattern does not bind it");
     try std.testing.expect(has_err);
+}
+
+test "typecheck: use-after-move produces error" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\fn main() {
+        \\    var s = alloc([]int, 8)
+        \\    var t = 0
+        \\    t = s
+        \\    var u = s
+        \\}
+        \\
+    , "use of moved value");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: owned variable without move has no error" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    let s = alloc([]int, 8)
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
 }
