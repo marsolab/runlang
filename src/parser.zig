@@ -1108,19 +1108,28 @@ pub const Parser = struct {
                     node = try self.parseCall(node);
                 },
                 .dot => {
-                    // Field access
                     const tok = self.pos;
                     self.advance();
-                    if (self.peekTag() != .identifier) {
+                    if (self.peekTag() == .star) {
+                        // Dereference: expr.*
+                        self.advance();
+                        node = try self.tree.addNode(.{
+                            .tag = .deref,
+                            .main_token = tok,
+                            .data = .{ .lhs = node, .rhs = null_node },
+                        });
+                    } else if (self.peekTag() == .identifier) {
+                        // Field access: expr.field
+                        self.advance();
+                        node = try self.tree.addNode(.{
+                            .tag = .field_access,
+                            .main_token = tok,
+                            .data = .{ .lhs = node, .rhs = null_node },
+                        });
+                    } else {
                         try self.addError(.expected_identifier, self.currentLoc(), null);
                         return node;
                     }
-                    self.advance();
-                    node = try self.tree.addNode(.{
-                        .tag = .field_access,
-                        .main_token = tok,
-                        .data = .{ .lhs = node, .rhs = null_node },
-                    });
                 },
                 .l_brace => {
                     // Struct literal: Type{ field: val, ... }
