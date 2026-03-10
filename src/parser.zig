@@ -787,7 +787,11 @@ pub const Parser = struct {
     fn parseSwitch(self: *Parser) Error!NodeIndex {
         const tok = self.pos;
         self.expect(.kw_switch);
+        // Disable struct literals so `switch x { ... }` isn't parsed as `switch x{...}`.
+        const prev_allow_struct_literals = self.allow_struct_literals;
+        self.allow_struct_literals = false;
         const subject = try self.parseExpr();
+        self.allow_struct_literals = prev_allow_struct_literals;
         self.skipNewlines();
         self.expectToken(.l_brace);
         self.skipNewlines();
