@@ -68,6 +68,15 @@ pub const Inst = struct {
         spawn,
         chan_send,
         chan_recv,
+        chan_new,
+        chan_close,
+
+        // Map operations
+        map_new,     // result = run_map_new(key_size=arg1, val_size=arg2, ...)
+        map_set,     // arg1 = map, arg2 = call_info idx (key_ref, val_ref)
+        map_get,     // result = found, arg1 = map, arg2 = call_info idx (key_ref, val_out_ref)
+        map_delete,  // result = found, arg1 = map, arg2 = key_ref
+        map_len,     // result = count, arg1 = map
 
         // Error handling
         try_unwrap,

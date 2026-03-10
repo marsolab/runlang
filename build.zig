@@ -35,6 +35,8 @@ pub fn build(b: *std.Build) void {
         "src/runtime/run_fmt.c",
         "src/runtime/run_scheduler.c",
         "src/runtime/run_chan.c",
+        "src/runtime/run_vmem.c",
+        "src/runtime/run_map.c",
     };
 
     // Build sanitizer flags
@@ -58,6 +60,10 @@ pub fn build(b: *std.Build) void {
         sanitizer_flag_buf[sanitizer_flag_count] = "-DRUN_NO_GEN_CHECKS";
         sanitizer_flag_count += 1;
     }
+    // Always disable stack protector for runtime code — green thread
+    // context switching is incompatible with stack canaries.
+    sanitizer_flag_buf[sanitizer_flag_count] = "-fno-stack-protector";
+    sanitizer_flag_count += 1;
     const sanitizer_flags = sanitizer_flag_buf[0..sanitizer_flag_count];
 
     inline for (runtime_c_sources) |src| {
@@ -66,8 +72,18 @@ pub fn build(b: *std.Build) void {
             .flags = sanitizer_flags,
         });
     }
+
+    // Add platform-specific assembly for context switching
+    const target_info = target.result;
+    if (target_info.cpu.arch == .x86_64) {
+        runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
+    } else if (target_info.cpu.arch == .aarch64) {
+        runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_context_arm64.S"));
+    }
+
     runtime_lib.root_module.addIncludePath(b.path("src/runtime"));
     runtime_lib.linkLibC();
+    runtime_lib.root_module.link_libpthread = true;
     b.installArtifact(runtime_lib);
 
     // Install runtime headers alongside compiler
@@ -97,4 +113,51 @@ pub fn build(b: *std.Build) void {
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
+
+    // Runtime C tests
+    const runtime_test_exe = b.addExecutable(.{
+        .name = "runtime-tests",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    const runtime_test_sources = .{
+        "src/runtime/tests/test_main.c",
+        "src/runtime/tests/test_vmem.c",
+        "src/runtime/tests/test_scheduler.c",
+        "src/runtime/tests/test_chan.c",
+        "src/runtime/tests/test_map.c",
+    };
+    inline for (runtime_test_sources) |src| {
+        runtime_test_exe.root_module.addCSourceFile(.{
+            .file = b.path(src),
+            .flags = sanitizer_flags,
+        });
+    }
+    inline for (runtime_c_sources) |src| {
+        runtime_test_exe.root_module.addCSourceFile(.{
+            .file = b.path(src),
+            .flags = sanitizer_flags,
+        });
+    }
+
+    // Add assembly for runtime tests too
+    if (target_info.cpu.arch == .x86_64) {
+        runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
+    } else if (target_info.cpu.arch == .aarch64) {
+        runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_arm64.S"));
+    }
+
+    runtime_test_exe.root_module.addIncludePath(b.path("src/runtime"));
+    runtime_test_exe.root_module.addIncludePath(b.path("src/runtime/tests"));
+    runtime_test_exe.linkLibC();
+    runtime_test_exe.root_module.link_libpthread = true;
+    b.installArtifact(runtime_test_exe);
+
+    const run_runtime_tests = b.addRunArtifact(runtime_test_exe);
+    run_runtime_tests.step.dependOn(&runtime_test_exe.step);
+    const runtime_test_step = b.step("test-runtime", "Run runtime C tests");
+    runtime_test_step.dependOn(&run_runtime_tests.step);
 }

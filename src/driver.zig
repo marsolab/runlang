@@ -281,6 +281,15 @@ pub fn invokeZigCC(
         "run_fmt.c",
         "run_scheduler.c",
         "run_chan.c",
+        "run_vmem.c",
+        "run_map.c",
+    };
+
+    // Platform-specific assembly for context switching
+    const asm_source: ?[]const u8 = switch (@import("builtin").cpu.arch) {
+        .x86_64 => "run_context_amd64.S",
+        .aarch64 => "run_context_arm64.S",
+        else => null,
     };
 
     // Build argument list
@@ -299,9 +308,22 @@ pub fn invokeZigCC(
         try args.append(allocator, full_path);
     }
 
+    // Add assembly file
+    if (asm_source) |asm_name| {
+        const asm_path = try std.fs.path.join(allocator, &.{ runtime_dir, asm_name });
+        try args.append(allocator, asm_path);
+    }
+
     // Include path for runtime headers
     const include_flag = try std.fmt.allocPrint(allocator, "-I{s}", .{runtime_dir});
     try args.append(allocator, include_flag);
+
+    // Disable stack protector — green thread context switching is
+    // incompatible with stack canaries.
+    try args.append(allocator, "-fno-stack-protector");
+
+    // Link pthread for scheduler
+    try args.append(allocator, "-lpthread");
 
     var child = std.process.Child.init(args.items, allocator);
     child.stderr_behavior = .Inherit;

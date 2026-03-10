@@ -162,6 +162,10 @@ pub const CCodegen = struct {
             .load => "int64_t", // conservative default
             .call => "int64_t", // caller should set proper type
             .chan_recv => "int64_t",
+            .chan_new => "run_chan_t*",
+            .map_new => "run_map_t*",
+            .map_get, .map_delete => "bool",
+            .map_len => "size_t",
             .try_unwrap => "int64_t",
             .closure_create => "void*",
             .cast => "int64_t",
@@ -329,11 +333,39 @@ pub const CCodegen = struct {
             },
             .chan_send => {
                 try self.emitIndent();
-                try self.writer().print("run_chan_send(_t{d}, &_t{d}, sizeof(_t{d}));\n", .{ inst.arg1, inst.arg2, inst.arg2 });
+                try self.writer().print("run_chan_send(_t{d}, &_t{d});\n", .{ inst.arg1, inst.arg2 });
             },
             .chan_recv => {
                 try self.emitIndent();
-                try self.writer().print("run_chan_recv(_t{d}, &_t{d}, sizeof(_t{d}));\n", .{ inst.arg1, inst.result, inst.result });
+                try self.writer().print("run_chan_recv(_t{d}, &_t{d});\n", .{ inst.arg1, inst.result });
+            },
+            .chan_new => {
+                try self.emitIndent();
+                try self.writer().print("_t{d} = run_chan_new((size_t)_t{d}, (size_t)_t{d});\n", .{ inst.result, inst.arg1, inst.arg2 });
+            },
+            .chan_close => {
+                try self.emitIndent();
+                try self.writer().print("run_chan_close(_t{d});\n", .{inst.arg1});
+            },
+            .map_new => {
+                try self.emitIndent();
+                try self.writer().print("_t{d} = run_map_new((size_t)_t{d}, (size_t)_t{d}, NULL, NULL);\n", .{ inst.result, inst.arg1, inst.arg2 });
+            },
+            .map_set => {
+                try self.emitIndent();
+                try self.writer().print("run_map_set(_t{d}, &_t{d}, &_t{d});\n", .{ inst.arg1, inst.arg2, inst.result });
+            },
+            .map_get => {
+                try self.emitIndent();
+                try self.writer().print("_t{d} = run_map_get(_t{d}, &_t{d}, &_t{d});\n", .{ inst.result, inst.arg1, inst.arg2, inst.result });
+            },
+            .map_delete => {
+                try self.emitIndent();
+                try self.writer().print("_t{d} = run_map_delete(_t{d}, &_t{d});\n", .{ inst.result, inst.arg1, inst.arg2 });
+            },
+            .map_len => {
+                try self.emitIndent();
+                try self.writer().print("_t{d} = (int64_t)run_map_len(_t{d});\n", .{ inst.result, inst.arg1 });
             },
             .try_unwrap => {
                 try self.emitIndent();
