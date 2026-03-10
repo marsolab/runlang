@@ -3934,6 +3934,31 @@ test "typecheck: mutable ptr field write allowed" {
     try std.testing.expect(!result.has_errors);
 }
 
+// ── M2: Dereference validation tests ─────────────────────────────────────────
+
+test "typecheck: deref non-pointer rejected" {
+    const has_err = try testTypeCheckHasErrorContaining(
+        \\fn main() {
+        \\    var x int = 42
+        \\    var y = x.*
+        \\}
+        \\
+    , "cannot dereference non-pointer type");
+    try std.testing.expect(has_err);
+}
+
+test "typecheck: deref pointer valid" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    var x int = 42
+        \\    var p &int = &x
+        \\    var y = p.*
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
 // ── M2: Pointer type compatibility tests ────────────────────────────────────
 
 test "typecheck: pointer type variables" {
