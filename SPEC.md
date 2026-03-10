@@ -371,6 +371,249 @@ var off int = unsafe.offsetof(MyStruct, "field")  // field byte offset
 No special keyword or block syntax — `use "unsafe"` is a regular use statement and
 `grep "unsafe"` finds every file that uses low-level operations.
 
+## Assembly Language
+
+Run provides a universal, portable assembly language for very low-level optimizations — similar
+to Go's Plan9 assembly. This gives developers an escape hatch below `unsafe` for performance-critical
+code paths without sacrificing portability.
+
+### Inline Assembly
+
+Inline assembly blocks can appear inside any function using the `asm` keyword:
+
+```run
+fun fast_add(a u64, b u64) u64 {
+    return asm(a -> r0, b -> r1) u64 {
+        add r0, r0, r1
+    }
+}
+```
+
+- `asm(inputs) return_type { instructions }` — inline assembly expression
+- **Inputs**: `expr -> register` binds a Run expression to an abstract register
+- **Return type**: the type of the value produced (read from `r0` by convention)
+- **Clobber list**: `asm(inputs; clobber: r2, r3, memory) { ... }` declares side effects
+
+### Abstract Register Model
+
+Run assembly uses **abstract register names** that map to platform registers at compile time:
+
+| Abstract | x86-64 (System V) | ARM64 (AAPCS) |
+|----------|-------------------|---------------|
+| `r0`–`r15` | `rax`, `rbx`, `rcx`, ... | `x0`–`x15` |
+| `f0`–`f15` | `xmm0`–`xmm15` | `v0`–`v15` (scalar) |
+| `sp` | `rsp` | `sp` |
+| `fp` | `rbp` | `x29` |
+
+This allows writing assembly that is structurally portable while still mapping to
+efficient native instructions. For platform-specific instructions, use conditional
+sections:
+
+```run
+asm(data -> r0) {
+    #x86_64 {
+        popcnt r0, r0
+    }
+    #arm64 {
+        cnt v0.8b, v0.8b
+        addv b0, v0.8b
+        fmov r0, s0
+    }
+}
+```
+
+### External Assembly Files
+
+For larger assembly routines, use external `.rasm` files with platform suffixes:
+
+- `fast_math.rasm` — portable assembly (abstract registers only)
+- `fast_math_amd64.rasm` — x86-64 specific
+- `fast_math_arm64.rasm` — ARM64 specific
+
+The build system selects the correct file based on the target architecture. If a
+platform-specific file exists, it takes priority over the portable version.
+
+```
+// fast_math_amd64.rasm
+pub fun simd_dot_product(a @[]f32, b @[]f32, len int) f32 {
+    // x86-64 native assembly using real register names
+    vxorps ymm0, ymm0, ymm0
+    // ...
+}
+```
+
+External assembly functions are callable from Run code like any other function.
+
+### Implementation
+
+Inline assembly lowers to GCC/Clang `__asm__` blocks in the C codegen backend.
+External `.rasm` files are assembled into `.S` files and compiled alongside the
+generated C code. The runtime already uses this pattern for context switching
+(`run_context_amd64.S`, `run_context_arm64.S`).
+
+## SIMD Types and Operations
+
+Run provides first-class SIMD vector types as native primitives. No generics are needed —
+SIMD types are concrete, matching how SIMD hardware works with fixed register widths.
+
+### Vector Types
+
+128-bit vectors:
+- `v4f32` — 4 × `f32` (SSE / NEON)
+- `v2f64` — 2 × `f64`
+- `v4i32` — 4 × `i32`
+- `v8i16` — 8 × `i16`
+- `v16i8` — 16 × `i8`
+
+256-bit vectors (x86-64 AVX):
+- `v8f32` — 8 × `f32`
+- `v4f64` — 4 × `f64`
+- `v8i32` — 8 × `i32`
+- `v16i16` — 16 × `i16`
+- `v32i8` — 32 × `i8`
+
+### Operations
+
+SIMD types support standard arithmetic operators and built-in operations:
+
+```run
+a := v4f32{ 1.0, 2.0, 3.0, 4.0 }
+b := v4f32{ 5.0, 6.0, 7.0, 8.0 }
+
+c := a + b              // element-wise add: { 6.0, 8.0, 10.0, 12.0 }
+d := a * b              // element-wise mul: { 5.0, 12.0, 21.0, 32.0 }
+
+// Built-in SIMD functions
+sum := simd.hadd(c)             // horizontal sum: 34.0
+dot := simd.dot(a, b)           // dot product: 70.0
+shuf := simd.shuffle(a, 3,2,1,0)  // reverse lanes: { 4.0, 3.0, 2.0, 1.0 }
+min := simd.min(a, b)           // element-wise min
+max := simd.max(a, b)           // element-wise max
+
+// Lane access
+x := a[0]              // extract lane: 1.0
+a[2] = 9.0             // insert lane
+```
+
+### Alignment
+
+SIMD types are automatically aligned to their natural boundary:
+- 128-bit types: 16-byte aligned
+- 256-bit types: 32-byte aligned
+
+The allocator respects SIMD alignment for heap allocations. Stack-allocated SIMD
+values are aligned by the compiler.
+
+### Masking and Conditional Operations
+
+```run
+mask := a > b                        // per-lane comparison: v4bool
+result := simd.select(mask, a, b)    // select lanes by mask
+```
+
+### Memory Operations
+
+```run
+data := simd.load(ptr)               // aligned load from @[]f32
+simd.store(ptr, vec)                 // aligned store
+data := simd.load_unaligned(ptr)     // unaligned load (slower)
+```
+
+### Platform Mapping
+
+SIMD operations lower to C compiler intrinsics in the codegen backend:
+- **x86-64**: SSE/AVX intrinsics (`_mm_add_ps`, `_mm256_mul_ps`, etc.) via `<immintrin.h>`
+- **ARM64**: NEON intrinsics (`vaddq_f32`, `vmulq_f32`, etc.) via `<arm_neon.h>`
+
+On platforms without SIMD support, the compiler emits scalar fallback code.
+
+SIMD types do **not** require the `unsafe` package — they are safe, first-class types.
+For operations not covered by the built-in functions, use inline assembly (see Assembly Language).
+
+### Standard Library: `simd` Package
+
+The `simd` package provides higher-level helpers:
+- `simd.hadd(v)` — horizontal sum
+- `simd.dot(a, b)` — dot product
+- `simd.shuffle(v, ...)` — lane permutation
+- `simd.min(a, b)`, `simd.max(a, b)` — element-wise min/max
+- `simd.select(mask, a, b)` — conditional select
+- `simd.load(ptr)`, `simd.store(ptr, v)` — aligned memory operations
+- `simd.width()` — runtime query for available SIMD width (128, 256, or 0)
+
+## NUMA Awareness
+
+Run provides tools for building NUMA-friendly applications. On multi-socket systems,
+memory locality and thread placement significantly impact performance. Run exposes
+NUMA topology through the runtime and integrates it with the scheduler and allocator.
+
+### Topology Discovery
+
+```run
+use "runtime/numa"
+
+nodes := numa.node_count()           // number of NUMA nodes
+current := numa.current_node()       // node the current green thread is on
+cpus := numa.cpus_on_node(0)         // CPU IDs belonging to node 0
+dist := numa.distance(0, 1)          // relative distance between nodes
+```
+
+The runtime discovers NUMA topology at startup:
+- **Linux**: reads `/sys/devices/system/node/` or uses `libnuma`
+- **Windows**: `GetNumaProcessorNodeEx`, `GetNumaAvailableMemoryNode`
+- **macOS/Apple Silicon**: UMA (single node) — NUMA APIs return trivial values
+
+### NUMA-Aware Allocation
+
+NUMA-local allocators can be passed to `alloc()` using Run's existing custom allocator support:
+
+```run
+use "runtime/numa"
+
+// Create an allocator that allocates on a specific NUMA node
+node_alloc := numa.allocator(node: 0)
+
+// Use it with alloc
+data := alloc([]f32, 1024, allocator: node_alloc)
+```
+
+The runtime's per-P slab caches automatically allocate from the NUMA node
+their bound OS thread is running on. For most applications, the default
+allocator already provides good NUMA locality without explicit configuration.
+
+### Thread Affinity
+
+Green threads can be pinned to specific NUMA nodes:
+
+```run
+use "runtime/numa"
+
+// Spawn a green thread on a specific NUMA node
+run(node: 0) process_local_data(data)
+
+// Pin the current green thread
+numa.pin(node: 1)
+```
+
+### Scheduler Integration
+
+The GMP scheduler is NUMA-aware:
+- **Processors (P)** are assigned to NUMA nodes
+- **Work stealing** prefers same-NUMA-node Ps before cross-node Ps
+- **OS threads (M)** are pinned to CPUs on their P's NUMA node
+- The `G.last_p` affinity hint prefers same-NUMA-node Ps for rescheduling
+
+This means green threads naturally stay on the NUMA node where their data lives,
+minimizing cross-node memory traffic without explicit management in most cases.
+
+### Platform Support
+
+| Feature | Linux | Windows | macOS |
+|---------|-------|---------|-------|
+| Topology discovery | `/sys/` + `libnuma` | `GetNumaProcessorNodeEx` | UMA (trivial) |
+| NUMA-local alloc | `mbind()` / `VirtualAllocExNuma` | `VirtualAllocExNuma` | Default alloc |
+| Thread affinity | `pthread_setaffinity_np` | `SetThreadAffinityMask` | Default scheduling |
+
 ## Visibility and Modules
 
 - **`pub`** keyword marks items as public; everything is **private by default**
