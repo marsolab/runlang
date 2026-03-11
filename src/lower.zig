@@ -26,6 +26,9 @@ pub fn lower(
         .current_func = null,
         .current_block = null,
         .var_map = .empty,
+        .var_lookup = .empty,
+        .var_shadow_stack = .empty,
+        .var_shadow_scope_stack = .empty,
         .scope_stack = .empty,
         .defer_stack = .empty,
         .defer_scope_stack = .empty,
@@ -46,6 +49,9 @@ const LoweringContext = struct {
 
     // Variable tracking: map from variable name to its local_idx in Module.local_infos
     var_map: std.ArrayList(VarEntry),
+    var_lookup: std.StringHashMapUnmanaged(u32),
+    var_shadow_stack: std.ArrayList(VarShadowEntry),
+    var_shadow_scope_stack: std.ArrayList(usize),
     scope_stack: std.ArrayList(usize),
 
     // Ownership tracking: defer statements and owned allocations per scope
@@ -57,6 +63,12 @@ const LoweringContext = struct {
     const VarEntry = struct {
         name: []const u8,
         local_idx: u32,
+    };
+
+    const VarShadowEntry = struct {
+        name: []const u8,
+        had_prev: bool,
+        prev_local_idx: u32,
     };
 
     const DeferEntry = struct {
@@ -71,6 +83,7 @@ const LoweringContext = struct {
 
     fn pushScope(self: *LoweringContext) LowerError!void {
         try self.scope_stack.append(self.allocator, self.var_map.items.len);
+        try self.var_shadow_scope_stack.append(self.allocator, self.var_shadow_stack.items.len);
         try self.defer_scope_stack.append(self.allocator, self.defer_stack.items.len);
         try self.owned_scope_stack.append(self.allocator, self.owned_stack.items.len);
     }
@@ -84,6 +97,19 @@ const LoweringContext = struct {
 
             self.defer_stack.shrinkRetainingCapacity(defer_boundary);
             self.owned_stack.shrinkRetainingCapacity(owned_boundary);
+
+            const shadow_boundary = self.var_shadow_scope_stack.pop().?;
+            var i = self.var_shadow_stack.items.len;
+            while (i > shadow_boundary) {
+                i -= 1;
+                const shadow = self.var_shadow_stack.items[i];
+                if (shadow.had_prev) {
+                    try self.var_lookup.put(self.allocator, shadow.name, shadow.prev_local_idx);
+                } else {
+                    _ = self.var_lookup.remove(shadow.name);
+                }
+            }
+            self.var_shadow_stack.shrinkRetainingCapacity(shadow_boundary);
 
             const saved = self.scope_stack.pop().?;
             self.var_map.shrinkRetainingCapacity(saved);
@@ -121,10 +147,18 @@ const LoweringContext = struct {
         try self.emitScopeCleanup(0, 0);
     }
 
-    fn defineVar(self: *LoweringContext, name: []const u8, c_type: []const u8, init_ref: ir.Ref) LowerError!void {
+    fn defineVar(self: *LoweringContext, name: []const u8, c_type: []const u8, init_ref: ir.Ref) LowerError!u32 {
+        const prev_local = self.var_lookup.get(name);
         const local_idx = try self.module.addLocalInfo(self.allocator, name, c_type);
         try self.var_map.append(self.allocator, .{ .name = name, .local_idx = local_idx });
+        try self.var_shadow_stack.append(self.allocator, .{
+            .name = name,
+            .had_prev = prev_local != null,
+            .prev_local_idx = prev_local orelse 0,
+        });
+        try self.var_lookup.put(self.allocator, name, local_idx);
         try self.emit(ir.makeInst(.local_set, 0, local_idx, init_ref));
+        return local_idx;
     }
 
     fn setVar(self: *LoweringContext, name: []const u8, val_ref: ir.Ref) LowerError!void {
@@ -143,14 +177,7 @@ const LoweringContext = struct {
     }
 
     fn lookupLocalIdx(self: *const LoweringContext, name: []const u8) ?u32 {
-        var i = self.var_map.items.len;
-        while (i > 0) {
-            i -= 1;
-            if (std.mem.eql(u8, self.var_map.items[i].name, name)) {
-                return self.var_map.items[i].local_idx;
-            }
-        }
-        return null;
+        return self.var_lookup.get(name);
     }
 
     /// Infer C type from an expression node.
@@ -178,6 +205,9 @@ const LoweringContext = struct {
         }
 
         self.var_map.deinit(self.allocator);
+        self.var_lookup.deinit(self.allocator);
+        self.var_shadow_stack.deinit(self.allocator);
+        self.var_shadow_scope_stack.deinit(self.allocator);
         self.scope_stack.deinit(self.allocator);
         self.defer_stack.deinit(self.allocator);
         self.defer_scope_stack.deinit(self.allocator);
@@ -292,20 +322,18 @@ const LoweringContext = struct {
 
         if (node.data.rhs != null_node) {
             const val = try self.lowerExpr(node.data.rhs);
-            try self.defineVar(name, c_type, val);
+            const local_idx = try self.defineVar(name, c_type, val);
 
             // Track ownership for alloc expressions
             if (self.tree.nodes.items[node.data.rhs].tag == .alloc_expr) {
-                if (self.lookupLocalIdx(name)) |local_idx| {
-                    try self.owned_stack.append(self.allocator, .{
-                        .name = name,
-                        .local_idx = local_idx,
-                        .is_moved = false,
-                    });
-                }
+                try self.owned_stack.append(self.allocator, .{
+                    .name = name,
+                    .local_idx = local_idx,
+                    .is_moved = false,
+                });
             }
         } else {
-            try self.defineVar(name, c_type, ir.null_ref);
+            _ = try self.defineVar(name, c_type, ir.null_ref);
         }
     }
 
@@ -318,17 +346,15 @@ const LoweringContext = struct {
                 const c_type = self.inferCTypeFromExpr(node.data.rhs);
                 if (node.data.rhs != null_node) {
                     const val = try self.lowerExpr(node.data.rhs);
-                    try self.defineVar(name, c_type, val);
+                    const local_idx = try self.defineVar(name, c_type, val);
 
                     // Track ownership for alloc expressions
                     if (self.tree.nodes.items[node.data.rhs].tag == .alloc_expr) {
-                        if (self.lookupLocalIdx(name)) |local_idx| {
-                            try self.owned_stack.append(self.allocator, .{
-                                .name = name,
-                                .local_idx = local_idx,
-                                .is_moved = false,
-                            });
-                        }
+                        try self.owned_stack.append(self.allocator, .{
+                            .name = name,
+                            .local_idx = local_idx,
+                            .is_moved = false,
+                        });
                     }
                 }
             }
@@ -953,6 +979,50 @@ test "lower: nested scopes free inner scope first" {
         if (inst.op == .gen_free) free_count += 1;
     }
     try std.testing.expectEqual(@as(usize, 2), free_count);
+}
+
+test "lower: shadowed locals restore after scope exit" {
+    var module = try testLower(
+        \\fn main() {
+        \\    let x = 1
+        \\    {
+        \\        let x = 2
+        \\        x
+        \\    }
+        \\    return x
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    // Two distinct locals should be allocated for the shadowed bindings.
+    try std.testing.expectEqual(@as(usize, 2), module.local_infos.items.len);
+    try std.testing.expectEqualStrings("x", module.local_infos.items[0].name);
+    try std.testing.expectEqualStrings("x", module.local_infos.items[1].name);
+
+    const func = &module.functions.items[0];
+    const block = &func.blocks.items[0];
+
+    // The final return should read from the outer binding (local index 0),
+    // not the inner shadowed binding (local index 1).
+    var saw_ret = false;
+    var saw_outer_get_before_ret = false;
+    var i = block.insts.items.len;
+    while (i > 0) {
+        i -= 1;
+        const inst = block.insts.items[i];
+        if (inst.op == .ret and !saw_ret) {
+            saw_ret = true;
+            continue;
+        }
+        if (saw_ret and inst.op == .local_get) {
+            saw_outer_get_before_ret = (inst.arg0 == 0);
+            break;
+        }
+    }
+
+    try std.testing.expect(saw_ret);
+    try std.testing.expect(saw_outer_get_before_ret);
 }
 
 test "lower: defer and alloc combined — defer runs before free" {
