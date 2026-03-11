@@ -9,6 +9,7 @@ const typecheck = @import("typecheck.zig");
 const lower_mod = @import("lower.zig");
 const ownership = @import("ownership.zig");
 const ir = @import("ir.zig");
+const dce = @import("dce.zig");
 const codegen_c = @import("codegen_c.zig");
 
 const File = std.fs.File;
@@ -23,6 +24,7 @@ pub const CompileOptions = struct {
     input_path: []const u8,
     output_path: ?[]const u8 = null,
     command: Command,
+    enable_dce: bool = true,
 };
 
 pub const CompileError = error{
@@ -150,6 +152,24 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
         return CompileError.OutOfMemory;
     };
     defer module.deinit(allocator);
+
+    // 7b. Dead code elimination
+    if (options.enable_dce) {
+        var dce_result = dce.eliminate(allocator, &module) catch {
+            return CompileError.OutOfMemory;
+        };
+        defer dce_result.deinit(allocator);
+
+        for (dce_result.warnings.items) |w| {
+            switch (w.kind) {
+                .unused_function => stderr.print("warning: unused function '{s}'\n", .{w.name}) catch {},
+                .unused_variable => if (w.context.len > 0)
+                    stderr.print("warning: unused variable '{s}' in function '{s}'\n", .{ w.name, w.context }) catch {}
+                else
+                    stderr.print("warning: unused variable '{s}'\n", .{w.name}) catch {},
+            }
+        }
+    }
 
     // 8. Generate C code
     var cg = codegen_c.CCodegen.init(allocator, &module);
