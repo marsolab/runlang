@@ -1,18 +1,1021 @@
 #include "run_scheduler.h"
 
+#include "run_vmem.h"
+
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+
+#if defined(__linux__) || defined(__APPLE__)
+#include <sys/time.h>
+#endif
+
+/* ========================================================================
+ * Configuration
+ * ======================================================================== */
+
+#define RUN_FIXED_STACK_SIZE ((size_t)64 * 1024) /* 64 KB per G (Phase 1) */
+#define RUN_GUARD_PAGE_SIZE ((size_t)4 * 1024)   /* 4 KB guard at bottom */
+#define RUN_SCHEDULER_STACK ((size_t)256 * 1024) /* 256 KB for g0 scheduler stack */
+#define RUN_MAX_M_COUNT 10000
+#define RUN_PREEMPT_INTERVAL_US 10000 /* 10ms preemption timer */
+
+/* Default max for growable stacks */
+#define RUN_DEFAULT_STACK_MAX ((size_t)1024 * 1024) /* 1 MB */
+#define RUN_GROWABLE_INITIAL ((size_t)8 * 1024)     /* 8 KB initial commit */
+
+/* ========================================================================
+ * Thread-Local Storage
+ * ======================================================================== */
+
+static __thread run_m_t *tls_current_m = NULL;
+
+run_g_t *run_current_g(void) {
+    return tls_current_m ? tls_current_m->current_g : NULL;
+}
+
+run_m_t *run_current_m(void) {
+    return tls_current_m;
+}
+
+/* ========================================================================
+ * Global Scheduler State
+ * ======================================================================== */
+
+static run_p_t all_ps[RUN_MAX_P_COUNT];
+static uint32_t num_ps = 0;
+
+/* Global run queue */
+static run_g_queue_t global_queue;
+static pthread_mutex_t global_queue_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* Idle lists */
+static uint32_t idle_p_stack[RUN_MAX_P_COUNT]; /* stack of idle P indices */
+static uint32_t idle_p_count = 0;
+static pthread_mutex_t idle_p_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* All Ms */
+static run_m_t *all_ms = NULL;
+static uint32_t num_ms = 0;
+static pthread_mutex_t all_ms_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* Idle Ms waiting to be woken */
+static run_m_t *idle_m_head = NULL;
+static pthread_mutex_t idle_m_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* G ID counter */
+static uint64_t next_g_id = 1;
+static pthread_mutex_t g_id_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* Total live (non-DEAD) Gs — when this drops to 0, scheduler exits */
+static volatile int64_t live_g_count = 0;
+static pthread_mutex_t live_g_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* Growable stacks enabled flag */
+static bool growable_stacks_enabled = false;
+static size_t stack_max_size_cached = 0;
+
+/* Preemption timer active */
+static bool preemption_timer_active = false;
+
+/* Signal preemption active */
+static bool signal_preemption_active = false;
+
+/* ========================================================================
+ * G Queue Operations
+ * ======================================================================== */
+
+void run_g_queue_init(run_g_queue_t *q) {
+    q->head = NULL;
+    q->tail = NULL;
+    q->len = 0;
+}
+
+void run_g_queue_push(run_g_queue_t *q, run_g_t *g) {
+    g->sched_next = NULL;
+    if (q->tail) {
+        q->tail->sched_next = g;
+    } else {
+        q->head = g;
+    }
+    q->tail = g;
+    q->len++;
+}
+
+run_g_t *run_g_queue_pop(run_g_queue_t *q) {
+    run_g_t *g = q->head;
+    if (g == NULL)
+        return NULL;
+    q->head = g->sched_next;
+    if (q->head == NULL) {
+        q->tail = NULL;
+    }
+    g->sched_next = NULL;
+    q->len--;
+    return g;
+}
+
+bool run_g_queue_remove(run_g_queue_t *q, run_g_t *g) {
+    if (q->head == NULL)
+        return false;
+
+    if (q->head == g) {
+        q->head = g->sched_next;
+        if (q->head == NULL)
+            q->tail = NULL;
+        g->sched_next = NULL;
+        q->len--;
+        return true;
+    }
+
+    run_g_t *prev = q->head;
+    while (prev->sched_next != NULL) {
+        if (prev->sched_next == g) {
+            prev->sched_next = g->sched_next;
+            if (q->tail == g)
+                q->tail = prev;
+            g->sched_next = NULL;
+            q->len--;
+            return true;
+        }
+        prev = prev->sched_next;
+    }
+    return false;
+}
+
+/* ========================================================================
+ * Stack Allocation
+ * ======================================================================== */
+
+size_t run_stack_max_size(void) {
+    if (stack_max_size_cached > 0)
+        return stack_max_size_cached;
+    const char *env = getenv("RUN_STACK_MAX");
+    if (env) {
+        size_t val = (size_t)strtol(env, NULL, 10);
+        if (val >= RUN_GROWABLE_INITIAL) {
+            stack_max_size_cached = val;
+            return val;
+        }
+    }
+    stack_max_size_cached = RUN_DEFAULT_STACK_MAX;
+    return RUN_DEFAULT_STACK_MAX;
+}
+
+static void *stack_alloc(size_t *out_size, size_t *out_committed) {
+    if (growable_stacks_enabled) {
+        size_t max_size = run_stack_max_size();
+        /* Reserve entire address range */
+        void *mem = run_vmem_reserve(max_size);
+        if (!mem) {
+            fprintf(stderr, "run: failed to reserve stack (%zu bytes)\n", max_size);
+            abort();
+        }
+        /* Commit initial pages at the TOP of the stack (stack grows down) */
+        size_t initial = RUN_GROWABLE_INITIAL;
+        void *commit_start = (char *)mem + max_size - initial;
+        run_vmem_protect(commit_start, initial, RUN_VMEM_READWRITE);
+        /* Guard page at the very bottom */
+        /* (the rest of reserved-but-uncommitted space acts as guard) */
+        *out_size = max_size;
+        *out_committed = initial;
+        return mem;
+    } else {
+        void *mem = run_vmem_alloc(RUN_FIXED_STACK_SIZE);
+        if (!mem) {
+            fprintf(stderr, "run: failed to allocate stack (%zu bytes)\n", RUN_FIXED_STACK_SIZE);
+            abort();
+        }
+        /* Guard page at the bottom */
+        run_vmem_protect(mem, RUN_GUARD_PAGE_SIZE, RUN_VMEM_NONE);
+        *out_size = RUN_FIXED_STACK_SIZE;
+        *out_committed = RUN_FIXED_STACK_SIZE;
+        return mem;
+    }
+}
+
+static void stack_free(void *base, size_t size) {
+    run_vmem_free(base, size);
+}
+
+/* ========================================================================
+ * G Lifecycle
+ * ======================================================================== */
+
+static uint64_t alloc_g_id(void) {
+    pthread_mutex_lock(&g_id_lock);
+    uint64_t id = next_g_id++;
+    pthread_mutex_unlock(&g_id_lock);
+    return id;
+}
+
+static run_g_t *g_alloc(void (*fn)(void *), void *arg) {
+    run_g_t *g = (run_g_t *)calloc(1, sizeof(run_g_t));
+    if (!g) {
+        fprintf(stderr, "run: failed to allocate G struct\n");
+        abort();
+    }
+
+    g->id = alloc_g_id();
+    g->status = G_IDLE;
+    g->entry_fn = fn;
+    g->entry_arg = arg;
+
+    /* Allocate stack */
+    g->stack_base = stack_alloc(&g->stack_size, &g->stack_committed);
+
+    /* Stack top = base + size (stack grows downward) */
+    void *stack_top = (char *)g->stack_base + g->stack_size;
+
+    /* Initialize context to start at entry function */
+    run_context_init(&g->context, stack_top, fn, arg);
+
+    g->status = G_RUNNABLE;
+    return g;
+}
+
+static void g_free(run_g_t *g) {
+    if (g->stack_base) {
+        stack_free(g->stack_base, g->stack_size);
+    }
+    free(g);
+}
+
+/* ========================================================================
+ * M Lifecycle
+ * ======================================================================== */
+
+static run_m_t *m_alloc(void) {
+    run_m_t *m = (run_m_t *)calloc(1, sizeof(run_m_t));
+    if (!m) {
+        fprintf(stderr, "run: failed to allocate M struct\n");
+        abort();
+    }
+
+    pthread_mutex_lock(&all_ms_lock);
+    m->id = num_ms++;
+    m->all_next = all_ms;
+    all_ms = m;
+    pthread_mutex_unlock(&all_ms_lock);
+
+    pthread_mutex_init(&m->park_mutex, NULL);
+    pthread_cond_init(&m->park_cond, NULL);
+    m->parked = false;
+
+    /* Allocate g0 (scheduler goroutine) with its own stack */
+    m->g0 = (run_g_t *)calloc(1, sizeof(run_g_t));
+    if (!m->g0)
+        abort();
+    m->g0->stack_base = run_vmem_alloc(RUN_SCHEDULER_STACK);
+    if (!m->g0->stack_base) {
+        fprintf(stderr, "run: failed to allocate scheduler stack\n");
+        abort();
+    }
+    m->g0->stack_size = RUN_SCHEDULER_STACK;
+    m->g0->status = G_RUNNING;
+    m->g0->id = 0; /* special scheduler G */
+
+    return m;
+}
+
+/* ========================================================================
+ * P Operations
+ * ======================================================================== */
+
+static run_p_t *acquire_idle_p(void) {
+    pthread_mutex_lock(&idle_p_lock);
+    if (idle_p_count == 0) {
+        pthread_mutex_unlock(&idle_p_lock);
+        return NULL;
+    }
+    uint32_t idx = idle_p_stack[--idle_p_count];
+    pthread_mutex_unlock(&idle_p_lock);
+
+    run_p_t *p = &all_ps[idx];
+    p->status = P_RUNNING;
+    return p;
+}
+
+static void release_p(run_p_t *p) {
+    p->status = P_IDLE;
+    p->bound_m = NULL;
+    pthread_mutex_lock(&idle_p_lock);
+    idle_p_stack[idle_p_count++] = p->id;
+    pthread_mutex_unlock(&idle_p_lock);
+}
+
+/* ========================================================================
+ * Global Run Queue
+ * ======================================================================== */
+
+void run_global_queue_push(run_g_t *g) {
+    pthread_mutex_lock(&global_queue_lock);
+    run_g_queue_push(&global_queue, g);
+    pthread_mutex_unlock(&global_queue_lock);
+}
+
+run_g_t *run_global_queue_pop(void) {
+    pthread_mutex_lock(&global_queue_lock);
+    run_g_t *g = run_g_queue_pop(&global_queue);
+    pthread_mutex_unlock(&global_queue_lock);
+    return g;
+}
+
+uint32_t run_global_queue_len(void) {
+    pthread_mutex_lock(&global_queue_lock);
+    uint32_t len = global_queue.len;
+    pthread_mutex_unlock(&global_queue_lock);
+    return len;
+}
+
+/* ========================================================================
+ * Work Stealing (#86)
+ * ======================================================================== */
+
+/* Simple xorshift RNG for work stealing victim selection. */
+static __thread uint32_t steal_rng_state = 0;
+
+static uint32_t steal_random(void) {
+    if (steal_rng_state == 0) {
+        /* Seed from thread ID */
+        steal_rng_state = (uint32_t)(uintptr_t)pthread_self() ^ 0xDEADBEEF;
+    }
+    uint32_t x = steal_rng_state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    steal_rng_state = x;
+    return x;
+}
+
+static run_g_t *try_steal(run_p_t *self_p) {
+    if (num_ps <= 1)
+        return NULL;
+
+    uint32_t start = steal_random() % num_ps;
+    for (uint32_t i = 0; i < num_ps; i++) {
+        uint32_t idx = (start + i) % num_ps;
+        if (idx == self_p->id)
+            continue;
+
+        run_p_t *victim = &all_ps[idx];
+        if (victim->local_queue.len == 0)
+            continue;
+
+        /* Steal half the victim's queue. In a multi-threaded scenario
+         * this would need synchronization. For single-threaded Phase 1,
+         * this is safe since only one M runs at a time.
+         * For multi-threaded (#86), we use atomic ops on the queue. */
+        uint32_t steal_count = victim->local_queue.len / 2;
+        if (steal_count == 0)
+            steal_count = 1;
+
+        run_g_t *first = NULL;
+        for (uint32_t s = 0; s < steal_count; s++) {
+            run_g_t *g = run_g_queue_pop(&victim->local_queue);
+            if (!g)
+                break;
+            if (first == NULL) {
+                first = g;
+            } else {
+                run_g_queue_push(&self_p->local_queue, g);
+            }
+        }
+        if (first)
+            return first;
+    }
+    return NULL;
+}
+
+/* ========================================================================
+ * M Parking / Waking (#86)
+ * ======================================================================== */
+
+static void park_m(run_m_t *m) {
+    pthread_mutex_lock(&m->park_mutex);
+    m->parked = true;
+
+    /* Add to idle M list */
+    pthread_mutex_lock(&idle_m_lock);
+    m->all_next = idle_m_head; /* reuse all_next for idle list */
+    idle_m_head = m;
+    pthread_mutex_unlock(&idle_m_lock);
+
+    while (m->parked) {
+        pthread_cond_wait(&m->park_cond, &m->park_mutex);
+    }
+    pthread_mutex_unlock(&m->park_mutex);
+}
+
+static void unpark_m(run_m_t *m) {
+    pthread_mutex_lock(&m->park_mutex);
+    m->parked = false;
+    pthread_cond_signal(&m->park_cond);
+    pthread_mutex_unlock(&m->park_mutex);
+}
+
+void run_wake_m(void) {
+    /* Try to wake an idle M */
+    pthread_mutex_lock(&idle_m_lock);
+    run_m_t *m = idle_m_head;
+    if (m) {
+        idle_m_head = m->all_next;
+    }
+    pthread_mutex_unlock(&idle_m_lock);
+
+    if (m) {
+        /* Get an idle P for this M */
+        run_p_t *p = acquire_idle_p();
+        if (p) {
+            m->current_p = p;
+            p->bound_m = m;
+            unpark_m(m);
+        } else {
+            /* No idle P — put M back */
+            pthread_mutex_lock(&idle_m_lock);
+            m->all_next = idle_m_head;
+            idle_m_head = m;
+            pthread_mutex_unlock(&idle_m_lock);
+        }
+        return;
+    }
+
+    /* No idle M — create a new one if under limit */
+    pthread_mutex_lock(&all_ms_lock);
+    uint32_t current_ms = num_ms;
+    pthread_mutex_unlock(&all_ms_lock);
+
+    if (current_ms >= RUN_MAX_M_COUNT)
+        return;
+
+    run_p_t *p = acquire_idle_p();
+    if (!p)
+        return;
+
+    /* Forward declaration of the M thread entry */
+    extern void *m_thread_entry(void *arg);
+
+    run_m_t *new_m = m_alloc();
+    new_m->current_p = p;
+    p->bound_m = new_m;
+
+    pthread_create(&new_m->thread, NULL, m_thread_entry, new_m);
+    pthread_detach(new_m->thread);
+}
+
+/* ========================================================================
+ * Scheduling Core
+ * ======================================================================== */
+
+/* find_runnable: try local queue -> global queue -> work stealing */
+static run_g_t *find_runnable(run_p_t *p) {
+    /* 1. Local queue */
+    run_g_t *g = run_g_queue_pop(&p->local_queue);
+    if (g)
+        return g;
+
+    /* 2. Global queue — take one (or batch) */
+    g = run_global_queue_pop();
+    if (g)
+        return g;
+
+    /* 3. Work stealing */
+    g = try_steal(p);
+    if (g)
+        return g;
+
+    return NULL;
+}
+
+/* The core scheduling loop, runs on g0's stack. */
+static void schedule_loop(run_m_t *m) {
+    while (1) {
+        run_p_t *p = m->current_p;
+        if (!p) {
+            /* Try to acquire an idle P */
+            p = acquire_idle_p();
+            if (!p) {
+                /* Check if there's still work to do */
+                pthread_mutex_lock(&live_g_lock);
+                int64_t count = live_g_count;
+                pthread_mutex_unlock(&live_g_lock);
+                if (count <= 0)
+                    return; /* All done */
+
+                /* Park this M until woken */
+                park_m(m);
+                continue;
+            }
+            m->current_p = p;
+            p->bound_m = m;
+        }
+
+        run_g_t *g = find_runnable(p);
+        if (!g) {
+            /* No work found — check if all Gs are done */
+            pthread_mutex_lock(&live_g_lock);
+            int64_t count = live_g_count;
+            pthread_mutex_unlock(&live_g_lock);
+            if (count <= 0) {
+                release_p(p);
+                m->current_p = NULL;
+                return;
+            }
+
+            /* For multi-threaded: release P and park.
+             * For single-threaded: just return (all Gs must be waiting). */
+            if (num_ps > 1) {
+                release_p(p);
+                m->current_p = NULL;
+                park_m(m);
+                continue;
+            } else {
+                /* Single-threaded: if there are live Gs but none runnable,
+                 * they must be in G_WAITING. This is a deadlock. */
+                fprintf(stderr, "run: all green threads are deadlocked\n");
+                abort();
+            }
+        }
+
+        /* Execute g */
+        g->status = G_RUNNING;
+        g->last_p = p;
+        m->current_g = g;
+
+        /* Context switch from g0 to g */
+        run_context_switch(&m->g0->context, &g->context);
+
+        /* Returned here: g yielded or completed */
+        m->current_g = NULL;
+
+        if (g->status == G_DEAD) {
+            pthread_mutex_lock(&live_g_lock);
+            live_g_count--;
+            pthread_mutex_unlock(&live_g_lock);
+            g_free(g);
+        }
+        /* If g->status is G_RUNNABLE (yield), it's already re-enqueued.
+         * If g->status is G_WAITING (channel), the channel code handles it. */
+    }
+}
+
+/* M thread entry point (for dynamically created Ms in multi-threaded mode) */
+void *m_thread_entry(void *arg) {
+    run_m_t *m = (run_m_t *)arg;
+    tls_current_m = m;
+    schedule_loop(m);
+    return NULL;
+}
+
+/* ========================================================================
+ * Public API
+ * ======================================================================== */
+
 void run_scheduler_init(void) {
-    /* stub: no-op for MVP */
+    /* Determine number of Ps */
+    const char *maxprocs_env = getenv("RUN_MAXPROCS");
+    if (maxprocs_env) {
+        int n = (int)strtol(maxprocs_env, NULL, 10);
+        if (n > 0 && n <= RUN_MAX_P_COUNT) {
+            num_ps = (uint32_t)n;
+        }
+    }
+    if (num_ps == 0) {
+        num_ps = (uint32_t)sysconf(_SC_NPROCESSORS_ONLN);
+        if (num_ps == 0)
+            num_ps = 1;
+        if (num_ps > RUN_MAX_P_COUNT)
+            num_ps = RUN_MAX_P_COUNT;
+    }
+
+    /* Initialize all Ps */
+    for (uint32_t i = 0; i < num_ps; i++) {
+        all_ps[i].id = i;
+        all_ps[i].status = P_IDLE;
+        run_g_queue_init(&all_ps[i].local_queue);
+        all_ps[i].bound_m = NULL;
+    }
+
+    /* Initialize global run queue */
+    run_g_queue_init(&global_queue);
+
+    /* All Ps except P[0] go to idle list */
+    idle_p_count = 0;
+    for (uint32_t i = 1; i < num_ps; i++) {
+        idle_p_stack[idle_p_count++] = i;
+    }
+
+    /* Create M0 wrapping the main OS thread */
+    run_m_t *m0 = m_alloc();
+    m0->thread = pthread_self();
+    m0->current_p = &all_ps[0];
+    all_ps[0].status = P_RUNNING;
+    all_ps[0].bound_m = m0;
+
+    tls_current_m = m0;
+
+    /* Check for growable stacks */
+    const char *stack_env = getenv("RUN_STACK_MAX");
+    if (stack_env) {
+        growable_stacks_enabled = true;
+        run_stack_growth_init();
+    }
 }
 
 void run_scheduler_run(void) {
-    /* stub: no-op for MVP */
+    run_m_t *m = tls_current_m;
+    if (!m)
+        return;
+
+    /* Start preemption timer if RUN_PREEMPT is set.
+     * Preemption is only useful when codegen emits run_preemption_check()
+     * at function prologues. Without those checks, the timer just adds
+     * overhead and can interfere with context switches. */
+    const char *preempt_env = getenv("RUN_PREEMPT");
+    bool use_preemption = (preempt_env != NULL && preempt_env[0] == '1');
+
+    if (use_preemption) {
+        run_preemption_start();
+        if (num_ps > 1) {
+            run_signal_preemption_start();
+        }
+    }
+
+    /* Ensure main M has a P before entering the schedule loop.
+     * After a previous run, the P was released — re-acquire it. */
+    if (!m->current_p) {
+        run_p_t *p = acquire_idle_p();
+        if (p) {
+            m->current_p = p;
+            p->bound_m = m;
+        }
+    }
+
+    /* Run the scheduling loop */
+    schedule_loop(m);
+
+    /* Cleanup */
+    if (use_preemption) {
+        run_preemption_stop();
+        if (signal_preemption_active) {
+            run_signal_preemption_stop();
+        }
+    }
 }
 
 void run_spawn(void (*fn)(void *), void *arg) {
-    /* stub: just call directly, no green threads yet */
-    fn(arg);
+    run_g_t *g = g_alloc(fn, arg);
+
+    pthread_mutex_lock(&live_g_lock);
+    live_g_count++;
+    pthread_mutex_unlock(&live_g_lock);
+
+    /* Enqueue to current P's local queue, or global queue */
+    run_m_t *m = tls_current_m;
+    if (m && m->current_p) {
+        run_g_queue_push(&m->current_p->local_queue, g);
+    } else if (m && m->current_g == NULL) {
+        /* Called from main thread (outside scheduler loop).
+         * Try to re-acquire an idle P so the G goes to the local queue
+         * rather than spawning a new M thread for it. */
+        run_p_t *p = acquire_idle_p();
+        if (p) {
+            m->current_p = p;
+            p->bound_m = m;
+            run_g_queue_push(&p->local_queue, g);
+        } else {
+            run_global_queue_push(g);
+        }
+    } else {
+        run_global_queue_push(g);
+    }
+
+    /* If there are idle Ps, wake an M to handle the new work.
+     * Only safe from the main thread or scheduler context. */
+    if (idle_p_count > 0 && m && m->current_g == NULL) {
+        run_wake_m();
+    }
 }
 
 void run_yield(void) {
-    /* stub: no-op for MVP */
+    run_m_t *m = tls_current_m;
+    if (!m || !m->current_g)
+        return;
+
+    run_g_t *g = m->current_g;
+    g->status = G_RUNNABLE;
+    g->preempt = false;
+
+    /* Re-enqueue to local queue */
+    if (m->current_p) {
+        run_g_queue_push(&m->current_p->local_queue, g);
+    } else {
+        run_global_queue_push(g);
+    }
+
+    /* Switch back to scheduler */
+    run_context_switch(&g->context, &m->g0->context);
 }
+
+void run_schedule(void) {
+    run_m_t *m = tls_current_m;
+    if (!m || !m->current_g)
+        return;
+
+    run_g_t *g = m->current_g;
+    /* Caller must have already set g->status (e.g., G_WAITING) */
+
+    /* Switch back to scheduler */
+    run_context_switch(&g->context, &m->g0->context);
+
+    /* Resumed: check if we were woken due to channel close panic */
+    if (g->chan_panic) {
+        g->chan_panic = false;
+        fprintf(stderr, "run: send on closed channel\n");
+        abort();
+    }
+}
+
+void run_g_exit(void) {
+    run_m_t *m = tls_current_m;
+    if (!m || !m->current_g) {
+        fprintf(stderr, "run: run_g_exit called with no current G\n");
+        abort();
+    }
+
+    m->current_g->status = G_DEAD;
+
+    /* Switch back to scheduler (never returns) */
+    run_context_switch(&m->current_g->context, &m->g0->context);
+
+    /* Unreachable */
+    __builtin_unreachable();
+}
+
+void run_g_ready(run_g_t *g) {
+    g->status = G_RUNNABLE;
+
+    /* Try to enqueue to g's last P (affinity), else current P, else global */
+    run_m_t *m = tls_current_m;
+    if (g->last_p && g->last_p->status == P_RUNNING) {
+        run_g_queue_push(&g->last_p->local_queue, g);
+    } else if (m && m->current_p) {
+        run_g_queue_push(&m->current_p->local_queue, g);
+    } else {
+        run_global_queue_push(g);
+    }
+
+    /* Wake an M if there are idle Ps.
+     * Only do this from the scheduler context (not from a green thread)
+     * to avoid calling pthread_create from a green thread's small stack. */
+    if (idle_p_count > 0 && m && m->current_g == NULL) {
+        run_wake_m();
+    }
+}
+
+/* ========================================================================
+ * Cooperative Preemption (#84) — Timer-based
+ * ======================================================================== */
+
+#if defined(__linux__) || defined(__APPLE__)
+
+static void preempt_timer_handler(int sig) {
+    (void)sig;
+    run_g_t *g = run_current_g();
+    if (g && g->status == G_RUNNING) {
+        g->preempt = true;
+    }
+}
+
+void run_preemption_start(void) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = preempt_timer_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sigaction(SIGALRM, &sa, NULL);
+
+    struct itimerval timer;
+    timer.it_value.tv_sec = 0;
+    timer.it_value.tv_usec = RUN_PREEMPT_INTERVAL_US;
+    timer.it_interval.tv_sec = 0;
+    timer.it_interval.tv_usec = RUN_PREEMPT_INTERVAL_US;
+    setitimer(ITIMER_REAL, &timer, NULL);
+
+    preemption_timer_active = true;
+}
+
+void run_preemption_stop(void) {
+    if (!preemption_timer_active)
+        return;
+
+    struct itimerval timer;
+    memset(&timer, 0, sizeof(timer));
+    setitimer(ITIMER_REAL, &timer, NULL);
+
+    signal(SIGALRM, SIG_DFL);
+    preemption_timer_active = false;
+}
+
+#else /* Windows stub */
+
+void run_preemption_start(void) { /* TODO: Windows timer */ }
+void run_preemption_stop(void) {}
+
+#endif
+
+/* ========================================================================
+ * Syscall-aware Scheduling (#85)
+ * ======================================================================== */
+
+void run_entersyscall(void) {
+    run_m_t *m = tls_current_m;
+    if (!m || !m->current_p || !m->current_g)
+        return;
+
+    run_g_t *g = m->current_g;
+    run_p_t *p = m->current_p;
+
+    g->in_syscall = true;
+    p->status = P_SYSCALL;
+
+    /* Detach M from P — another M can acquire this P */
+    m->current_p = NULL;
+    p->bound_m = NULL;
+
+    /* Put P in idle list so another M can pick it up */
+    pthread_mutex_lock(&idle_p_lock);
+    idle_p_stack[idle_p_count++] = p->id;
+    pthread_mutex_unlock(&idle_p_lock);
+
+    /* Wake an M to take over this P's work */
+    if (p->local_queue.len > 0) {
+        run_wake_m();
+    }
+}
+
+void run_exitsyscall(void) {
+    run_m_t *m = tls_current_m;
+    if (!m || !m->current_g)
+        return;
+
+    run_g_t *g = m->current_g;
+    g->in_syscall = false;
+
+    /* Try to reacquire a P */
+    run_p_t *p = acquire_idle_p();
+    if (p) {
+        m->current_p = p;
+        p->bound_m = m;
+        p->status = P_RUNNING;
+        return;
+    }
+
+    /* No P available — put G in global queue and park M */
+    g->status = G_RUNNABLE;
+    run_global_queue_push(g);
+    m->current_g = NULL;
+
+    /* Park this M until there's a P available */
+    park_m(m);
+}
+
+/* ========================================================================
+ * Signal-based Preemption (#87) — SIGURG
+ * ======================================================================== */
+
+#if defined(__linux__) || defined(__APPLE__)
+
+static void sigurg_handler(int sig, siginfo_t *info, void *uctx) {
+    (void)sig;
+    (void)info;
+    (void)uctx;
+
+    run_m_t *m = tls_current_m;
+    if (!m || !m->current_g)
+        return;
+
+    run_g_t *g = m->current_g;
+    if (g->status != G_RUNNING)
+        return;
+
+    /* Don't preempt if we're in a syscall or already preempting */
+    if (g->in_syscall)
+        return;
+
+    /* Set the preempt flag — the next function prologue check will yield */
+    g->preempt = true;
+}
+
+void run_signal_preemption_start(void) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = sigurg_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_SIGINFO | SA_RESTART;
+    sigaction(SIGURG, &sa, NULL);
+
+    signal_preemption_active = true;
+}
+
+void run_signal_preemption_stop(void) {
+    if (!signal_preemption_active)
+        return;
+    signal(SIGURG, SIG_DFL);
+    signal_preemption_active = false;
+}
+
+#else /* Windows stub */
+
+void run_signal_preemption_start(void) {}
+void run_signal_preemption_stop(void) {}
+
+#endif
+
+/* ========================================================================
+ * Growable Stacks (#88) — SIGSEGV handler
+ * ======================================================================== */
+
+#if defined(__linux__) || defined(__APPLE__)
+
+/* Find the G whose stack contains the faulting address. */
+static run_g_t *find_g_by_fault_addr(void *addr) {
+    /* Walk through all Ps' local queues and the global queue.
+     * Also check the current G on each M.
+     * This is O(n) but only runs on stack overflow (rare). */
+    for (uint32_t i = 0; i < num_ps; i++) {
+        run_m_t *m = all_ps[i].bound_m;
+        if (m && m->current_g) {
+            run_g_t *g = m->current_g;
+            if (g->stack_base && (char *)addr >= (char *)g->stack_base &&
+                (char *)addr < (char *)g->stack_base + g->stack_size) {
+                return g;
+            }
+        }
+    }
+    return NULL;
+}
+
+static void stack_growth_handler(int sig, siginfo_t *info, void *uctx) {
+    (void)sig;
+    (void)uctx;
+
+    void *fault_addr = info->si_addr;
+    run_g_t *g = find_g_by_fault_addr(fault_addr);
+
+    if (g && growable_stacks_enabled) {
+        size_t page_size = run_vmem_page_size();
+        /* Check if we can grow */
+        size_t max_size = run_stack_max_size();
+        if (g->stack_committed >= max_size) {
+            fprintf(stderr, "run: stack overflow in green thread %llu (max %zu bytes)\n",
+                    (unsigned long long)g->id, max_size);
+            abort();
+        }
+
+        /* Commit the page containing the fault address */
+        void *page = (void *)((uintptr_t)fault_addr & ~(page_size - 1));
+        run_vmem_protect(page, page_size, RUN_VMEM_READWRITE);
+        g->stack_committed += page_size;
+        return; /* Resume execution */
+    }
+
+    /* Not a stack guard fault — invoke default handler */
+    struct sigaction sa;
+    sa.sa_handler = SIG_DFL;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGSEGV, &sa, NULL);
+    raise(SIGSEGV);
+}
+
+void run_stack_growth_init(void) {
+    /* Provide an alternate signal stack so we can handle stack overflow */
+    stack_t ss;
+    ss.ss_sp = malloc(SIGSTKSZ);
+    if (!ss.ss_sp) {
+        fprintf(stderr, "run: failed to allocate signal stack\n");
+        abort();
+    }
+    ss.ss_size = SIGSTKSZ;
+    ss.ss_flags = 0;
+    sigaltstack(&ss, NULL);
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = stack_growth_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigaction(SIGSEGV, &sa, NULL);
+}
+
+#else /* Windows stub */
+
+void run_stack_growth_init(void) {
+    /* TODO: Windows SEH for stack growth */
+}
+
+#endif
