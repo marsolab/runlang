@@ -1,5 +1,23 @@
 const std = @import("std");
 
+/// Probe for the GCC library directory containing sanitizer runtimes.
+/// On Ubuntu/Debian, libasan.a lives under /usr/lib/gcc/<triple>/<version>/
+/// which is not in the standard library search path.
+fn findGccSanitizerLibDir(allocator: std.mem.Allocator) ?[]const u8 {
+    const triplets = [_][]const u8{ "x86_64-linux-gnu", "aarch64-linux-gnu" };
+    const versions = [_][]const u8{ "14", "13", "12", "11" };
+    for (triplets) |triplet| {
+        for (versions) |ver| {
+            const path = std.fmt.allocPrint(allocator, "/usr/lib/gcc/{s}/{s}/libasan.a", .{ triplet, ver }) catch continue;
+            if (std.fs.openFileAbsolute(path, .{})) |f| {
+                f.close();
+                return std.fmt.allocPrint(allocator, "/usr/lib/gcc/{s}/{s}", .{ triplet, ver }) catch null;
+            } else |_| {}
+        }
+    }
+    return null;
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -84,13 +102,8 @@ pub fn build(b: *std.Build) void {
     runtime_lib.root_module.addIncludePath(b.path("src/runtime"));
     runtime_lib.linkLibC();
     runtime_lib.linkSystemLibrary("pthread");
-    if (sanitize) {
-        runtime_lib.linkSystemLibrary("asan");
-        runtime_lib.linkSystemLibrary("ubsan");
-    }
-    if (tsan) {
-        runtime_lib.linkSystemLibrary("tsan");
-    }
+    // Note: sanitizer runtime libraries are NOT linked into the static archive.
+    // The consuming executable is responsible for linking them.
     b.installArtifact(runtime_lib);
 
     // Install runtime headers alongside compiler
@@ -161,6 +174,16 @@ pub fn build(b: *std.Build) void {
     runtime_test_exe.root_module.addIncludePath(b.path("src/runtime/tests"));
     runtime_test_exe.linkLibC();
     runtime_test_exe.linkSystemLibrary("pthread");
+
+    // Link sanitizer runtime libraries for the test executable.
+    // On Ubuntu/Debian, these live in GCC's versioned lib directory
+    // (e.g. /usr/lib/gcc/x86_64-linux-gnu/13/) which isn't in the
+    // standard search path. Probe for it at configure time.
+    if (sanitize or tsan) {
+        if (findGccSanitizerLibDir(b.allocator)) |gcc_dir| {
+            runtime_test_exe.addLibraryPath(.{ .cwd_relative = gcc_dir });
+        }
+    }
     if (sanitize) {
         runtime_test_exe.linkSystemLibrary("asan");
         runtime_test_exe.linkSystemLibrary("ubsan");
