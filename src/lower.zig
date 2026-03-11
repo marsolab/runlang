@@ -163,6 +163,12 @@ const LoweringContext = struct {
             .int_literal => "int64_t",
             .float_literal => "double",
             .null_literal => "void*",
+            .alloc_expr => {
+                if (node.data.lhs != null_node and self.tree.nodes.items[node.data.lhs].tag == .type_chan) {
+                    return "run_chan_t*";
+                }
+                return "int64_t";
+            },
             else => "int64_t",
         };
     }
@@ -279,6 +285,7 @@ const LoweringContext = struct {
                 // Record the deferred expression; it will be lowered at scope exit
                 try self.defer_stack.append(self.allocator, .{ .expr_node = node.data.lhs });
             },
+            .run_stmt => try self.lowerRunStmt(node_idx),
             .break_stmt, .continue_stmt => {},
             else => {},
         }
@@ -540,14 +547,36 @@ const LoweringContext = struct {
                 return r;
             },
             .alloc_expr => {
-                // alloc(Type, capacity?) — emit gen_alloc with a default size
-                // data.lhs = type node, data.rhs = extra_data index for args
-                // For now, use a default allocation size of 8 bytes (pointer-sized)
+                // alloc(Type, capacity?) — check if this is a channel allocation
+                const type_node_idx = node.data.lhs;
+                const extra_start = node.data.rhs;
+
+                // Channel allocation: alloc(chan[T]) or alloc(chan[T], capacity)
+                if (type_node_idx != null_node and self.tree.nodes.items[type_node_idx].tag == .type_chan) {
+                    // Element size — default to 8 bytes (int64_t)
+                    const elem_size_ref = self.allocRef();
+                    try self.emit(ir.makeInst(.const_int, elem_size_ref, 8, 0));
+
+                    // Capacity from extra_data (0 for unbuffered)
+                    const cap_node = self.tree.extra_data.items[extra_start];
+                    var cap_ref: ir.Ref = undefined;
+                    if (cap_node != null_node) {
+                        cap_ref = try self.lowerExpr(cap_node);
+                    } else {
+                        cap_ref = self.allocRef();
+                        try self.emit(ir.makeInst(.const_int, cap_ref, 0, 0));
+                    }
+
+                    const ch_ref = self.allocRef();
+                    try self.emit(ir.makeInst(.chan_new, ch_ref, elem_size_ref, cap_ref));
+                    return ch_ref;
+                }
+
+                // Default: generational allocation
                 const size_ref = self.allocRef();
                 try self.emit(ir.makeInst(.const_int, size_ref, 8, 0));
                 const ptr_ref = self.allocRef();
                 try self.emit(ir.makeInst(.gen_alloc, ptr_ref, size_ref, 0));
-                // Create a generational reference from the raw pointer
                 const ref_result = self.allocRef();
                 try self.emit(ir.makeInst(.gen_ref_create, ref_result, ptr_ref, 0));
                 return ref_result;
@@ -572,6 +601,18 @@ const LoweringContext = struct {
             .ident => {
                 const name = self.tokenSlice(node.main_token);
                 return try self.getVar(name);
+            },
+            .chan_send => {
+                const ch_ref = try self.lowerExpr(node.data.lhs);
+                const val_ref = try self.lowerExpr(node.data.rhs);
+                try self.emit(ir.makeInst(.chan_send, 0, ch_ref, val_ref));
+                return ir.null_ref;
+            },
+            .chan_recv => {
+                const ch_ref = try self.lowerExpr(node.data.lhs);
+                const r = self.allocRef();
+                try self.emit(ir.makeInst(.chan_recv, r, ch_ref, 0));
+                return r;
             },
             .if_expr => return try self.lowerIfExpr(node_idx),
             else => return ir.null_ref,
@@ -613,6 +654,41 @@ const LoweringContext = struct {
         const r = self.allocRef();
         try self.emit(ir.makeInst(.local_get, r, result_idx, 0));
         return r;
+    }
+
+    fn lowerRunStmt(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
+        const node = self.tree.nodes.items[node_idx];
+        const call_idx = node.data.lhs;
+        if (call_idx == null_node) return;
+
+        const call_node = self.tree.nodes.items[call_idx];
+        if (call_node.tag != .call) return;
+
+        // Get the target function name and mangle it
+        const callee_name = self.resolveCalleeName(call_node.data.lhs);
+        const target = mapBuiltinCall(callee_name);
+        const mangled = std.fmt.allocPrint(self.allocator, "run_main__{s}", .{target}) catch return LowerError.OutOfMemory;
+        try self.module.owned_strings.append(self.allocator, mangled);
+
+        // Lower arguments (same pattern as lowerCall)
+        const extra = self.tree.extra_data.items;
+        const args_start = call_node.data.rhs;
+        var arg_refs: std.ArrayList(ir.Ref) = .empty;
+        defer arg_refs.deinit(self.allocator);
+
+        var n: u32 = 0;
+        while (args_start + n < extra.len) {
+            if (extra[args_start + n] == n) break;
+            n += 1;
+        }
+        for (extra[args_start .. args_start + n]) |arg_node| {
+            const arg_ref = try self.lowerExpr(arg_node);
+            try arg_refs.append(self.allocator, arg_ref);
+        }
+
+        // Store spawn info in call_info so codegen can emit the function name as a symbol
+        const spawn_info = try self.module.addCallInfo(self.allocator, mangled, arg_refs.items);
+        try self.emit(ir.makeInst(.spawn, 0, spawn_info, 0));
     }
 
     fn lowerCall(self: *LoweringContext, node_idx: NodeIndex) LowerError!ir.Ref {
@@ -672,7 +748,8 @@ const LoweringContext = struct {
         return std.mem.eql(u8, name, "run_fmt_println") or
             std.mem.eql(u8, name, "run_fmt_print_int") or
             std.mem.eql(u8, name, "run_fmt_print_float") or
-            std.mem.eql(u8, name, "run_fmt_print_bool");
+            std.mem.eql(u8, name, "run_fmt_print_bool") or
+            std.mem.eql(u8, name, "run_chan_close");
     }
 
     fn mapBuiltinCall(name: []const u8) []const u8 {
@@ -680,6 +757,7 @@ const LoweringContext = struct {
         if (std.mem.eql(u8, name, "fmt.print_int")) return "run_fmt_print_int";
         if (std.mem.eql(u8, name, "fmt.print_float")) return "run_fmt_print_float";
         if (std.mem.eql(u8, name, "fmt.print_bool")) return "run_fmt_print_bool";
+        if (std.mem.eql(u8, name, "close")) return "run_chan_close";
         return name;
     }
 
@@ -978,4 +1056,120 @@ test "lower: defer and alloc combined — defer runs before free" {
     }
     try std.testing.expect(found_call);
     try std.testing.expect(found_free_after_call);
+}
+
+test "lower: run statement emits spawn" {
+    var module = try testLower(
+        \\fn say() {
+        \\}
+        \\fn main() {
+        \\    run say()
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    // main is the second function
+    const func = &module.functions.items[1];
+    const block = &func.blocks.items[0];
+    try std.testing.expect(blockHasOp(block, .spawn));
+
+    // The spawn should reference a call_info with the mangled function name
+    var found_spawn = false;
+    for (block.insts.items) |inst| {
+        if (inst.op == .spawn) {
+            found_spawn = true;
+            const info_idx = inst.arg1;
+            try std.testing.expect(info_idx < module.call_infos.items.len);
+            try std.testing.expectEqualStrings("run_main__say", module.call_infos.items[info_idx].target_name);
+        }
+    }
+    try std.testing.expect(found_spawn);
+}
+
+test "lower: channel alloc emits chan_new" {
+    var module = try testLower(
+        \\fn main() {
+        \\    var ch = alloc(chan[int])
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    const func = &module.functions.items[0];
+    const block = &func.blocks.items[0];
+    try std.testing.expect(blockHasOp(block, .chan_new));
+    // Should NOT have gen_alloc (channels use chan_new, not gen_alloc)
+    try std.testing.expect(!blockHasOp(block, .gen_alloc));
+
+    // Variable should be typed as run_chan_t*
+    try std.testing.expect(module.local_infos.items.len >= 1);
+    try std.testing.expectEqualStrings("run_chan_t*", module.local_infos.items[0].c_type);
+}
+
+test "lower: channel alloc with capacity" {
+    var module = try testLower(
+        \\fn main() {
+        \\    var ch = alloc(chan[int], 10)
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    const func = &module.functions.items[0];
+    const block = &func.blocks.items[0];
+    try std.testing.expect(blockHasOp(block, .chan_new));
+    try std.testing.expect(blockHasOp(block, .const_int));
+}
+
+test "lower: channel send emits chan_send" {
+    var module = try testLower(
+        \\fn main() {
+        \\    var ch = alloc(chan[int])
+        \\    ch <- 42
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    const func = &module.functions.items[0];
+    const block = &func.blocks.items[0];
+    try std.testing.expect(blockHasOp(block, .chan_new));
+    try std.testing.expect(blockHasOp(block, .chan_send));
+}
+
+test "lower: channel recv emits chan_recv" {
+    var module = try testLower(
+        \\fn main() {
+        \\    var ch = alloc(chan[int])
+        \\    var val = <-ch
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    const func = &module.functions.items[0];
+    const block = &func.blocks.items[0];
+    try std.testing.expect(blockHasOp(block, .chan_new));
+    try std.testing.expect(blockHasOp(block, .chan_recv));
+}
+
+test "lower: close emits chan_close call" {
+    var module = try testLower(
+        \\fn main() {
+        \\    var ch = alloc(chan[int])
+        \\    close(ch)
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    // close(ch) should be lowered as a call to run_chan_close
+    var found_close = false;
+    for (module.call_infos.items) |info| {
+        if (std.mem.eql(u8, info.target_name, "run_chan_close")) {
+            found_close = true;
+        }
+    }
+    try std.testing.expect(found_close);
 }
