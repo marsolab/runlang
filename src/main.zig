@@ -17,6 +17,7 @@ const usage =
     \\
     \\Options:
     \\  -o <file>    Output file name
+    \\  --no-dce     Disable dead code elimination
     \\  -h, --help   Show this help message
     \\
 ;
@@ -59,17 +60,13 @@ pub fn main() !void {
     }
 
     if (std.mem.eql(u8, command, "build") or std.mem.eql(u8, command, "check") or std.mem.eql(u8, command, "run")) {
-        if (args.len < 3) {
-            try File.stderr().writeAll("Error: no input file\n");
-            std.process.exit(1);
-        }
-        try cmdBuild(allocator, args[2], command);
+        try cmdBuild(allocator, args[2..], command);
         return;
     }
 
     // If the first arg is a .run file, treat it as `run <file>`
     if (std.mem.endsWith(u8, command, ".run")) {
-        try cmdBuild(allocator, command, "run");
+        try cmdBuild(allocator, args[1..], "run");
         return;
     }
 
@@ -138,7 +135,28 @@ fn cmdAst(allocator: std.mem.Allocator, path: []const u8) !void {
     }
 }
 
-fn cmdBuild(allocator: std.mem.Allocator, path: []const u8, command: []const u8) !void {
+fn cmdBuild(allocator: std.mem.Allocator, remaining_args: []const []const u8, command: []const u8) !void {
+    var input_path: ?[]const u8 = null;
+    var output_path: ?[]const u8 = null;
+    var no_dce = false;
+
+    var i: usize = 0;
+    while (i < remaining_args.len) : (i += 1) {
+        if (std.mem.eql(u8, remaining_args[i], "--no-dce")) {
+            no_dce = true;
+        } else if (std.mem.eql(u8, remaining_args[i], "-o")) {
+            i += 1;
+            if (i < remaining_args.len) output_path = remaining_args[i];
+        } else {
+            input_path = remaining_args[i];
+        }
+    }
+
+    if (input_path == null) {
+        try File.stderr().writeAll("Error: no input file\n");
+        std.process.exit(1);
+    }
+
     const cmd = if (std.mem.eql(u8, command, "check"))
         driver.Command.check
     else if (std.mem.eql(u8, command, "run"))
@@ -147,8 +165,10 @@ fn cmdBuild(allocator: std.mem.Allocator, path: []const u8, command: []const u8)
         driver.Command.build;
 
     driver.compile(allocator, .{
-        .input_path = path,
+        .input_path = input_path.?,
+        .output_path = output_path,
         .command = cmd,
+        .enable_dce = !no_dce,
     }) catch |err| switch (err) {
         error.ParseFailed, error.NamingFailed => std.process.exit(1),
         error.CodegenNotImplemented => return,
