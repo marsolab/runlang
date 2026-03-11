@@ -286,6 +286,12 @@ const LoweringContext = struct {
                 try self.defer_stack.append(self.allocator, .{ .expr_node = node.data.lhs });
             },
             .run_stmt => try self.lowerRunStmt(node_idx),
+            .chan_send => {
+                // ch <- val at statement level (not wrapped in expr_stmt)
+                const ch_ref = try self.lowerExpr(node.data.lhs);
+                const val_ref = try self.lowerExpr(node.data.rhs);
+                try self.emit(ir.makeInst(.chan_send, 0, ch_ref, val_ref));
+            },
             .break_stmt, .continue_stmt => {},
             else => {},
         }
