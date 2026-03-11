@@ -19,6 +19,7 @@ pub const resolve = @import("resolve.zig");
 pub const typecheck = @import("typecheck.zig");
 pub const lower = @import("lower.zig");
 pub const ownership = @import("ownership.zig");
+pub const const_fold = @import("const_fold.zig");
 pub const driver = @import("driver.zig");
 pub const dce = @import("dce.zig");
 

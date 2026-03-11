@@ -10,6 +10,7 @@ const lower_mod = @import("lower.zig");
 const ownership = @import("ownership.zig");
 const ir = @import("ir.zig");
 const dce = @import("dce.zig");
+const const_fold = @import("const_fold.zig");
 const codegen_c = @import("codegen_c.zig");
 
 const File = std.fs.File;
@@ -153,7 +154,18 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     };
     defer module.deinit(allocator);
 
-    // 7b. Dead code elimination
+    // 7b. Constant folding
+    var fold_result = const_fold.fold(allocator, &module) catch {
+        return CompileError.OutOfMemory;
+    };
+    defer fold_result.deinit();
+
+    if (fold_result.diagnostics.hasErrors()) {
+        fold_result.diagnostics.render(source, stderr) catch {};
+        return CompileError.ParseFailed;
+    }
+
+    // 7c. Dead code elimination
     if (options.enable_dce) {
         var dce_result = dce.eliminate(allocator, &module) catch {
             return CompileError.OutOfMemory;
