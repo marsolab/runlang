@@ -149,6 +149,7 @@ pub fn build(b: *std.Build) void {
         "src/runtime/tests/test_scheduler.c",
         "src/runtime/tests/test_chan.c",
         "src/runtime/tests/test_map.c",
+        "src/runtime/tests/test_fmt.c",
     };
     inline for (runtime_test_sources) |src| {
         runtime_test_exe.root_module.addCSourceFile(.{
