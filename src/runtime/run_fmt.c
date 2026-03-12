@@ -10,6 +10,16 @@ void run_fmt_println(run_string_t s) {
     putchar('\n');
 }
 
+void run_fmt_print(run_string_t s) {
+    if (s.len > 0) {
+        fwrite(s.ptr, 1, s.len, stdout);
+    }
+}
+
+void run_fmt_newline(void) {
+    putchar('\n');
+}
+
 void run_fmt_print_int(int64_t v) {
     printf("%" PRId64, v);
 }

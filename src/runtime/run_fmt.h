@@ -7,6 +7,8 @@
 #include <stdint.h>
 
 void run_fmt_println(run_string_t s);
+void run_fmt_print(run_string_t s);
+void run_fmt_newline(void);
 void run_fmt_print_int(int64_t v);
 void run_fmt_print_float(double v);
 void run_fmt_print_bool(bool v);
