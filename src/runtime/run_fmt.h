@@ -28,4 +28,27 @@ run_string_t run_fmt_sprintf(const char *fmt, ...);
 // or -1 on formatting error.
 int run_fmt_snprintf(char *buf, size_t buf_size, const char *fmt, ...);
 
+// ── Variadic any-typed formatting (Go-style verbs) ──────────────────────────
+
+#include "run_any.h"
+
+// Go-style printf: parses %d, %s, %f, %v, %t, %x, %o, %b, %e, %g verbs.
+// Mismatched arg count produces %!(MISSING) or %!(EXTRA ...) markers.
+void run_fmt_printf_args(run_string_t format, const run_any_t *args, size_t nargs);
+
+// Returns heap-allocated formatted string using Go-style verbs.
+run_string_t run_fmt_sprintf_args(run_string_t format, const run_any_t *args, size_t nargs);
+
+// Print args with space separator and trailing newline (Go's fmt.Println).
+void run_fmt_println_args(const run_any_t *args, size_t nargs);
+
+// Print args with no separator or trailing newline (Go's fmt.Print).
+void run_fmt_print_args(const run_any_t *args, size_t nargs);
+
+// Sprint: concatenate default string representations of args.
+run_string_t run_fmt_sprint_args(const run_any_t *args, size_t nargs);
+
+// Sprintln: like sprint but with spaces and trailing newline.
+run_string_t run_fmt_sprintln_args(const run_any_t *args, size_t nargs);
+
 #endif

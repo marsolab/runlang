@@ -270,6 +270,16 @@ pub const Parser = struct {
         self.advance(); // param name
         // Optional colon between name and type
         if (self.peekTag() == .colon) self.advance();
+        // Check for variadic parameter: name ...Type
+        if (self.peekTag() == .ellipsis) {
+            self.advance(); // consume ...
+            const type_node = try self.parseType();
+            return self.tree.addNode(.{
+                .tag = .variadic_param,
+                .main_token = tok,
+                .data = .{ .lhs = type_node, .rhs = null_node },
+            });
+        }
         const type_node = try self.parseType();
         return self.tree.addNode(.{
             .tag = .param,

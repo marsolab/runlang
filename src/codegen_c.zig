@@ -7,6 +7,7 @@ pub const CCodegen = struct {
     allocator: std.mem.Allocator,
     indent_level: u32,
     current_func: ?*const ir.Function,
+    vargs_counter: u32 = 0,
 
     pub fn init(allocator: std.mem.Allocator, module: *const ir.Module) CCodegen {
         return .{
@@ -165,7 +166,17 @@ pub const CCodegen = struct {
             .gen_get_gen => "uint64_t",
             .gen_ref_create => "run_gen_ref_t",
             .load => "int64_t", // conservative default
-            .call => "int64_t", // caller should set proper type
+            .call => blk: {
+                // Check if this call returns run_string_t (e.g., sprintf)
+                const ci = inst.arg1;
+                if (ci < self.module.call_infos.items.len) {
+                    const cinfo = self.module.call_infos.items[ci];
+                    if (std.mem.startsWith(u8, cinfo.target_name, "run_fmt_sprint")) {
+                        break :blk "run_string_t";
+                    }
+                }
+                break :blk "int64_t";
+            },
             .chan_recv => "int64_t",
             .chan_new => "run_chan_t*",
             .map_new => "run_map_t*",
@@ -187,8 +198,12 @@ pub const CCodegen = struct {
             },
             .const_float => {
                 try self.emitIndent();
-                // arg1 holds raw bits of float encoded as u32
-                try self.writer().print("_t{d} = (double){d};\n", .{ inst.result, inst.arg1 });
+                // arg1 is a string constant index containing the float text
+                if (inst.arg1 < self.module.string_constants.items.len) {
+                    try self.writer().print("_t{d} = {s};\n", .{ inst.result, self.module.string_constants.items[inst.arg1].value });
+                } else {
+                    try self.writer().print("_t{d} = 0.0;\n", .{inst.result});
+                }
             },
             .const_string => {
                 try self.emitIndent();
@@ -296,39 +311,17 @@ pub const CCodegen = struct {
                 try self.writer().print("_t{d} = run_gen_ref_deref(_t{d});\n", .{ inst.result, inst.arg1 });
             },
             .call => {
-                try self.emitIndent();
                 // arg1 is the index into module.call_infos
                 const call_idx = inst.arg1;
                 if (call_idx < self.module.call_infos.items.len) {
                     const info = self.module.call_infos.items[call_idx];
-                    if (std.mem.eql(u8, info.target_name, "run_fmt_print") or std.mem.eql(u8, info.target_name, "run_fmt_println")) {
-                        for (info.args.items) |arg_ref| {
-                            const arg_type = self.typeNameForRef(arg_ref);
-                            if (std.mem.eql(u8, arg_type, "run_string_t")) {
-                                try self.emitIndent();
-                                try self.writer().print("run_fmt_print(_t{d});\n", .{arg_ref});
-                            } else if (std.mem.eql(u8, arg_type, "int64_t")) {
-                                try self.emitIndent();
-                                try self.writer().print("run_fmt_print_int(_t{d});\n", .{arg_ref});
-                            } else if (std.mem.eql(u8, arg_type, "double")) {
-                                try self.emitIndent();
-                                try self.writer().print("run_fmt_print_float(_t{d});\n", .{arg_ref});
-                            } else if (std.mem.eql(u8, arg_type, "bool")) {
-                                try self.emitIndent();
-                                try self.writer().print("run_fmt_print_bool(_t{d});\n", .{arg_ref});
-                            } else {
-                                try self.emitIndent();
-                                try self.writer().print("/* unsupported fmt arg type: {s} */\n", .{arg_type});
-                            }
-                        }
 
-                        if (std.mem.eql(u8, info.target_name, "run_fmt_println")) {
-                            try self.emitIndent();
-                            try self.writer().print("run_fmt_newline();\n", .{});
-                        }
+                    if (info.is_variadic) {
+                        try self.emitVariadicFmtCall(inst, info);
                         return;
                     }
 
+                    try self.emitIndent();
                     if (inst.result != ir.null_ref) {
                         try self.writer().print("_t{d} = {s}(", .{ inst.result, info.target_name });
                     } else {
@@ -340,6 +333,7 @@ pub const CCodegen = struct {
                     }
                     try self.writer().print(");\n", .{});
                 } else {
+                    try self.emitIndent();
                     // Fallback for calls without call info
                     try self.writer().print("/* unknown call */\n", .{});
                 }
@@ -452,6 +446,70 @@ pub const CCodegen = struct {
             },
             .nop => {},
         }
+    }
+
+    /// Emit a variadic fmt call: builds a run_any_t array on the stack
+    /// and calls the target function with (format, array, count) or (array, count).
+    fn emitVariadicFmtCall(self: *CCodegen, inst: ir.Inst, info: ir.CallInfo) !void {
+        const target = info.target_name;
+        const args = info.args.items;
+
+        // Determine if the target takes a format string as its first arg.
+        // printf_args and sprintf_args take (format, args, nargs).
+        // println_args, print_args, sprint_args, sprintln_args take (args, nargs).
+        const has_format = std.mem.indexOf(u8, target, "printf") != null or
+            std.mem.indexOf(u8, target, "sprintf") != null;
+
+        const fmt_arg_count: usize = if (has_format) 1 else 0;
+        const variadic_args = args[fmt_arg_count..];
+
+        // Generate a unique array name using a monotonic counter
+        const array_id = self.vargs_counter;
+        self.vargs_counter += 1;
+
+        if (variadic_args.len > 0) {
+            // Emit: run_any_t _vargs_N[] = { run_any_TYPE(_tX), ... };
+            try self.emitIndent();
+            try self.writer().print("run_any_t _vargs_{d}[] = {{\n", .{array_id});
+            self.indent_level += 1;
+            for (variadic_args) |arg_ref| {
+                try self.emitIndent();
+                const arg_type = self.typeNameForRef(arg_ref);
+                if (std.mem.eql(u8, arg_type, "run_string_t")) {
+                    try self.writer().print("run_any_string(_t{d}),\n", .{arg_ref});
+                } else if (std.mem.eql(u8, arg_type, "double")) {
+                    try self.writer().print("run_any_float(_t{d}),\n", .{arg_ref});
+                } else if (std.mem.eql(u8, arg_type, "bool")) {
+                    try self.writer().print("run_any_bool(_t{d}),\n", .{arg_ref});
+                } else {
+                    // Default to int for int64_t and other numeric types
+                    try self.writer().print("run_any_int(_t{d}),\n", .{arg_ref});
+                }
+            }
+            self.indent_level -= 1;
+            try self.emitIndent();
+            try self.writer().print("}};\n", .{});
+        }
+
+        // Emit the actual function call
+        try self.emitIndent();
+        if (inst.result != ir.null_ref) {
+            try self.writer().print("_t{d} = ", .{inst.result});
+        }
+        try self.writer().print("{s}(", .{target});
+
+        if (has_format and args.len > 0) {
+            // First arg is the format string
+            try self.writer().print("_t{d}, ", .{args[0]});
+        }
+
+        if (variadic_args.len > 0) {
+            try self.writer().print("_vargs_{d}, {d}", .{ array_id, variadic_args.len });
+        } else {
+            try self.writer().print("NULL, 0", .{});
+        }
+
+        try self.writer().print(");\n", .{});
     }
 
     fn emitCString(self: *CCodegen, s: []const u8) !void {
@@ -586,7 +644,7 @@ test "CCodegen: arithmetic instructions" {
     try std.testing.expect(std.mem.indexOf(u8, result, "return _t3;") != null);
 }
 
-test "CCodegen: fmt.println prints mixed primitive args" {
+test "CCodegen: fmt.println emits variadic any array" {
     var module = ir.Module.init();
     defer module.deinit(std.testing.allocator);
 
@@ -607,7 +665,7 @@ test "CCodegen: fmt.println prints mixed primitive args" {
     const t3 = func.allocRef();
     try block.addInst(std.testing.allocator, ir.makeInst(.const_bool, t3, 1, 0));
 
-    const call_idx = try module.addCallInfo(std.testing.allocator, "run_fmt_println", &[_]ir.Ref{ t1, t2, t3 });
+    const call_idx = try module.addVariadicCallInfo(std.testing.allocator, "run_fmt_println_args", &[_]ir.Ref{ t1, t2, t3 });
     try block.addInst(std.testing.allocator, ir.makeInst(.call, ir.null_ref, call_idx, 0));
     try block.addInst(std.testing.allocator, ir.makeInst(.ret_void, 0, 0, 0));
 
@@ -615,10 +673,12 @@ test "CCodegen: fmt.println prints mixed primitive args" {
     defer cg.deinit();
 
     const result = try cg.generate();
-    try std.testing.expect(std.mem.indexOf(u8, result, "run_fmt_print(_t1);") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result, "run_fmt_print_int(_t2);") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result, "run_fmt_print_bool(_t3);") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result, "run_fmt_newline();") != null);
+    // Should emit run_any_t array with wrapped args
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_any_string(_t1)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_any_int(_t2)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_any_bool(_t3)") != null);
+    // Should call println_args with the array
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_fmt_println_args(") != null);
 }
 
 test "CCodegen: control flow" {

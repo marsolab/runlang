@@ -70,6 +70,7 @@ pub const Token = struct {
         at, // @
         arrow_left, // <-
         dot_dot, // ..
+        ellipsis, // ...
         dot, // .
         pipe, // |
 
