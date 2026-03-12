@@ -4,6 +4,7 @@
 #include "run_string.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 void run_fmt_println(run_string_t s);
@@ -12,5 +13,19 @@ void run_fmt_newline(void);
 void run_fmt_print_int(int64_t v);
 void run_fmt_print_float(double v);
 void run_fmt_print_bool(bool v);
+
+// Go-fmt-style convenience entry points used by stdlib/fmt wiring.
+int run_fmt_printf(const char *fmt, ...);
+int run_fmt_printfln(const char *fmt, ...);
+
+// Bootstrap formatting helpers for stdlib/fmt implementation.
+// Supports C-style format specifiers via snprintf semantics.
+// Returned strings are heap-allocated and owned by caller.
+run_string_t run_fmt_sprintf(const char *fmt, ...);
+
+// Writes formatted output to caller-provided buffer.
+// Returns number of bytes that would be written (excluding trailing NUL),
+// or -1 on formatting error.
+int run_fmt_snprintf(char *buf, size_t buf_size, const char *fmt, ...);
 
 #endif

@@ -1,0 +1,32 @@
+package fmt
+
+pub type Format interface {
+    format() string
+}
+
+// TODO(M4): wire to runtime formatter intrinsics.
+pub fun print(text string) {
+}
+
+// TODO(M4): wire to runtime formatter intrinsics.
+pub fun println(text string) {
+}
+
+// TODO(M4): wire to runtime formatter intrinsics and variadic args.
+pub fun printf(format string) {
+}
+
+// TODO(M4): extend once variadics and formatting placeholders are supported.
+pub fun sprintf(format string) string {
+    return ""
+}
+
+// TODO(M4): support variadic args and default formatting.
+pub fun sprint(text string) string {
+    return text
+}
+
+// TODO(M4): support variadic args and default formatting.
+pub fun sprintln(text string) string {
+    return text + "\n"
+}
