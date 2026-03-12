@@ -6,6 +6,7 @@ pub const CCodegen = struct {
     module: *const ir.Module,
     allocator: std.mem.Allocator,
     indent_level: u32,
+    current_func: ?*const ir.Function,
 
     pub fn init(allocator: std.mem.Allocator, module: *const ir.Module) CCodegen {
         return .{
@@ -13,6 +14,7 @@ pub const CCodegen = struct {
             .module = module,
             .allocator = allocator,
             .indent_level = 0,
+            .current_func = null,
         };
     }
 
@@ -69,6 +71,9 @@ pub const CCodegen = struct {
     }
 
     fn emitFunction(self: *CCodegen, func: *const ir.Function) !void {
+        self.current_func = func;
+        defer self.current_func = null;
+
         // Function signature
         try self.emitIndent();
         try self.writer().print("{s} {s}(", .{ func.return_type_name, func.name });
@@ -296,6 +301,34 @@ pub const CCodegen = struct {
                 const call_idx = inst.arg1;
                 if (call_idx < self.module.call_infos.items.len) {
                     const info = self.module.call_infos.items[call_idx];
+                    if (std.mem.eql(u8, info.target_name, "run_fmt_print") or std.mem.eql(u8, info.target_name, "run_fmt_println")) {
+                        for (info.args.items) |arg_ref| {
+                            const arg_type = self.typeNameForRef(arg_ref);
+                            if (std.mem.eql(u8, arg_type, "run_string_t")) {
+                                try self.emitIndent();
+                                try self.writer().print("run_fmt_print(_t{d});\n", .{arg_ref});
+                            } else if (std.mem.eql(u8, arg_type, "int64_t")) {
+                                try self.emitIndent();
+                                try self.writer().print("run_fmt_print_int(_t{d});\n", .{arg_ref});
+                            } else if (std.mem.eql(u8, arg_type, "double")) {
+                                try self.emitIndent();
+                                try self.writer().print("run_fmt_print_float(_t{d});\n", .{arg_ref});
+                            } else if (std.mem.eql(u8, arg_type, "bool")) {
+                                try self.emitIndent();
+                                try self.writer().print("run_fmt_print_bool(_t{d});\n", .{arg_ref});
+                            } else {
+                                try self.emitIndent();
+                                try self.writer().print("/* unsupported fmt arg type: {s} */\n", .{arg_type});
+                            }
+                        }
+
+                        if (std.mem.eql(u8, info.target_name, "run_fmt_println")) {
+                            try self.emitIndent();
+                            try self.writer().print("run_fmt_newline();\n", .{});
+                        }
+                        return;
+                    }
+
                     if (inst.result != ir.null_ref) {
                         try self.writer().print("_t{d} = {s}(", .{ inst.result, info.target_name });
                     } else {
@@ -442,6 +475,22 @@ pub const CCodegen = struct {
         try self.writer().print("\"", .{});
     }
 
+    fn typeNameForRef(self: *const CCodegen, ref: ir.Ref) []const u8 {
+        const func = self.current_func orelse return "void*";
+
+        for (func.params.items) |p| {
+            if (p.ref == ref) return p.type_name;
+        }
+
+        for (func.blocks.items) |*block| {
+            for (block.insts.items) |inst| {
+                if (inst.result == ref) return self.inferCType(inst);
+            }
+        }
+
+        return "void*";
+    }
+
     fn emitIndent(self: *CCodegen) !void {
         var i: u32 = 0;
         while (i < self.indent_level) : (i += 1) {
@@ -535,6 +584,41 @@ test "CCodegen: arithmetic instructions" {
 
     try std.testing.expect(std.mem.indexOf(u8, result, "_t3 = _t1 + _t2;") != null);
     try std.testing.expect(std.mem.indexOf(u8, result, "return _t3;") != null);
+}
+
+test "CCodegen: fmt.println prints mixed primitive args" {
+    var module = ir.Module.init();
+    defer module.deinit(std.testing.allocator);
+
+    const fid = try module.addFunction(std.testing.allocator, "run_main__main");
+    var func = module.getFunction(fid);
+    func.return_type_name = "void";
+
+    const b0 = try func.addBlock(std.testing.allocator);
+    var block = func.getBlock(b0);
+
+    const str_idx = try module.addStringConstant(std.testing.allocator, "value=");
+    const t1 = func.allocRef();
+    try block.addInst(std.testing.allocator, ir.makeInst(.const_string, t1, str_idx, 0));
+
+    const t2 = func.allocRef();
+    try block.addInst(std.testing.allocator, ir.makeInst(.const_int, t2, 42, 0));
+
+    const t3 = func.allocRef();
+    try block.addInst(std.testing.allocator, ir.makeInst(.const_bool, t3, 1, 0));
+
+    const call_idx = try module.addCallInfo(std.testing.allocator, "run_fmt_println", &[_]ir.Ref{ t1, t2, t3 });
+    try block.addInst(std.testing.allocator, ir.makeInst(.call, ir.null_ref, call_idx, 0));
+    try block.addInst(std.testing.allocator, ir.makeInst(.ret_void, 0, 0, 0));
+
+    var cg = CCodegen.init(std.testing.allocator, &module);
+    defer cg.deinit();
+
+    const result = try cg.generate();
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_fmt_print(_t1);") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_fmt_print_int(_t2);") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_fmt_print_bool(_t3);") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_fmt_newline();") != null);
 }
 
 test "CCodegen: control flow" {

@@ -778,6 +778,7 @@ const LoweringContext = struct {
 
     fn isVoidCall(name: []const u8) bool {
         return std.mem.eql(u8, name, "run_fmt_println") or
+            std.mem.eql(u8, name, "run_fmt_print") or
             std.mem.eql(u8, name, "run_fmt_print_int") or
             std.mem.eql(u8, name, "run_fmt_print_float") or
             std.mem.eql(u8, name, "run_fmt_print_bool") or
@@ -786,6 +787,7 @@ const LoweringContext = struct {
 
     fn mapBuiltinCall(name: []const u8) []const u8 {
         if (std.mem.eql(u8, name, "fmt.println")) return "run_fmt_println";
+        if (std.mem.eql(u8, name, "fmt.print")) return "run_fmt_print";
         if (std.mem.eql(u8, name, "fmt.print_int")) return "run_fmt_print_int";
         if (std.mem.eql(u8, name, "fmt.print_float")) return "run_fmt_print_float";
         if (std.mem.eql(u8, name, "fmt.print_bool")) return "run_fmt_print_bool";
@@ -855,6 +857,21 @@ test "lower: hello world" {
     try std.testing.expectEqualStrings("Hello, World!", module.string_constants.items[0].value);
     try std.testing.expectEqual(@as(usize, 1), module.call_infos.items.len);
     try std.testing.expectEqualStrings("run_fmt_println", module.call_infos.items[0].target_name);
+}
+
+test "lower: fmt.print maps to runtime print" {
+    var module = try testLower(
+        \\use "fmt"
+        \\fn main() {
+        \\    fmt.print("a", "b")
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), module.call_infos.items.len);
+    try std.testing.expectEqualStrings("run_fmt_print", module.call_infos.items[0].target_name);
+    try std.testing.expectEqual(@as(usize, 2), module.call_infos.items[0].args.items.len);
 }
 
 test "lower: integer literal" {
