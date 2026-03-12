@@ -25,9 +25,18 @@ static void test_snprintf_truncation_reports_full_size(void) {
     RUN_ASSERT_STR_EQ(buf, "abcde");
 }
 
+static void test_printf_and_printfln_counts(void) {
+    int n1 = run_fmt_printf("%s", "");
+    RUN_ASSERT_EQ(n1, 0);
+
+    int n2 = run_fmt_printfln("%s", "");
+    RUN_ASSERT_EQ(n2, 1);
+}
+
 void run_test_fmt(void) {
     TEST_SUITE("fmt");
     RUN_TEST(test_sprintf_basic_types);
     RUN_TEST(test_snprintf_width_precision);
     RUN_TEST(test_snprintf_truncation_reports_full_size);
+    RUN_TEST(test_printf_and_printfln_counts);
 }

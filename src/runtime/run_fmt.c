@@ -43,6 +43,36 @@ static int run_fmt_vsnprintf(char *buf, size_t buf_size, const char *fmt, va_lis
     return n;
 }
 
+static int run_fmt_vprintf(const char *fmt, va_list args) {
+    int n = vprintf(fmt, args);
+    if (n < 0) {
+        fprintf(stderr, "run: invalid format string\n");
+    }
+    return n;
+}
+
+int run_fmt_printf(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    int out = run_fmt_vprintf(fmt, args);
+    va_end(args);
+    return out;
+}
+
+int run_fmt_printfln(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    int out = run_fmt_vprintf(fmt, args);
+    va_end(args);
+
+    if (out < 0) {
+        return out;
+    }
+
+    putchar('\n');
+    return out + 1;
+}
+
 run_string_t run_fmt_sprintf(const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);

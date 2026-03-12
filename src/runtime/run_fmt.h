@@ -14,6 +14,10 @@ void run_fmt_print_int(int64_t v);
 void run_fmt_print_float(double v);
 void run_fmt_print_bool(bool v);
 
+// Go-fmt-style convenience entry points used by stdlib/fmt wiring.
+int run_fmt_printf(const char *fmt, ...);
+int run_fmt_printfln(const char *fmt, ...);
+
 // Bootstrap formatting helpers for stdlib/fmt implementation.
 // Supports C-style format specifiers via snprintf semantics.
 // Returned strings are heap-allocated and owned by caller.
