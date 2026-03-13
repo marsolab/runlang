@@ -1,0 +1,114 @@
+package bytes
+
+use "io"
+
+// Buffer is a growable byte buffer that implements io.Reader and io.Writer.
+pub Buffer struct {
+    implements {
+        io.Reader
+        io.Writer
+    }
+
+    buf []byte
+    pos int
+}
+
+// read reads from the buffer into buf. Returns the number of bytes read.
+pub fun (b &Buffer) read(buf []byte) !int {
+    return 0
+}
+
+// write appends data to the buffer. Returns the number of bytes written.
+pub fun (b &Buffer) write(data []byte) !int {
+    return 0
+}
+
+// write_string appends the contents of s to the buffer.
+pub fun (b &Buffer) write_string(s string) !int {
+    return 0
+}
+
+// write_byte appends a single byte to the buffer.
+pub fun (b &Buffer) write_byte(c byte) !void {
+}
+
+// bytes returns the unread portion of the buffer as a byte slice.
+pub fun (b @Buffer) bytes() []byte {
+    return alloc([]byte, 0)
+}
+
+// string returns the unread portion of the buffer as a string.
+pub fun (b @Buffer) string() string {
+    return ""
+}
+
+// reset resets the buffer to be empty.
+pub fun (b &Buffer) reset() {
+}
+
+// len returns the number of unread bytes in the buffer.
+pub fun (b @Buffer) len() int {
+    return 0
+}
+
+// cap returns the capacity of the buffer's underlying byte slice.
+pub fun (b @Buffer) cap() int {
+    return 0
+}
+
+// contains reports whether sub is within b.
+pub fun contains(b []byte, sub []byte) bool {
+    return false
+}
+
+// index returns the index of the first instance of sub in b,
+// or null if sub is not present.
+pub fun index(b []byte, sub []byte) int? {
+    return null
+}
+
+// split slices b into all subslices separated by sep.
+pub fun split(b []byte, sep []byte) [][]byte {
+    return alloc([][]byte, 0)
+}
+
+// join concatenates the elements of parts with sep between each element.
+pub fun join(parts [][]byte, sep []byte) []byte {
+    return alloc([]byte, 0)
+}
+
+// trim returns b with leading and trailing whitespace removed.
+pub fun trim(b []byte) []byte {
+    return alloc([]byte, 0)
+}
+
+// equal reports whether a and b are the same length and contain
+// the same bytes.
+pub fun equal(a []byte, b []byte) bool {
+    return false
+}
+
+// has_prefix reports whether b begins with prefix.
+pub fun has_prefix(b []byte, prefix []byte) bool {
+    return false
+}
+
+// has_suffix reports whether b ends with suffix.
+pub fun has_suffix(b []byte, suffix []byte) bool {
+    return false
+}
+
+// repeat returns a new byte slice consisting of count copies of b.
+pub fun repeat(b []byte, count int) []byte {
+    return alloc([]byte, 0)
+}
+
+// to_lower returns a copy of b with all ASCII letters mapped to lower case.
+pub fun to_lower(b []byte) []byte {
+    return alloc([]byte, 0)
+}
+
+// to_upper returns a copy of b with all ASCII letters mapped to upper case.
+pub fun to_upper(b []byte) []byte {
+    return alloc([]byte, 0)
+}
