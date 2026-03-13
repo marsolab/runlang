@@ -541,6 +541,17 @@ log_middleware() Middleware            — request logging
 recover_middleware() Middleware        — panic recovery
 timeout_middleware(d Duration) Middleware
 cors_middleware(opts CorsOptions) Middleware
+metrics_middleware(opts MetricsOptions) Middleware  — Prometheus metrics per route
+
+// MetricsOptions for metrics middleware
+MetricsOptions    struct {
+    set               &metrics.Set?   — custom Set, nil = default set
+    request_counter   string          — counter name (default: "http_requests_total")
+    duration_histogram string         — histogram name (default: "http_request_duration_seconds")
+    in_flight_gauge   string          — gauge name (default: "http_requests_in_flight")
+    response_size     string          — counter name (default: "http_response_bytes_total")
+}
+// Labels added automatically: method, path, status
 
 // Status codes as constants
 status_ok, status_created, status_not_found, status_internal_server_error, ...
@@ -584,7 +595,7 @@ fun get_user(w &http.ResponseWriter, r @http.Request) {
 }
 ```
 
-**Dependencies:** `net`, `io`, `fmt`, `strings`, `time`, `context`
+**Dependencies:** `net`, `io`, `fmt`, `strings`, `time`, `context`, `metrics`
 
 ---
 
@@ -1287,6 +1298,208 @@ CancelFunc        type         — fun()
 
 ---
 
+### `metrics` — Application Metrics (VictoriaMetrics-style)
+
+**Purpose:** Lightweight, high-performance application metrics with Prometheus exposition format. Ported from [VictoriaMetrics/metrics](https://github.com/VictoriaMetrics/metrics) — the same zero-allocation, lock-free design philosophy. Counters, gauges, histograms, and summaries with automatic Prometheus-compatible output. No separate exposition library needed.
+
+**Key types and functions:**
+```
+// ─── Set (metric registry) ───────────────────────────────────────
+
+Set               struct       — collection of named metrics (concurrent-safe)
+
+new_set() Set
+default_set() &Set             — package-level default registry
+
+(s &Set) write_prometheus(w io.Writer) !void      — write all metrics in Prometheus exposition format
+(s &Set) unregister(name string) bool
+(s &Set) unregister_all()
+(s &Set) list_metric_names() []string
+(s &Set) register_metrics_writer(f fun(w io.Writer))  — custom metrics callback
+
+// Register a Set for inclusion in global write_prometheus output
+register_set(s &Set)
+unregister_set(s &Set)
+
+// ─── Counter ─────────────────────────────────────────────────────
+
+Counter           struct       — monotonically increasing integer counter (atomic)
+
+// Create via Set or package-level (default set)
+(s &Set) new_counter(name string) &Counter
+(s &Set) get_or_create_counter(name string) &Counter
+new_counter(name string) &Counter
+get_or_create_counter(name string) &Counter
+
+(c &Counter) inc()
+(c &Counter) dec()
+(c &Counter) add(n int)
+(c &Counter) set(n int)
+(c @Counter) get() int
+
+// ─── FloatCounter ────────────────────────────────────────────────
+
+FloatCounter      struct       — monotonically increasing float counter (atomic)
+
+(s &Set) new_float_counter(name string) &FloatCounter
+(s &Set) get_or_create_float_counter(name string) &FloatCounter
+new_float_counter(name string) &FloatCounter
+get_or_create_float_counter(name string) &FloatCounter
+
+(c &FloatCounter) add(n f64)
+(c @FloatCounter) get() f64
+
+// ─── Gauge ───────────────────────────────────────────────────────
+
+Gauge             struct       — float64 value that can go up and down (atomic)
+
+// Optional callback: if provided, gauge value comes from calling f()
+(s &Set) new_gauge(name string, f fun() f64) &Gauge
+(s &Set) get_or_create_gauge(name string, f fun() f64) &Gauge
+new_gauge(name string, f fun() f64) &Gauge
+get_or_create_gauge(name string, f fun() f64) &Gauge
+
+(g &Gauge) set(v f64)
+(g &Gauge) inc()
+(g &Gauge) dec()
+(g &Gauge) add(v f64)
+(g @Gauge) get() f64
+
+// ─── Histogram ───────────────────────────────────────────────────
+
+Histogram         struct       — value distribution with auto-generated log-scale buckets
+                                 (VictoriaMetrics vmrange-style, better compression than cumulative)
+
+(s &Set) new_histogram(name string) &Histogram
+(s &Set) get_or_create_histogram(name string) &Histogram
+new_histogram(name string) &Histogram
+get_or_create_histogram(name string) &Histogram
+
+(h &Histogram) update(v f64)
+(h &Histogram) update_duration(start time.Time)   — record elapsed time since start
+(h &Histogram) reset()
+(h &Histogram) merge(src @Histogram)
+(h @Histogram) visit_non_zero_buckets(f fun(vmrange string, count int))
+
+// Standard Prometheus histogram (cumulative buckets) when needed
+PrometheusHistogram  struct    — traditional cumulative bucket histogram
+
+(s &Set) new_prometheus_histogram(name string) &PrometheusHistogram
+(s &Set) new_prometheus_histogram_ext(name string, upper_bounds []f64) &PrometheusHistogram
+(s &Set) get_or_create_prometheus_histogram(name string) &PrometheusHistogram
+
+(ph &PrometheusHistogram) update(v f64)
+(ph &PrometheusHistogram) update_duration(start time.Time)
+
+// ─── Summary ─────────────────────────────────────────────────────
+
+Summary           struct       — streaming quantile estimation over a time window
+
+(s &Set) new_summary(name string) &Summary
+(s &Set) new_summary_ext(name string, window time.Duration, quantiles []f64) &Summary
+(s &Set) get_or_create_summary(name string) &Summary
+(s &Set) get_or_create_summary_ext(name string, window time.Duration, quantiles []f64) &Summary
+new_summary(name string) &Summary
+new_summary_ext(name string, window time.Duration, quantiles []f64) &Summary
+get_or_create_summary(name string) &Summary
+get_or_create_summary_ext(name string, window time.Duration, quantiles []f64) &Summary
+
+(sm &Summary) update(v f64)
+(sm &Summary) update_duration(start time.Time)
+
+// Default quantiles: 0.5, 0.9, 0.97, 0.99, 1.0
+// Default window: 5 minutes
+
+// ─── Global exposition ───────────────────────────────────────────
+
+write_prometheus(w io.Writer, expose_process_metrics bool) !void
+write_process_metrics(w io.Writer) !void    — memory, CPU, FDs, green thread count
+
+// Metric names follow Prometheus conventions:
+//   "http_requests_total"
+//   "http_request_duration_seconds{method=\"GET\",path=\"/api\"}"
+//   Labels are embedded in the metric name string, not as separate args
+
+// ─── Push gateway support ────────────────────────────────────────
+
+PushOptions       struct {
+    extra_labels  string         — "key=value,key2=value2" appended to all metrics
+    headers       map[string]string  — custom HTTP headers
+    disable_compression bool
+}
+
+init_push(url string, interval time.Duration, extra_labels string) !void
+init_push_with_options(ctx context.Context, url string, interval time.Duration, opts @PushOptions) !void
+push_metrics(url string, extra_labels string) !void
+
+(s &Set) init_push(url string, interval time.Duration, extra_labels string) !void
+(s &Set) push_metrics(url string, extra_labels string) !void
+
+// ─── Metadata control ────────────────────────────────────────────
+
+expose_metadata(enabled bool)  — toggle TYPE/HELP lines in Prometheus output
+
+// ─── Write helpers (for custom metrics writers) ──────────────────
+
+write_counter_int(w io.Writer, name string, value int) !void
+write_counter_float(w io.Writer, name string, value f64) !void
+write_gauge_int(w io.Writer, name string, value int) !void
+write_gauge_float(w io.Writer, name string, value f64) !void
+```
+
+**Design notes:**
+- Ported from VictoriaMetrics/metrics — same philosophy: metric names are strings with embedded labels, no label-builder API, zero-allocation hot paths
+- All metric types are concurrent-safe using atomic operations (no mutexes on the hot path)
+- Histogram uses VictoriaMetrics vmrange-style log-scale buckets by default (better compression, no cumulative overhead), with traditional Prometheus cumulative histogram available via `PrometheusHistogram`
+- Summary uses a sliding time window for quantile estimation
+- `get_or_create_*` is the primary API — idempotent, safe to call from any green thread
+- Labels embedded in name strings: `get_or_create_counter("http_requests_total{method=\"GET\"}")` — simple, no type-level label machinery needed
+- Process metrics include: memory allocation stats (from generational allocator), green thread count, OS thread count, FD count, CPU time
+
+**Example:**
+```run
+package main
+
+use "metrics"
+use "time"
+use "net/http"
+
+pub fun main() {
+    // Counters
+    requests := metrics.get_or_create_counter("http_requests_total")
+    errors := metrics.get_or_create_counter("http_errors_total")
+
+    // Histogram for latency
+    duration := metrics.get_or_create_histogram("http_request_duration_seconds")
+
+    // Gauge with callback
+    metrics.get_or_create_gauge("goroutines_count", fun() f64 {
+        return f64(runtime.num_goroutine())
+    })
+
+    r := http.new_router()
+
+    // Expose /metrics endpoint
+    r.get("/metrics", fun(w &http.ResponseWriter, req @http.Request) {
+        metrics.write_prometheus(w, true)
+    })
+
+    r.get("/api/data", fun(w &http.ResponseWriter, req @http.Request) {
+        start := time.now()
+        defer duration.update_duration(start)
+
+        requests.inc()
+        // ... handle request ...
+    })
+
+    http.listen_and_serve(":8080", r)
+}
+```
+
+**Dependencies:** `io`, `time`, `sync`, `context`, `net/http` (for push only)
+
+---
+
 ### `url` — URL Parsing
 
 **Purpose:** Parse, construct, and escape URLs.
@@ -1641,12 +1854,16 @@ yield()                        — yield current green thread to scheduler
 
 ┌─────────┐    ┌────────┐    ┌──────────┐    ┌───────────────┐
 │  net    │───▶│net/http│───▶│net/http2 │───▶│   net/grpc    │
-└─────────┘    └────────┘    └──────────┘    └───────┬───────┘
-                    │                                │
-                    ▼                                ▼
-               ┌────────────┐              ┌────────────────┐
-               │encoding/*  │              │ encoding/proto  │
-               └────────────┘              └────────────────┘
+└─────────┘    └───┬────┘    └──────────┘    └───────┬───────┘
+                   │  │                              │
+                   │  ▼                              ▼
+                   │ ┌────────────┐        ┌────────────────┐
+                   │ │encoding/*  │        │ encoding/proto  │
+                   │ └────────────┘        └────────────────┘
+                   ▼
+              ┌─────────┐
+              │ metrics │◀── Prometheus exposition, push gateway
+              └─────────┘
 
 ┌────────┐    ┌──────┐    ┌──────┐
 │  math  │    │ simd │    │ asm  │
@@ -1677,7 +1894,7 @@ yield()                        — yield current green thread to scheduler
 | `sort` | Sorting algorithms | P1 | — |
 | `bufio` | Scanner, line-by-line reading | P1 | `io`, `bytes` |
 | `net` | TCP/UDP, DNS | P2 | `io`, `time`, `os` |
-| `net/http` | HTTP client and server | P2 | `net`, `io`, `fmt`, `strings`, `time` |
+| `net/http` | HTTP client and server | P2 | `net`, `io`, `fmt`, `strings`, `time`, `context`, `metrics` |
 | `net/http2` | HTTP/2 protocol | P2 | `net`, `net/http`, `io`, `sync`, `crypto/tls` |
 | `net/grpc` | gRPC client and server | P2 | `net`, `net/http2`, `encoding/proto`, `context`, `time`, `sync`, `crypto/tls` |
 | `encoding/proto` | Protocol Buffers | P2 | `bytes`, `io` |
@@ -1694,6 +1911,7 @@ yield()                        — yield current green thread to scheduler
 | `sync` | Mutex, RwMutex, WaitGroup, Atomic | P2 | — |
 | `unsafe` | Raw pointers, type layout | P2 | — |
 | `context` | Cancellation and deadlines | P2 | `time` |
+| `metrics` | Application metrics, Prometheus exposition | P2 | `io`, `time`, `sync`, `context` |
 | `url` | URL parsing and escaping | P2 | `strings`, `strconv` |
 | `mime` | MIME types | P2 | `strings` |
 | `flag` | CLI flag parsing | P2 | `os`, `fmt`, `strconv` |
@@ -1713,4 +1931,4 @@ yield()                        — yield current green thread to scheduler
 | `debug` | Stack traces, assertions | P3 | `fmt`, `os` |
 | `runtime` | Runtime introspection | P3 | — |
 
-**Total: 49 packages** (6 exist as stubs)
+**Total: 50 packages** (6 exist as stubs)
