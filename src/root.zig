@@ -22,6 +22,8 @@ pub const ownership = @import("ownership.zig");
 pub const const_fold = @import("const_fold.zig");
 pub const driver = @import("driver.zig");
 pub const dce = @import("dce.zig");
+pub const lsp = @import("lsp.zig");
+pub const init = @import("init.zig");
 
 const std = @import("std");
 

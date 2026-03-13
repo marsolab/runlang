@@ -4,6 +4,8 @@ const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;
 const naming = @import("naming.zig");
 const driver = @import("driver.zig");
+const lsp = @import("lsp.zig");
+const init_mod = @import("init.zig");
 
 const usage =
     \\Usage: run [command] [options] <file.run>
@@ -12,12 +14,15 @@ const usage =
     \\  build    Compile a .run source file to native binary
     \\  run      Compile and immediately execute
     \\  check    Type-check without generating code
+    \\  init     Initialize a new Run project
+    \\  lsp      Start the LSP server
     \\  tokens   Dump lexer token stream (debug)
     \\  ast      Dump parsed AST (debug)
     \\
     \\Options:
     \\  -o <file>    Output file name
     \\  --no-dce     Disable dead code elimination
+    \\  --force      Overwrite existing files (init)
     \\  -h, --help   Show this help message
     \\
 ;
@@ -56,6 +61,16 @@ pub fn main() !void {
             std.process.exit(1);
         }
         try cmdAst(allocator, args[2]);
+        return;
+    }
+
+    if (std.mem.eql(u8, command, "lsp")) {
+        try lsp.serve(allocator);
+        return;
+    }
+
+    if (std.mem.eql(u8, command, "init")) {
+        cmdInit(allocator, args[2..]);
         return;
     }
 
@@ -174,6 +189,49 @@ fn cmdBuild(allocator: std.mem.Allocator, remaining_args: []const []const u8, co
         error.CodegenNotImplemented => return,
         else => {
             File.stderr().deprecatedWriter().print("error: {s}\n", .{@errorName(err)}) catch {};
+            std.process.exit(1);
+        },
+    };
+}
+
+fn cmdInit(allocator: std.mem.Allocator, remaining_args: []const []const u8) void {
+    var project_name: ?[]const u8 = null;
+    var force = false;
+
+    for (remaining_args) |arg| {
+        if (std.mem.eql(u8, arg, "--force")) {
+            force = true;
+        } else {
+            project_name = arg;
+        }
+    }
+
+    if (project_name == null) {
+        File.stderr().writeAll("Error: missing project name\nUsage: run init <name> [--force]\n       run init . [--force]\n") catch {};
+        std.process.exit(1);
+    }
+
+    const name = project_name.?;
+    const in_place = std.mem.eql(u8, name, ".");
+
+    // For in-place init, derive name from current directory
+    const effective_name = if (in_place) blk: {
+        const cwd_path = std.fs.cwd().realpathAlloc(allocator, ".") catch {
+            File.stderr().writeAll("Error: failed to determine current directory name\n") catch {};
+            std.process.exit(1);
+        };
+        break :blk std.fs.path.basename(cwd_path);
+    } else name;
+
+    init_mod.initProject(allocator, .{
+        .name = effective_name,
+        .force = force,
+        .in_place = in_place,
+    }) catch |err| switch (err) {
+        error.DirectoryExists => std.process.exit(1),
+        error.CreateFailed => std.process.exit(1),
+        error.OutOfMemory => {
+            File.stderr().writeAll("Error: out of memory\n") catch {};
             std.process.exit(1);
         },
     };
