@@ -198,6 +198,7 @@ pub const StringConstant = struct {
 pub const CallInfo = struct {
     target_name: []const u8,
     args: std.ArrayList(Ref),
+    is_variadic: bool = false,
 
     pub fn deinit(self: *CallInfo, allocator: std.mem.Allocator) void {
         self.args.deinit(allocator);
@@ -266,6 +267,21 @@ pub const Module = struct {
         try self.call_infos.append(allocator, .{
             .target_name = target_name,
             .args = arg_list,
+        });
+        return index;
+    }
+
+    /// Like addCallInfo but marks the call as variadic for codegen.
+    pub fn addVariadicCallInfo(self: *Module, allocator: std.mem.Allocator, target_name: []const u8, args: []const Ref) !u32 {
+        const index: u32 = @intCast(self.call_infos.items.len);
+        var arg_list: std.ArrayList(Ref) = .empty;
+        for (args) |a| {
+            try arg_list.append(allocator, a);
+        }
+        try self.call_infos.append(allocator, .{
+            .target_name = target_name,
+            .args = arg_list,
+            .is_variadic = true,
         });
         return index;
     }

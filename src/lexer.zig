@@ -100,6 +100,12 @@ pub const Lexer = struct {
         return .{ .tag = tag, .loc = .{ .start = start, .end = self.pos } };
     }
 
+    fn advance3(self: *Lexer, tag: Tag) Token {
+        const start = self.pos;
+        self.pos += 3;
+        return .{ .tag = tag, .loc = .{ .start = start, .end = self.pos } };
+    }
+
     fn isAtEnd(self: *const Lexer) bool {
         return self.pos >= self.source.len;
     }
@@ -254,8 +260,11 @@ pub const Lexer = struct {
                 break :blk self.advance1(.greater);
             },
             '.' => blk: {
-                if (self.peekNext() == @as(u8, '.'))
+                if (self.peekNext() == @as(u8, '.')) {
+                    if (self.pos + 2 < self.source.len and self.source[self.pos + 2] == '.')
+                        break :blk self.advance3(.ellipsis);
                     break :blk self.advance2(.dot_dot);
+                }
                 break :blk self.advance1(.dot);
             },
             else => self.advance1(.invalid),

@@ -35,7 +35,7 @@ pub fn checkNaming(
             .var_decl, .let_decl => {
                 try checkVariableToken(tree, tokens, node.main_token + 1, &violations);
             },
-            .param, .receiver, .field_decl => {
+            .param, .variadic_param, .receiver, .field_decl => {
                 try checkVariableToken(tree, tokens, node.main_token, &violations);
             },
             .short_var_decl => {

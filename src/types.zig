@@ -20,15 +20,17 @@ pub const primitives = struct {
     pub const f32_id: TypeId = 9;
     pub const f64_id: TypeId = 10;
     pub const string_id: TypeId = 11;
+    pub const any_id: TypeId = 12;
 
     /// Number of pre-registered primitives.
-    pub const count: u32 = 12;
+    pub const count: u32 = 13;
 };
 
 /// Represents every type in the Run language.
 pub const Type = union(enum) {
     void_type,
     bool_type,
+    any_type,
     int_type: IntType,
     float_type: FloatType,
     string_type,
@@ -51,7 +53,7 @@ pub const Type = union(enum) {
         if (tag_a != tag_b) return false;
 
         return switch (a) {
-            .void_type, .bool_type, .string_type => true,
+            .void_type, .bool_type, .string_type, .any_type => true,
             .int_type => |ia| {
                 const ib = b.int_type;
                 return ia.bits == ib.bits and ia.signed == ib.signed;
@@ -73,6 +75,7 @@ pub const Type = union(enum) {
             .fn_type => |fa| {
                 const fb = b.fn_type;
                 if (fa.return_type != fb.return_type) return false;
+                if (fa.is_variadic != fb.is_variadic) return false;
                 if (fa.params.len != fb.params.len) return false;
                 return std.mem.eql(TypeId, fa.params, fb.params);
             },
@@ -169,6 +172,7 @@ pub const ArrayType = struct {
 pub const FnType = struct {
     params: []const TypeId,
     return_type: TypeId,
+    is_variadic: bool = false,
 };
 
 /// A 64-bit key for deduplicating structural wrapper types.
@@ -208,6 +212,7 @@ pub const TypePool = struct {
         pool.types.append(allocator, .{ .float_type = .{ .bits = 32 } }) catch unreachable; // 9: f32
         pool.types.append(allocator, .{ .float_type = .{ .bits = 64 } }) catch unreachable; // 10: f64
         pool.types.append(allocator, .string_type) catch unreachable; // 11: string
+        pool.types.append(allocator, .any_type) catch unreachable; // 12: any
         return pool;
     }
 
@@ -231,6 +236,7 @@ pub const TypePool = struct {
             .{ "f32", primitives.f32_id },
             .{ "f64", primitives.f64_id },
             .{ "string", primitives.string_id },
+            .{ "any", primitives.any_id },
         });
         return map.get(name);
     }

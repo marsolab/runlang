@@ -584,10 +584,19 @@ const TypeChecker = struct {
         // Resolve parameter types.
         var param_types: std.ArrayList(TypeId) = .empty;
         defer param_types.deinit(self.allocator);
+        var is_variadic = false;
         const param_nodes = extra[params_start .. params_start + param_count];
         for (param_nodes) |param_node| {
             if (param_node == null_node) {
                 try param_types.append(self.allocator, types.null_type);
+                continue;
+            }
+            const param_tag = self.nodeTag(param_node);
+            if (param_tag == .variadic_param) {
+                is_variadic = true;
+                const param_type_node = self.nodeData(param_node).lhs;
+                const param_type = self.resolveTypeNode(param_type_node);
+                try param_types.append(self.allocator, param_type);
                 continue;
             }
             const param_type_node = self.nodeData(param_node).lhs;
@@ -609,6 +618,7 @@ const TypeChecker = struct {
         const fn_type_id = try self.type_pool.addType(self.allocator, .{ .fn_type = .{
             .params = owned_params,
             .return_type = return_type,
+            .is_variadic = is_variadic,
         } });
 
         // Find the function's symbol and update its type_id.
@@ -1666,7 +1676,21 @@ const TypeChecker = struct {
                 const call_tok = self.nodeMainToken(call_node);
 
                 // Check argument count.
-                if (actual_count != expected_count) {
+                if (fn_type.is_variadic) {
+                    // Variadic: require at least (expected_count - 1) args
+                    // (the last declared param is the variadic one)
+                    const required = if (expected_count > 0) expected_count - 1 else 0;
+                    if (actual_count < required) {
+                        const loc = self.tokenLoc(call_tok);
+                        try self.diagnostics.addErrorFmt(
+                            loc.start,
+                            loc.end,
+                            "function expects at least {d} argument(s), got {d}",
+                            .{ required, actual_count },
+                        );
+                        return fn_type.return_type;
+                    }
+                } else if (actual_count != expected_count) {
                     const loc = self.tokenLoc(call_tok);
                     try self.diagnostics.addErrorFmt(
                         loc.start,
@@ -1678,7 +1702,13 @@ const TypeChecker = struct {
                 }
 
                 // Check each argument type.
-                for (0..actual_count) |i| {
+                // For variadic functions, only check non-variadic params.
+                // Variadic args accept any type.
+                const check_count = if (fn_type.is_variadic)
+                    @min(actual_count, if (expected_count > 0) expected_count - 1 else 0)
+                else
+                    actual_count;
+                for (0..check_count) |i| {
                     const param_type = params[i];
                     if (param_type == types.null_type) continue;
                     const arg_type = arg_types_slice[i];
@@ -2179,6 +2209,8 @@ const TypeChecker = struct {
 
     fn typesCompatible(self: *TypeChecker, a: TypeId, b: TypeId) bool {
         if (a == b) return true;
+        // `any` is compatible with all types.
+        if (a == types.primitives.any_id or b == types.primitives.any_id) return true;
         // Both numeric types are compatible for comparisons.
         if (self.type_pool.isNumeric(a) and self.type_pool.isNumeric(b)) return true;
         // T is assignable to !T (error union wrapping).
@@ -2207,6 +2239,7 @@ const TypeChecker = struct {
                 types.primitives.f32_id => "f32",
                 types.primitives.f64_id => "f64",
                 types.primitives.string_id => "string",
+                types.primitives.any_id => "any",
                 else => "<unknown>",
             };
         }

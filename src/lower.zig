@@ -181,7 +181,7 @@ const LoweringContext = struct {
     }
 
     /// Infer C type from an expression node.
-    fn inferCTypeFromExpr(self: *const LoweringContext, node_idx: NodeIndex) []const u8 {
+    fn inferCTypeFromExpr(self: *LoweringContext, node_idx: NodeIndex) []const u8 {
         if (node_idx == null_node) return "int64_t";
         const node = self.tree.nodes.items[node_idx];
         return switch (node.tag) {
@@ -193,6 +193,15 @@ const LoweringContext = struct {
             .alloc_expr => {
                 if (node.data.lhs != null_node and self.tree.nodes.items[node.data.lhs].tag == .type_chan) {
                     return "run_chan_t*";
+                }
+                return "int64_t";
+            },
+            .call => {
+                // Check if the callee is a function that returns a string (e.g. fmt.sprintf)
+                const callee_name = self.resolveCalleeName(node.data.lhs);
+                const target = mapBuiltinCall(callee_name);
+                if (std.mem.startsWith(u8, target, "run_fmt_sprint")) {
+                    return "run_string_t";
                 }
                 return "int64_t";
             },
@@ -524,9 +533,18 @@ const LoweringContext = struct {
             .string_literal => {
                 const raw = self.tokenSlice(node.main_token);
                 const text = if (raw.len >= 2) raw[1 .. raw.len - 1] else raw;
-                const str_idx = try self.module.addStringConstant(self.allocator, text);
+                const processed = self.processEscapes(text) catch text;
+                const str_idx = try self.module.addStringConstant(self.allocator, processed);
                 const r = self.allocRef();
                 try self.emit(ir.makeInst(.const_string, r, str_idx, 0));
+                return r;
+            },
+            .float_literal => {
+                const text = self.tokenSlice(node.main_token);
+                // Store float text as a string constant so codegen can emit it directly
+                const str_idx = try self.module.addStringConstant(self.allocator, text);
+                const r = self.allocRef();
+                try self.emit(ir.makeInst(.const_float, r, str_idx, 0));
                 return r;
             },
             .bool_literal => {
@@ -747,7 +765,10 @@ const LoweringContext = struct {
             try arg_refs.append(self.allocator, arg_ref);
         }
 
-        const call_idx = try self.module.addCallInfo(self.allocator, target_name, arg_refs.items);
+        const call_idx = if (isVariadicFmtCall(target_name))
+            try self.module.addVariadicCallInfo(self.allocator, target_name, arg_refs.items)
+        else
+            try self.module.addCallInfo(self.allocator, target_name, arg_refs.items);
 
         const is_void = isVoidCall(target_name);
         const r = if (is_void) ir.null_ref else self.allocRef();
@@ -777,7 +798,10 @@ const LoweringContext = struct {
     }
 
     fn isVoidCall(name: []const u8) bool {
-        return std.mem.eql(u8, name, "run_fmt_println") or
+        return std.mem.eql(u8, name, "run_fmt_println_args") or
+            std.mem.eql(u8, name, "run_fmt_print_args") or
+            std.mem.eql(u8, name, "run_fmt_printf_args") or
+            std.mem.eql(u8, name, "run_fmt_println") or
             std.mem.eql(u8, name, "run_fmt_print") or
             std.mem.eql(u8, name, "run_fmt_print_int") or
             std.mem.eql(u8, name, "run_fmt_print_float") or
@@ -785,12 +809,22 @@ const LoweringContext = struct {
             std.mem.eql(u8, name, "run_chan_close");
     }
 
+    fn isVariadicFmtCall(name: []const u8) bool {
+        return std.mem.eql(u8, name, "run_fmt_println_args") or
+            std.mem.eql(u8, name, "run_fmt_print_args") or
+            std.mem.eql(u8, name, "run_fmt_printf_args") or
+            std.mem.eql(u8, name, "run_fmt_sprintf_args") or
+            std.mem.eql(u8, name, "run_fmt_sprint_args") or
+            std.mem.eql(u8, name, "run_fmt_sprintln_args");
+    }
+
     fn mapBuiltinCall(name: []const u8) []const u8 {
-        if (std.mem.eql(u8, name, "fmt.println")) return "run_fmt_println";
-        if (std.mem.eql(u8, name, "fmt.print")) return "run_fmt_print";
-        if (std.mem.eql(u8, name, "fmt.print_int")) return "run_fmt_print_int";
-        if (std.mem.eql(u8, name, "fmt.print_float")) return "run_fmt_print_float";
-        if (std.mem.eql(u8, name, "fmt.print_bool")) return "run_fmt_print_bool";
+        if (std.mem.eql(u8, name, "fmt.println")) return "run_fmt_println_args";
+        if (std.mem.eql(u8, name, "fmt.print")) return "run_fmt_print_args";
+        if (std.mem.eql(u8, name, "fmt.printf")) return "run_fmt_printf_args";
+        if (std.mem.eql(u8, name, "fmt.sprintf")) return "run_fmt_sprintf_args";
+        if (std.mem.eql(u8, name, "fmt.sprint")) return "run_fmt_sprint_args";
+        if (std.mem.eql(u8, name, "fmt.sprintln")) return "run_fmt_sprintln_args";
         if (std.mem.eql(u8, name, "close")) return "run_chan_close";
         return name;
     }
@@ -811,6 +845,38 @@ const LoweringContext = struct {
     fn tokenSlice(self: *const LoweringContext, tok_index: u32) []const u8 {
         const tok = self.tokens[tok_index];
         return self.tree.source[tok.loc.start..tok.loc.end];
+    }
+
+    /// Process escape sequences in a string literal (e.g. \n → newline, \t → tab).
+    fn processEscapes(self: *LoweringContext, text: []const u8) ![]const u8 {
+        // Quick check: if no backslashes, return as-is
+        if (std.mem.indexOf(u8, text, "\\") == null) return text;
+
+        var buf = std.ArrayList(u8).empty;
+        var i: usize = 0;
+        while (i < text.len) {
+            if (text[i] == '\\' and i + 1 < text.len) {
+                switch (text[i + 1]) {
+                    'n' => try buf.append(self.allocator, '\n'),
+                    't' => try buf.append(self.allocator, '\t'),
+                    'r' => try buf.append(self.allocator, '\r'),
+                    '\\' => try buf.append(self.allocator, '\\'),
+                    '"' => try buf.append(self.allocator, '"'),
+                    '0' => try buf.append(self.allocator, 0),
+                    else => {
+                        try buf.append(self.allocator, text[i]);
+                        try buf.append(self.allocator, text[i + 1]);
+                    },
+                }
+                i += 2;
+            } else {
+                try buf.append(self.allocator, text[i]);
+                i += 1;
+            }
+        }
+        // Track the allocation so it gets freed with the module
+        try self.module.owned_strings.append(self.allocator, buf.items);
+        return buf.items;
     }
 };
 
@@ -856,7 +922,7 @@ test "lower: hello world" {
     try std.testing.expectEqual(@as(usize, 1), module.string_constants.items.len);
     try std.testing.expectEqualStrings("Hello, World!", module.string_constants.items[0].value);
     try std.testing.expectEqual(@as(usize, 1), module.call_infos.items.len);
-    try std.testing.expectEqualStrings("run_fmt_println", module.call_infos.items[0].target_name);
+    try std.testing.expectEqualStrings("run_fmt_println_args", module.call_infos.items[0].target_name);
 }
 
 test "lower: fmt.print maps to runtime print" {
@@ -870,7 +936,7 @@ test "lower: fmt.print maps to runtime print" {
     defer module.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(@as(usize, 1), module.call_infos.items.len);
-    try std.testing.expectEqualStrings("run_fmt_print", module.call_infos.items[0].target_name);
+    try std.testing.expectEqualStrings("run_fmt_print_args", module.call_infos.items[0].target_name);
     try std.testing.expectEqual(@as(usize, 2), module.call_infos.items[0].args.items.len);
 }
 
@@ -1009,7 +1075,7 @@ test "lower: defer emits deferred call at scope exit" {
     // The deferred fmt.println call should be emitted at scope exit
     try std.testing.expect(blockHasOp(block, .call));
     try std.testing.expectEqual(@as(usize, 1), module.call_infos.items.len);
-    try std.testing.expectEqualStrings("run_fmt_println", module.call_infos.items[0].target_name);
+    try std.testing.expectEqualStrings("run_fmt_println_args", module.call_infos.items[0].target_name);
 }
 
 test "lower: return emits cleanup before ret" {
