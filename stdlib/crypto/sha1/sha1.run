@@ -1,0 +1,26 @@
+package sha1
+
+use "crypto"
+
+// DEPRECATED: SHA-1 is cryptographically broken and should not be used
+// for security purposes. Use crypto/sha256 or crypto/sha3 instead.
+// This package is provided only for legacy compatibility (e.g., verifying
+// old checksums or protocol compatibility where SHA-1 is mandated).
+
+// The size of a SHA-1 checksum in bytes.
+pub let size = 20
+
+// The block size of SHA-1 in bytes.
+pub let blockSize = 64
+
+// new returns a new crypto.Hash computing the SHA-1 checksum.
+// DEPRECATED: Use crypto/sha256.new() instead.
+pub fun new() crypto.Hash {
+    return null
+}
+
+// sum returns the SHA-1 checksum of the data.
+// DEPRECATED: Use crypto/sha256.sum256() instead.
+pub fun sum(data []byte) [20]byte {
+    return [20]byte{}
+}

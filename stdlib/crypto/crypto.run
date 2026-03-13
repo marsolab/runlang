@@ -1,0 +1,77 @@
+package crypto
+
+// Hash is the interface for cryptographic hash functions.
+pub Hash interface {
+    // write adds data to the running hash.
+    write(data []byte) !int
+
+    // sum appends the current hash to buf and returns the resulting slice.
+    sum(buf []byte) []byte
+
+    // reset resets the hash to its initial state.
+    reset()
+
+    // size returns the number of bytes sum will produce.
+    size() int
+
+    // blockSize returns the hash's underlying block size.
+    blockSize() int
+}
+
+// AEAD is the interface for authenticated encryption with associated data.
+pub AEAD interface {
+    // seal encrypts and authenticates plaintext, authenticates the
+    // additional data, and appends the result to dst.
+    seal(dst []byte, nonce []byte, plaintext []byte, additionalData []byte) []byte
+
+    // open decrypts and authenticates ciphertext, authenticates the
+    // additional data, and appends the result to dst.
+    open(dst []byte, nonce []byte, ciphertext []byte, additionalData []byte) ![]byte
+
+    // nonceSize returns the size of the nonce that must be passed to seal and open.
+    nonceSize() int
+
+    // overhead returns the maximum difference between the lengths of a
+    // plaintext and its ciphertext.
+    overhead() int
+}
+
+// Signer is the interface for opaque private keys that can sign messages.
+pub Signer interface {
+    // sign signs the message and returns the signature.
+    sign(message []byte) ![]byte
+
+    // publicKey returns the public key corresponding to the signer.
+    publicKey() PublicKey
+}
+
+// Verifier is the interface for verifying digital signatures.
+pub Verifier interface {
+    // verify reports whether sig is a valid signature of message.
+    verify(message []byte, signature []byte) !bool
+}
+
+// PublicKey is a marker interface for public keys.
+pub PublicKey interface {
+    // bytes returns the raw bytes of the public key.
+    bytes() []byte
+}
+
+// PrivateKey is a marker interface for private keys.
+pub PrivateKey interface {
+    // bytes returns the raw bytes of the private key.
+    bytes() []byte
+
+    // public returns the public key corresponding to this private key.
+    public() PublicKey
+}
+
+// CryptoError represents errors from cryptographic operations.
+pub type CryptoError = .invalidKey
+    | .invalidKeyLength
+    | .invalidSignature
+    | .invalidCiphertext
+    | .authenticationFailed
+    | .shortBuffer
+    | .randomFailure
+    | .invalidParameter

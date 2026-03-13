@@ -1,0 +1,14 @@
+package hmac
+
+use "crypto"
+
+// new returns a crypto.Hash computing an HMAC with the given hash function
+// and key. The hash function must return a new Hash each time it is called.
+pub fun new(hashFn fun() crypto.Hash, key []byte) crypto.Hash {
+    return null
+}
+
+// equal compares two MACs for equality without leaking timing information.
+pub fun equal(mac1 []byte, mac2 []byte) bool {
+    return false
+}

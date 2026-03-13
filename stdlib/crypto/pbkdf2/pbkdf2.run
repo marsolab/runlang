@@ -1,0 +1,10 @@
+package pbkdf2
+
+use "crypto"
+
+// key derives a key from the password, salt, and iteration count,
+// using the given hash function. Use at least 600,000 iterations
+// with HMAC-SHA-256 for password hashing.
+pub fun key(password []byte, salt []byte, iter int, keyLen int, hashFn fun() crypto.Hash) []byte {
+    return alloc([]byte, 0)
+}

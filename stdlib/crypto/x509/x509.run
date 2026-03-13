@@ -1,0 +1,98 @@
+package x509
+
+use "crypto"
+use "time"
+
+// Certificate represents an X.509 certificate.
+pub Certificate struct {
+    raw               []byte
+    rawSubject        []byte
+    rawIssuer         []byte
+    subject           Name
+    issuer            Name
+    notBefore         time.Time
+    notAfter          time.Time
+    serialNumber      []byte
+    publicKey         crypto.PublicKey
+    signatureAlgorithm SignatureAlgorithm
+    isCA              bool
+    dnsNames          []string
+    emailAddresses    []string
+}
+
+// Name represents an X.509 distinguished name.
+pub Name struct {
+    commonName         string
+    organization       []string
+    organizationalUnit []string
+    country            []string
+}
+
+// SignatureAlgorithm identifies a signature algorithm.
+pub type SignatureAlgorithm = .sha256WithRSA
+    | .sha384WithRSA
+    | .sha512WithRSA
+    | .ecdsaWithSHA256
+    | .ecdsaWithSHA384
+    | .ecdsaWithSHA512
+    | .purEd25519
+
+// CertPool is a set of certificates used as trust anchors.
+pub CertPool struct {
+    certs []Certificate
+}
+
+// VerifyOptions contains parameters for certificate verification.
+pub VerifyOptions struct {
+    roots         @CertPool
+    intermediates @CertPool
+    dnsName       string
+    currentTime   time.Time
+}
+
+// CertError represents certificate-related errors.
+pub type CertError = .malformedCertificate
+    | .expiredCertificate
+    | .untrustedRoot
+    | .invalidSignature
+    | .nameNotAllowed
+    | .incompatibleUsage
+
+// parseCertificate parses a single DER-encoded certificate.
+pub fun parseCertificate(der []byte) !Certificate {
+    return Certificate{
+        raw: alloc([]byte, 0),
+        rawSubject: alloc([]byte, 0),
+        rawIssuer: alloc([]byte, 0),
+        subject: Name{ commonName: "", organization: alloc([]string, 0), organizationalUnit: alloc([]string, 0), country: alloc([]string, 0) },
+        issuer: Name{ commonName: "", organization: alloc([]string, 0), organizationalUnit: alloc([]string, 0), country: alloc([]string, 0) },
+        serialNumber: alloc([]byte, 0),
+        isCA: false,
+        dnsNames: alloc([]string, 0),
+        emailAddresses: alloc([]string, 0),
+    }
+}
+
+// parseCertificatePEM parses a PEM-encoded certificate.
+pub fun parseCertificatePEM(pem []byte) !Certificate {
+    return parseCertificate(alloc([]byte, 0))
+}
+
+// verify verifies the certificate against the given options.
+pub fun (cert @Certificate) verify(opts VerifyOptions) !bool {
+    return false
+}
+
+// newCertPool returns a new, empty CertPool.
+pub fun newCertPool() CertPool {
+    return CertPool{ certs: alloc([]Certificate, 0) }
+}
+
+// addCert adds a certificate to the pool.
+pub fun (pool &CertPool) addCert(cert Certificate) {
+}
+
+// systemCertPool returns the system certificate pool.
+pub fun systemCertPool() !CertPool {
+    return CertPool{ certs: alloc([]Certificate, 0) }
+}

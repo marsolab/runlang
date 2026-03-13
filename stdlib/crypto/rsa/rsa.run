@@ -1,0 +1,82 @@
+package rsa
+
+use "crypto"
+
+// PublicKey represents an RSA public key.
+pub PublicKey struct {
+    implements {
+        crypto.PublicKey
+    }
+
+    n []byte  // modulus
+    e int     // public exponent
+}
+
+// PrivateKey represents an RSA private key.
+pub PrivateKey struct {
+    implements {
+        crypto.PrivateKey
+        crypto.Signer
+    }
+
+    publicKey PublicKey
+    d         []byte  // private exponent
+    primes    [][]byte
+}
+
+// PSSOptions contains options for PSS signing and verification.
+pub PSSOptions struct {
+    saltLength int
+}
+
+// generateKey generates a new RSA private key of the given bit size.
+pub fun generateKey(bits int) !PrivateKey {
+    return PrivateKey{
+        publicKey: PublicKey{ n: alloc([]byte, 0), e: 65537 },
+        d: alloc([]byte, 0),
+        primes: alloc([][]byte, 0),
+    }
+}
+
+// encryptOAEP encrypts plaintext using RSA-OAEP.
+pub fun encryptOAEP(hash crypto.Hash, pub @PublicKey, msg []byte, label []byte) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// decryptOAEP decrypts ciphertext using RSA-OAEP.
+pub fun decryptOAEP(hash crypto.Hash, priv @PrivateKey, ciphertext []byte, label []byte) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// signPKCS1v15 signs hashed using RSASSA-PKCS1-V1_5-SIGN.
+pub fun signPKCS1v15(priv @PrivateKey, hash crypto.Hash, hashed []byte) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// verifyPKCS1v15 verifies an RSASSA-PKCS1-V1_5-SIGN signature.
+pub fun verifyPKCS1v15(pub @PublicKey, hash crypto.Hash, hashed []byte, sig []byte) !void {
+}
+
+// signPSS signs hashed using RSASSA-PSS.
+pub fun signPSS(priv @PrivateKey, hash crypto.Hash, hashed []byte, opts @PSSOptions) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// verifyPSS verifies an RSASSA-PSS signature.
+pub fun verifyPSS(pub @PublicKey, hash crypto.Hash, hashed []byte, sig []byte, opts @PSSOptions) !void {
+}
+
+// public returns the public key for this private key.
+pub fun (priv @PrivateKey) public() PublicKey {
+    return priv.publicKey
+}
+
+// bytes returns the raw bytes of the public key.
+pub fun (pub @PublicKey) bytes() []byte {
+    return pub.n
+}
+
+// bytes returns the raw bytes of the private key.
+pub fun (priv @PrivateKey) bytes() []byte {
+    return priv.d
+}

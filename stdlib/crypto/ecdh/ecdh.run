@@ -1,0 +1,63 @@
+package ecdh
+
+use "crypto"
+
+// Curve identifies an elliptic curve for ECDH.
+pub type Curve = .p256
+    | .p384
+    | .x25519
+
+// PublicKey is an ECDH public key.
+pub PublicKey struct {
+    implements {
+        crypto.PublicKey
+    }
+
+    curve Curve
+    data  []byte
+}
+
+// PrivateKey is an ECDH private key.
+pub PrivateKey struct {
+    implements {
+        crypto.PrivateKey
+    }
+
+    curve     Curve
+    data      []byte
+    publicKey PublicKey
+}
+
+// generateKey generates a new ECDH private key for the given curve.
+pub fun generateKey(curve Curve) !PrivateKey {
+    return PrivateKey{
+        curve: curve,
+        data: alloc([]byte, 0),
+        publicKey: PublicKey{ curve: curve, data: alloc([]byte, 0) },
+    }
+}
+
+// ecdh performs an ECDH exchange and returns the shared secret.
+pub fun (priv @PrivateKey) ecdh(peerPublicKey @PublicKey) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// publicKey returns the public key for this private key.
+pub fun (priv @PrivateKey) publicKey() PublicKey {
+    return priv.publicKey
+}
+
+// public returns the public key as a crypto.PublicKey.
+pub fun (priv @PrivateKey) public() crypto.PublicKey {
+    return priv.publicKey
+}
+
+// bytes returns the raw bytes of the public key.
+pub fun (pub @PublicKey) bytes() []byte {
+    return pub.data
+}
+
+// bytes returns the raw bytes of the private key.
+pub fun (priv @PrivateKey) bytes() []byte {
+    return priv.data
+}

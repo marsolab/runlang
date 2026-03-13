@@ -1,0 +1,5 @@
+package hkdf
+
+use "testing"
+
+// Tests for crypto/hkdf will go here.

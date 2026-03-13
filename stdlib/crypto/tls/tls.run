@@ -1,0 +1,75 @@
+package tls
+
+use "crypto"
+use "crypto/x509"
+use "io"
+use "net"
+
+// TLS version constants.
+pub let versionTLS12 = 0x0303
+pub let versionTLS13 = 0x0304
+
+// Config holds TLS configuration.
+pub Config struct {
+    certificates   []Certificate
+    rootCAs        @x509.CertPool
+    serverName     string
+    minVersion     int
+    maxVersion     int
+    insecureSkipVerify bool
+}
+
+// Certificate represents a TLS certificate with its private key.
+pub Certificate struct {
+    cert []x509.Certificate
+    key  crypto.PrivateKey
+}
+
+// Conn represents a TLS connection. Implements io.Reader and io.Writer.
+pub Conn struct {
+    implements {
+        io.Reader
+        io.Writer
+        io.Closer
+    }
+
+    inner net.Conn
+}
+
+// TlsError represents TLS-related errors.
+pub type TlsError = .handshakeFailed
+    | .certificateRequired
+    | .certificateRejected
+    | .protocolVersionMismatch
+    | .alertCloseNotify
+    | .alertUnexpectedMessage
+
+// dial creates a TLS connection to the given network address.
+pub fun dial(network string, addr string, config @Config) !Conn {
+    return Conn{}
+}
+
+// read reads data from the TLS connection.
+pub fun (c &Conn) read(buf []byte) !int {
+    return 0
+}
+
+// write writes data to the TLS connection.
+pub fun (c &Conn) write(buf []byte) !int {
+    return 0
+}
+
+// close closes the TLS connection.
+pub fun (c &Conn) close() !void {
+}
+
+// handshake performs the TLS handshake if it hasn't been done yet.
+pub fun (c &Conn) handshake() !void {
+}
+
+// loadX509KeyPair reads and parses a certificate and private key from PEM files.
+pub fun loadX509KeyPair(certFile string, keyFile string) !Certificate {
+    return Certificate{
+        cert: alloc([]x509.Certificate, 0),
+    }
+}

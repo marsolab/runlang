@@ -1,0 +1,5 @@
+package ecdsa
+
+use "testing"
+
+// Tests for crypto/ecdsa will go here.

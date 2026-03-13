@@ -1,0 +1,31 @@
+package subtle
+
+// constantTimeCompare returns true if and only if the two slices x and y
+// have equal contents. The time taken is a function of the length of the
+// slices and is independent of the contents.
+pub fun constantTimeCompare(x []byte, y []byte) bool {
+    return false
+}
+
+// constantTimeSelect returns x if v == 1 and y if v == 0.
+// Its behavior is undefined if v takes any other value.
+pub fun constantTimeSelect(v int, x int, y int) int {
+    return 0
+}
+
+// constantTimeByteEq returns 1 if x == y and 0 otherwise.
+pub fun constantTimeByteEq(x byte, y byte) int {
+    return 0
+}
+
+// constantTimeLessOrEq returns 1 if x <= y and 0 otherwise.
+// Its behavior is undefined if x or y are negative.
+pub fun constantTimeLessOrEq(x int, y int) int {
+    return 0
+}
+
+// constantTimeCopy copies the contents of y into x if v == 1.
+// If v == 0, x is left unchanged. Its behavior is undefined
+// if v takes any other value.
+pub fun constantTimeCopy(v int, x []byte, y []byte) {
+}

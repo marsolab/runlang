@@ -1,0 +1,5 @@
+package tls
+
+use "testing"
+
+// Tests for crypto/tls will go here.

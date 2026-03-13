@@ -1,0 +1,5 @@
+package aes
+
+use "testing"
+
+// Tests for crypto/aes will go here.

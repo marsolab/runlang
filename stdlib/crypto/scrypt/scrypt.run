@@ -1,0 +1,8 @@
+package scrypt
+
+// key derives a key using the scrypt key derivation function.
+// Parameters n, r, p control CPU/memory cost. n must be a power of 2.
+// Recommended: n=32768, r=8, p=1.
+pub fun key(password []byte, salt []byte, n int, r int, p int, keyLen int) ![]byte {
+    return alloc([]byte, 0)
+}

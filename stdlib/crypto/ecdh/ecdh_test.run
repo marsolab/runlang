@@ -1,0 +1,5 @@
+package ecdh
+
+use "testing"
+
+// Tests for crypto/ecdh will go here.

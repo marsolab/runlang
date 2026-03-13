@@ -1,0 +1,5 @@
+package jwt
+
+use "testing"
+
+// Tests for crypto/jwt will go here.

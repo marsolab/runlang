@@ -1,0 +1,5 @@
+package x25519
+
+use "testing"
+
+// Tests for crypto/x25519 will go here.

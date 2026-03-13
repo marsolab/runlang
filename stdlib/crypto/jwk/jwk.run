@@ -1,0 +1,93 @@
+package jwk
+
+use "crypto"
+
+// KeyType identifies the cryptographic algorithm family of the key.
+pub type KeyType = .rsa
+    | .ec
+    | .octetSequence
+    | .okp
+
+// KeyUse identifies the intended use of the key.
+pub type KeyUse = .signature
+    | .encryption
+
+// Key represents a JSON Web Key per RFC 7517.
+pub Key struct {
+    kty KeyType
+    kid string
+    use KeyUse
+    alg string
+    raw []byte
+}
+
+// KeySet represents a JWK Set (JWKS) per RFC 7517.
+pub KeySet struct {
+    keys []Key
+}
+
+// JwkError represents JWK-related errors.
+pub type JwkError = .malformedKey
+    | .malformedKeySet
+    | .keyNotFound
+    | .unsupportedKeyType
+    | .fetchFailed
+
+// parseKey parses a single JWK from JSON bytes.
+pub fun parseKey(data []byte) !Key {
+    return Key{
+        kid: "",
+        alg: "",
+        raw: alloc([]byte, 0),
+    }
+}
+
+// parseKeySet parses a JWKS from JSON bytes.
+pub fun parseKeySet(data []byte) !KeySet {
+    return KeySet{ keys: alloc([]Key, 0) }
+}
+
+// findKey finds a key in the set by key ID (kid).
+// Returns null if no key with the given ID exists.
+pub fun (ks @KeySet) findKey(kid string) Key? {
+    return null
+}
+
+// fetchKeySet fetches a JWKS from the given URL (e.g., an OAuth provider's
+// /.well-known/jwks.json endpoint).
+pub fun fetchKeySet(url string) !KeySet {
+    return KeySet{ keys: alloc([]Key, 0) }
+}
+
+// toPublicKey converts a JWK to a crypto.PublicKey.
+pub fun (k @Key) toPublicKey() !crypto.PublicKey {
+    return null
+}
+
+// fromPublicKey creates a JWK from a crypto.PublicKey.
+pub fun fromPublicKey(key crypto.PublicKey, kid string) !Key {
+    return Key{
+        kid: kid,
+        alg: "",
+        raw: alloc([]byte, 0),
+    }
+}
+
+// fromPrivateKey creates a JWK from a crypto.PrivateKey (includes private material).
+pub fun fromPrivateKey(key crypto.PrivateKey, kid string) !Key {
+    return Key{
+        kid: kid,
+        alg: "",
+        raw: alloc([]byte, 0),
+    }
+}
+
+// toJSON serializes a Key to JSON bytes.
+pub fun (k @Key) toJSON() ![]byte {
+    return alloc([]byte, 0)
+}
+
+// toJSON serializes a KeySet to JSON bytes.
+pub fun (ks @KeySet) toJSON() ![]byte {
+    return alloc([]byte, 0)
+}

@@ -1,0 +1,5 @@
+package chacha20poly1305
+
+use "testing"
+
+// Tests for crypto/chacha20poly1305 will go here.

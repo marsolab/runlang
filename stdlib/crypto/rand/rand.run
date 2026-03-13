@@ -1,0 +1,17 @@
+package rand
+
+// read fills buf with cryptographically secure random bytes.
+// Returns the number of bytes read.
+pub fun read(buf []byte) !int {
+    return 0
+}
+
+// bytes returns n cryptographically secure random bytes.
+pub fun bytes(n int) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// int returns a uniform random int in the range [0, max).
+pub fun int(max int) !int {
+    return 0
+}

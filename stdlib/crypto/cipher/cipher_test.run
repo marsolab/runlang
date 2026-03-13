@@ -1,0 +1,5 @@
+package cipher
+
+use "testing"
+
+// Tests for crypto/cipher will go here.

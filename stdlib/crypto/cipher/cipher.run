@@ -1,0 +1,73 @@
+package cipher
+
+use "crypto"
+
+// Block represents a cipher operating in a given key's block size.
+pub Block interface {
+    // blockSize returns the cipher's block size.
+    blockSize() int
+
+    // encrypt encrypts the first block in src into dst.
+    encrypt(dst []byte, src []byte)
+
+    // decrypt decrypts the first block in src into dst.
+    decrypt(dst []byte, src []byte)
+}
+
+// Stream represents a stream cipher.
+pub Stream interface {
+    // xorKeyStream XORs each byte in src with a byte from the cipher's
+    // key stream, writing the result to dst.
+    xorKeyStream(dst []byte, src []byte)
+}
+
+// BlockMode represents a block cipher running in a block-based mode (CBC, etc.).
+pub BlockMode interface {
+    // blockSize returns the mode's block size.
+    blockSize() int
+
+    // cryptBlocks encrypts or decrypts a number of blocks.
+    cryptBlocks(dst []byte, src []byte)
+}
+
+// newGCM returns an AEAD wrapping the given cipher in Galois Counter Mode.
+pub fun newGCM(block Block) !crypto.AEAD {
+    return null
+}
+
+// newGCMWithNonceSize returns an AEAD with a non-standard nonce size.
+pub fun newGCMWithNonceSize(block Block, size int) !crypto.AEAD {
+    return null
+}
+
+// newCTR returns a Stream that encrypts/decrypts using the given Block
+// in counter mode.
+pub fun newCTR(block Block, iv []byte) Stream {
+    return null
+}
+
+// newCBCEncrypter returns a BlockMode which encrypts in cipher block chaining mode.
+pub fun newCBCEncrypter(block Block, iv []byte) BlockMode {
+    return null
+}
+
+// newCBCDecrypter returns a BlockMode which decrypts in cipher block chaining mode.
+pub fun newCBCDecrypter(block Block, iv []byte) BlockMode {
+    return null
+}
+
+// newOFB returns a Stream that encrypts/decrypts using the given Block
+// in output feedback mode.
+pub fun newOFB(block Block, iv []byte) Stream {
+    return null
+}
+
+// newCFBEncrypter returns a Stream which encrypts in cipher feedback mode.
+pub fun newCFBEncrypter(block Block, iv []byte) Stream {
+    return null
+}
+
+// newCFBDecrypter returns a Stream which decrypts in cipher feedback mode.
+pub fun newCFBDecrypter(block Block, iv []byte) Stream {
+    return null
+}

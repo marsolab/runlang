@@ -1,0 +1,68 @@
+package ed25519
+
+use "crypto"
+
+// Key and signature sizes in bytes.
+pub let publicKeySize = 32
+pub let privateKeySize = 64
+pub let signatureSize = 64
+pub let seedSize = 32
+
+// PublicKey is an Ed25519 public key (32 bytes).
+pub PublicKey struct {
+    implements {
+        crypto.PublicKey
+    }
+
+    data []byte
+}
+
+// PrivateKey is an Ed25519 private key (64 bytes, contains seed + public key).
+pub PrivateKey struct {
+    implements {
+        crypto.PrivateKey
+        crypto.Signer
+    }
+
+    data []byte
+}
+
+// generateKey generates a random Ed25519 key pair.
+pub fun generateKey() !(PublicKey, PrivateKey) {
+    return (PublicKey{ data: alloc([]byte, 0) }, PrivateKey{ data: alloc([]byte, 0) })
+}
+
+// newKeyFromSeed creates a private key from a 32-byte seed.
+pub fun newKeyFromSeed(seed []byte) !PrivateKey {
+    return PrivateKey{ data: alloc([]byte, 0) }
+}
+
+// sign signs the message with privateKey and returns a 64-byte signature.
+pub fun sign(privateKey @PrivateKey, message []byte) []byte {
+    return alloc([]byte, 0)
+}
+
+// verify reports whether sig is a valid Ed25519 signature of message by publicKey.
+pub fun verify(publicKey @PublicKey, message []byte, sig []byte) bool {
+    return false
+}
+
+// seed returns the private key seed (first 32 bytes).
+pub fun (priv @PrivateKey) seed() []byte {
+    return alloc([]byte, 0)
+}
+
+// public returns the public key corresponding to priv.
+pub fun (priv @PrivateKey) public() PublicKey {
+    return PublicKey{ data: alloc([]byte, 0) }
+}
+
+// bytes returns the raw bytes of the public key.
+pub fun (pub @PublicKey) bytes() []byte {
+    return pub.data
+}
+
+// bytes returns the raw bytes of the private key.
+pub fun (priv @PrivateKey) bytes() []byte {
+    return priv.data
+}

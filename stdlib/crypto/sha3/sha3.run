@@ -1,0 +1,45 @@
+package sha3
+
+use "crypto"
+
+// new256 returns a new crypto.Hash computing the SHA3-256 checksum.
+pub fun new256() crypto.Hash {
+    return null
+}
+
+// new512 returns a new crypto.Hash computing the SHA3-512 checksum.
+pub fun new512() crypto.Hash {
+    return null
+}
+
+// ShakeHash is the interface for SHAKE extendable-output functions.
+pub ShakeHash interface {
+    // write absorbs more data into the hash state.
+    write(data []byte) !int
+
+    // read reads output from the hash; it can be called repeatedly.
+    read(buf []byte) !int
+
+    // reset resets the hash to its initial state.
+    reset()
+}
+
+// newShake128 returns a new SHAKE128 variable-output-length hash function.
+pub fun newShake128() ShakeHash {
+    return null
+}
+
+// newShake256 returns a new SHAKE256 variable-output-length hash function.
+pub fun newShake256() ShakeHash {
+    return null
+}
+
+// sum256 returns the SHA3-256 checksum of the data.
+pub fun sum256(data []byte) [32]byte {
+    return [32]byte{}
+}
+
+// sum512 returns the SHA3-512 checksum of the data.
+pub fun sum512(data []byte) [64]byte {
+    return [64]byte{}
+}

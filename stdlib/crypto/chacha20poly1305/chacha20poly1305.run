@@ -1,0 +1,26 @@
+package chacha20poly1305
+
+use "crypto"
+
+// Key size in bytes.
+pub let keySize = 32
+
+// Nonce size for ChaCha20-Poly1305 in bytes.
+pub let nonceSize = 12
+
+// Nonce size for XChaCha20-Poly1305 in bytes.
+pub let nonceSizeX = 24
+
+// Authentication tag overhead in bytes.
+pub let overhead = 16
+
+// new returns a ChaCha20-Poly1305 AEAD that uses the given 256-bit key.
+pub fun new(key []byte) !crypto.AEAD {
+    return null
+}
+
+// newX returns an XChaCha20-Poly1305 AEAD that uses the given 256-bit key.
+// XChaCha20-Poly1305 uses a 24-byte nonce, making random nonce generation safe.
+pub fun newX(key []byte) !crypto.AEAD {
+    return null
+}

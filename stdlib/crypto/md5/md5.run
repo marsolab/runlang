@@ -1,0 +1,27 @@
+package md5
+
+use "crypto"
+
+// DEPRECATED: MD5 is cryptographically broken and should not be used
+// for security purposes. Collision attacks are trivial. Use crypto/sha256
+// or crypto/sha3 instead. This package is provided only for legacy
+// compatibility (e.g., verifying old checksums, content fingerprinting
+// where security is not a concern).
+
+// The size of an MD5 checksum in bytes.
+pub let size = 16
+
+// The block size of MD5 in bytes.
+pub let blockSize = 64
+
+// new returns a new crypto.Hash computing the MD5 checksum.
+// DEPRECATED: Use crypto/sha256.new() instead.
+pub fun new() crypto.Hash {
+    return null
+}
+
+// sum returns the MD5 checksum of the data.
+// DEPRECATED: Use crypto/sha256.sum256() instead.
+pub fun sum(data []byte) [16]byte {
+    return [16]byte{}
+}

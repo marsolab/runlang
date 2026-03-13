@@ -1,0 +1,14 @@
+package argon2
+
+// idKey derives a key using Argon2id (recommended variant).
+// Recommended parameters: time=3, memory=65536 (64 MB), threads=1.
+pub fun idKey(password []byte, salt []byte, time u32, memory u32, threads u8, keyLen u32) []byte {
+    return alloc([]byte, 0)
+}
+
+// key derives a key using Argon2i.
+// Argon2id is preferred in most cases; use this only when data-independent
+// memory access is required.
+pub fun key(password []byte, salt []byte, time u32, memory u32, threads u8, keyLen u32) []byte {
+    return alloc([]byte, 0)
+}

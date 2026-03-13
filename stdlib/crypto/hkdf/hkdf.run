@@ -1,0 +1,20 @@
+package hkdf
+
+use "crypto"
+use "io"
+
+// new returns an io.Reader from which keys can be read, using the given hash,
+// secret, optional salt, and optional context info, as described in RFC 5869.
+pub fun new(hashFn fun() crypto.Hash, secret []byte, salt []byte, info []byte) io.Reader {
+    return null
+}
+
+// extract performs the extract step of HKDF, returning the pseudorandom key.
+pub fun extract(hashFn fun() crypto.Hash, secret []byte, salt []byte) []byte {
+    return alloc([]byte, 0)
+}
+
+// expand performs the expand step of HKDF, returning a key of the given length.
+pub fun expand(hashFn fun() crypto.Hash, pseudoRandomKey []byte, info []byte, keyLen int) ![]byte {
+    return alloc([]byte, 0)
+}

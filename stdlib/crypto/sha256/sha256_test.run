@@ -1,0 +1,5 @@
+package sha256
+
+use "testing"
+
+// Tests for crypto/sha256 will go here.

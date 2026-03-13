@@ -1,0 +1,33 @@
+package chacha20
+
+// Key and nonce sizes in bytes.
+pub let keySize = 32
+pub let nonceSize = 12
+pub let nonceSizeX = 24
+
+// Cipher implements ChaCha20/XChaCha20 encryption.
+pub Cipher struct {
+    key   []byte
+    nonce []byte
+}
+
+// newUnauthenticated returns a ChaCha20 stream cipher.
+// Note: This cipher does not provide authentication. For authenticated
+// encryption, use crypto/chacha20poly1305 instead.
+pub fun newUnauthenticated(key []byte, nonce []byte) !Cipher {
+    return Cipher{ key: alloc([]byte, 0), nonce: alloc([]byte, 0) }
+}
+
+// newXUnauthenticated returns an XChaCha20 stream cipher with a 24-byte nonce.
+pub fun newXUnauthenticated(key []byte, nonce []byte) !Cipher {
+    return Cipher{ key: alloc([]byte, 0), nonce: alloc([]byte, 0) }
+}
+
+// xorKeyStream XORs each byte in src with a byte from the ChaCha20 key stream,
+// writing the result into dst.
+pub fun (c &Cipher) xorKeyStream(dst []byte, src []byte) {
+}
+
+// setCounter sets the block counter for the cipher.
+pub fun (c &Cipher) setCounter(counter u32) {
+}

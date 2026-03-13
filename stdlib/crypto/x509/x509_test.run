@@ -1,0 +1,5 @@
+package x509
+
+use "testing"
+
+// Tests for crypto/x509 will go here.

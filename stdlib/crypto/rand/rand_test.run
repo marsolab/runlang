@@ -1,0 +1,5 @@
+package rand
+
+use "testing"
+
+// Tests for crypto/rand will go here.

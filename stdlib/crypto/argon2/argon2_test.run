@@ -1,0 +1,5 @@
+package argon2
+
+use "testing"
+
+// Tests for crypto/argon2 will go here.

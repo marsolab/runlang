@@ -1,0 +1,63 @@
+package ecdsa
+
+use "crypto"
+
+// Curve identifies an elliptic curve.
+pub type Curve = .p256
+    | .p384
+
+// PublicKey is an ECDSA public key.
+pub PublicKey struct {
+    implements {
+        crypto.PublicKey
+    }
+
+    curve Curve
+    x     []byte
+    y     []byte
+}
+
+// PrivateKey is an ECDSA private key.
+pub PrivateKey struct {
+    implements {
+        crypto.PrivateKey
+        crypto.Signer
+    }
+
+    publicKey PublicKey
+    d         []byte
+}
+
+// generateKey generates a new ECDSA private key for the given curve.
+pub fun generateKey(curve Curve) !PrivateKey {
+    return PrivateKey{
+        publicKey: PublicKey{ curve: curve, x: alloc([]byte, 0), y: alloc([]byte, 0) },
+        d: alloc([]byte, 0),
+    }
+}
+
+// signASN1 signs a hash (not the message) using the private key,
+// returning the ASN.1-encoded signature.
+pub fun signASN1(privateKey @PrivateKey, hash []byte) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// verifyASN1 verifies the ASN.1-encoded signature of a hash using the public key.
+pub fun verifyASN1(publicKey @PublicKey, hash []byte, sig []byte) bool {
+    return false
+}
+
+// public returns the public key for this private key.
+pub fun (priv @PrivateKey) public() PublicKey {
+    return priv.publicKey
+}
+
+// bytes returns the raw bytes of the public key.
+pub fun (pub @PublicKey) bytes() []byte {
+    return alloc([]byte, 0)
+}
+
+// bytes returns the raw bytes of the private key.
+pub fun (priv @PrivateKey) bytes() []byte {
+    return priv.d
+}
