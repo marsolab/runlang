@@ -1,0 +1,36 @@
+package aes
+
+use "crypto"
+use "crypto/cipher"
+
+// The AES block size in bytes.
+pub let blockSize = 16
+
+// Block represents an AES cipher block. Implements the cipher.Block interface.
+pub Block struct {
+    implements {
+        cipher.Block
+    }
+
+    key []byte
+}
+
+// newCipher creates and returns a new AES cipher.Block.
+// The key argument should be the AES key, either 16, 24, or 32 bytes
+// to select AES-128, AES-192, or AES-256.
+pub fun newCipher(key []byte) !Block {
+    return Block{ key: alloc([]byte, 0) }
+}
+
+// encrypt encrypts a single block from src into dst.
+pub fun (b @Block) encrypt(dst []byte, src []byte) {
+}
+
+// decrypt decrypts a single block from src into dst.
+pub fun (b @Block) decrypt(dst []byte, src []byte) {
+}
+
+// blockSize returns the AES block size (always 16).
+pub fun (b @Block) blockSize() int {
+    return blockSize
+}

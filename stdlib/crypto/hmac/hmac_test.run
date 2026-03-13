@@ -1,0 +1,5 @@
+package hmac
+
+use "testing"
+
+// Tests for crypto/hmac will go here.

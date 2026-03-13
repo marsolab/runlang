@@ -1,0 +1,40 @@
+package x25519
+
+// Point and scalar sizes in bytes.
+pub let pointSize = 32
+pub let scalarSize = 32
+
+// PublicKey is an X25519 public key (32 bytes).
+pub PublicKey struct {
+    data []byte
+}
+
+// PrivateKey is an X25519 private key (32 bytes).
+pub PrivateKey struct {
+    data []byte
+}
+
+// generateKey generates a random X25519 key pair.
+pub fun generateKey() !(PublicKey, PrivateKey) {
+    return (PublicKey{ data: alloc([]byte, 0) }, PrivateKey{ data: alloc([]byte, 0) })
+}
+
+// scalarMult computes the scalar multiplication of scalar and point.
+pub fun scalarMult(scalar []byte, point []byte) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// scalarBaseMult computes the scalar multiplication of scalar and the base point.
+pub fun scalarBaseMult(scalar []byte) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// ecdh performs an X25519 key exchange and returns the shared secret.
+pub fun (priv @PrivateKey) ecdh(peerPublicKey @PublicKey) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// publicKey returns the public key for this private key.
+pub fun (priv @PrivateKey) publicKey() PublicKey {
+    return PublicKey{ data: alloc([]byte, 0) }
+}

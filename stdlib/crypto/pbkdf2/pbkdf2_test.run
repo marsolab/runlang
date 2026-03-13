@@ -1,0 +1,5 @@
+package pbkdf2
+
+use "testing"
+
+// Tests for crypto/pbkdf2 will go here.

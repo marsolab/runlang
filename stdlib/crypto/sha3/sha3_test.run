@@ -1,0 +1,5 @@
+package sha3
+
+use "testing"
+
+// Tests for crypto/sha3 will go here.

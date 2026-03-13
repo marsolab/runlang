@@ -1,0 +1,5 @@
+package rsa
+
+use "testing"
+
+// Tests for crypto/rsa will go here.

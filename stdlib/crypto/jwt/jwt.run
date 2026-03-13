@@ -1,0 +1,97 @@
+package jwt
+
+use "crypto"
+use "time"
+
+// SigningMethod identifies the algorithm used to sign the token.
+pub type SigningMethod = .hs256
+    | .hs384
+    | .hs512
+    | .rs256
+    | .rs384
+    | .rs512
+    | .es256
+    | .es384
+    | .edDSA
+
+// Header represents the JWT header (JOSE header).
+pub Header struct {
+    alg string
+    typ string
+    kid string
+}
+
+// RegisteredClaims contains the standard JWT claims per RFC 7519.
+pub RegisteredClaims struct {
+    issuer    string      // iss
+    subject   string      // sub
+    audience  []string    // aud
+    expiresAt time.Time   // exp
+    notBefore time.Time   // nbf
+    issuedAt  time.Time   // iat
+    id        string      // jti
+}
+
+// Token represents a parsed or created JWT.
+pub Token struct {
+    header    Header
+    claims    RegisteredClaims
+    raw       string
+    signature []byte
+    valid     bool
+}
+
+// JwtError represents JWT-related errors.
+pub type JwtError = .malformedToken
+    | .expiredToken
+    | .tokenNotYetValid
+    | .invalidSignature
+    | .invalidClaims
+    | .unsupportedAlgorithm
+    | .invalidKey
+
+// sign creates a signed JWT string from the given claims and signing method.
+pub fun sign(claims RegisteredClaims, method SigningMethod, key []byte) !string {
+    return ""
+}
+
+// signWithKey creates a signed JWT string using a crypto.PrivateKey.
+pub fun signWithKey(claims RegisteredClaims, method SigningMethod, key crypto.PrivateKey) !string {
+    return ""
+}
+
+// parse parses a JWT string and validates its signature using the provided key.
+pub fun parse(tokenString string, key []byte) !Token {
+    return Token{
+        header: Header{ alg: "", typ: "JWT", kid: "" },
+        claims: RegisteredClaims{
+            issuer: "",
+            subject: "",
+            audience: alloc([]string, 0),
+            id: "",
+        },
+        raw: "",
+        signature: alloc([]byte, 0),
+        valid: false,
+    }
+}
+
+// parseWithKey parses a JWT and validates using a crypto.PublicKey.
+pub fun parseWithKey(tokenString string, key crypto.PublicKey) !Token {
+    return parse(tokenString, alloc([]byte, 0))
+}
+
+// parseUnverified parses a JWT without validating the signature.
+// Useful for reading the header (e.g., to find the kid) before verification.
+pub fun parseUnverified(tokenString string) !Token {
+    return parse(tokenString, alloc([]byte, 0))
+}
+
+// validate checks whether the token claims are valid (expiry, nbf, etc.).
+pub fun (t @Token) validate() !void {
+}
+
+// isExpired reports whether the token has expired.
+pub fun (t @Token) isExpired() bool {
+    return false
+}

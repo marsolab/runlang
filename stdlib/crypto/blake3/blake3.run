@@ -1,0 +1,28 @@
+package blake3
+
+use "crypto"
+
+// The default output size of BLAKE3 in bytes.
+pub let size = 32
+
+// new returns a new crypto.Hash computing the BLAKE3 checksum.
+pub fun new() crypto.Hash {
+    return null
+}
+
+// newKeyed returns a new crypto.Hash computing a keyed BLAKE3 hash (MAC).
+// The key must be exactly 32 bytes.
+pub fun newKeyed(key [32]byte) crypto.Hash {
+    return null
+}
+
+// newDeriveKey returns a new crypto.Hash in BLAKE3 key derivation mode.
+// The context string should be unique to the application and purpose.
+pub fun newDeriveKey(context string) crypto.Hash {
+    return null
+}
+
+// sum256 returns the BLAKE3 checksum of the data (32 bytes).
+pub fun sum256(data []byte) [32]byte {
+    return [32]byte{}
+}

@@ -1,0 +1,5 @@
+package blake2b
+
+use "testing"
+
+// Tests for crypto/blake2b will go here.

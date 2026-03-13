@@ -1,0 +1,5 @@
+package scrypt
+
+use "testing"
+
+// Tests for crypto/scrypt will go here.

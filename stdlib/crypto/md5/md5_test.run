@@ -1,0 +1,5 @@
+package md5
+
+use "testing"
+
+// Tests for crypto/md5 will go here.

@@ -1,0 +1,5 @@
+package crypto
+
+use "testing"
+
+// Tests for crypto core interfaces will go here.

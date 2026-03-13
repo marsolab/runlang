@@ -1,0 +1,5 @@
+package ed25519
+
+use "testing"
+
+// Tests for crypto/ed25519 will go here.

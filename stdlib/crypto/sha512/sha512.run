@@ -1,0 +1,48 @@
+package sha512
+
+use "crypto"
+
+// The size of a SHA-512 checksum in bytes.
+pub let size = 64
+
+// The size of a SHA-384 checksum in bytes.
+pub let size384 = 48
+
+// The size of a SHA-512/256 checksum in bytes.
+pub let size256 = 32
+
+// The size of a SHA-512/224 checksum in bytes.
+pub let size224 = 28
+
+// The block size of SHA-512 and SHA-384 in bytes.
+pub let blockSize = 128
+
+// new returns a new crypto.Hash computing the SHA-512 checksum.
+pub fun new() crypto.Hash {
+    return null
+}
+
+// new384 returns a new crypto.Hash computing the SHA-384 checksum.
+pub fun new384() crypto.Hash {
+    return null
+}
+
+// new512_256 returns a new crypto.Hash computing the SHA-512/256 checksum.
+pub fun new512_256() crypto.Hash {
+    return null
+}
+
+// new512_224 returns a new crypto.Hash computing the SHA-512/224 checksum.
+pub fun new512_224() crypto.Hash {
+    return null
+}
+
+// sum512 returns the SHA-512 checksum of the data.
+pub fun sum512(data []byte) [64]byte {
+    return [64]byte{}
+}
+
+// sum384 returns the SHA-384 checksum of the data.
+pub fun sum384(data []byte) [48]byte {
+    return [48]byte{}
+}

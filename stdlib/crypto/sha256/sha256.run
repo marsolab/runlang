@@ -1,0 +1,32 @@
+package sha256
+
+use "crypto"
+
+// The size of a SHA-256 checksum in bytes.
+pub let size = 32
+
+// The size of a SHA-224 checksum in bytes.
+pub let size224 = 28
+
+// The block size of SHA-256 and SHA-224 in bytes.
+pub let blockSize = 64
+
+// new returns a new crypto.Hash computing the SHA-256 checksum.
+pub fun new() crypto.Hash {
+    return null
+}
+
+// new224 returns a new crypto.Hash computing the SHA-224 checksum.
+pub fun new224() crypto.Hash {
+    return null
+}
+
+// sum256 returns the SHA-256 checksum of the data.
+pub fun sum256(data []byte) [32]byte {
+    return [32]byte{}
+}
+
+// sum224 returns the SHA-224 checksum of the data.
+pub fun sum224(data []byte) [28]byte {
+    return [28]byte{}
+}

@@ -1,0 +1,5 @@
+package sha512
+
+use "testing"
+
+// Tests for crypto/sha512 will go here.

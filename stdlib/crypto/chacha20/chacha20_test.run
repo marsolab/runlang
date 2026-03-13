@@ -1,0 +1,5 @@
+package chacha20
+
+use "testing"
+
+// Tests for crypto/chacha20 will go here.

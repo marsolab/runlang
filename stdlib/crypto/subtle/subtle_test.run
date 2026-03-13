@@ -1,0 +1,5 @@
+package subtle
+
+use "testing"
+
+// Tests for crypto/subtle will go here.

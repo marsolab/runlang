@@ -1,0 +1,5 @@
+package blake3
+
+use "testing"
+
+// Tests for crypto/blake3 will go here.

@@ -1,0 +1,5 @@
+package jwk
+
+use "testing"
+
+// Tests for crypto/jwk will go here.

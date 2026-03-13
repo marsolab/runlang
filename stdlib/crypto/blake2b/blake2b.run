@@ -1,0 +1,34 @@
+package blake2b
+
+use "crypto"
+
+// Hash sizes in bytes.
+pub let size256 = 32
+pub let size384 = 48
+pub let size512 = 64
+
+// new256 returns a new BLAKE2b-256 crypto.Hash.
+// If key is non-empty, it creates a keyed hash (MAC).
+pub fun new256(key []byte) !crypto.Hash {
+    return null
+}
+
+// new384 returns a new BLAKE2b-384 crypto.Hash.
+pub fun new384(key []byte) !crypto.Hash {
+    return null
+}
+
+// new512 returns a new BLAKE2b-512 crypto.Hash.
+pub fun new512(key []byte) !crypto.Hash {
+    return null
+}
+
+// sum256 returns the BLAKE2b-256 checksum of the data.
+pub fun sum256(data []byte) [32]byte {
+    return [32]byte{}
+}
+
+// sum512 returns the BLAKE2b-512 checksum of the data.
+pub fun sum512(data []byte) [64]byte {
+    return [64]byte{}
+}
