@@ -15,48 +15,50 @@ pub type Closer interface {
     close() !void
 }
 
-// File represents an open file descriptor.
-pub File struct {
-    implements {
-        Reader
-        Writer
-        Closer
-    }
-
-    fd   int
-    path string
+// Seeker is the interface for types that can seek to a position.
+pub type Seeker interface {
+    seek(offset int, whence SeekWhence) !int
 }
 
-// open opens a file at the given path with the specified mode.
-// Mode can be "r" (read), "w" (write), "a" (append), "rw" (read/write).
-pub fun open(path string, mode string) !File {
-    fd := try @syscall.open(path, 0, 0)
-    return File{ fd: fd, path: path }
+// ReadWriter is the interface that combines Reader and Writer.
+pub type ReadWriter interface {
+    read(buf []byte) !int
+    write(buf []byte) !int
 }
 
-// read reads up to len(buf) bytes into buf. Returns the number of bytes read.
-pub fun (f &File) read(buf []byte) !int {
-    return try @syscall.read(f.fd, buf, len(buf))
+// ReadCloser is the interface that combines Reader and Closer.
+pub type ReadCloser interface {
+    read(buf []byte) !int
+    close() !void
 }
 
-// write writes buf to the file. Returns the number of bytes written.
-pub fun (f &File) write(buf []byte) !int {
-    return try @syscall.write(f.fd, buf, len(buf))
+// WriteCloser is the interface that combines Writer and Closer.
+pub type WriteCloser interface {
+    write(buf []byte) !int
+    close() !void
 }
 
-// close closes the file.
-pub fun (f &File) close() !void {
-    try @syscall.close(f.fd)
+// ReadWriteCloser is the interface that combines Reader, Writer, and Closer.
+pub type ReadWriteCloser interface {
+    read(buf []byte) !int
+    write(buf []byte) !int
+    close() !void
 }
 
-// stdin is the standard input file.
-pub var stdin = File{ fd: 0, path: "<stdin>" }
+// ReadSeeker is the interface that combines Reader and Seeker.
+pub type ReadSeeker interface {
+    read(buf []byte) !int
+    seek(offset int, whence SeekWhence) !int
+}
 
-// stdout is the standard output file.
-pub var stdout = File{ fd: 1, path: "<stdout>" }
+// SeekWhence specifies how to interpret a seek offset.
+pub type SeekWhence = .start | .current | .end
 
-// stderr is the standard error file.
-pub var stderr = File{ fd: 2, path: "<stderr>" }
+// IoError represents common I/O error conditions.
+pub type IoError = .unexpectedEof
+    | .brokenPipe
+    | .timeout
+    | .closed
 
 // BufferedReader wraps a Reader with an internal buffer for efficiency.
 pub BufferedReader struct {
@@ -114,7 +116,39 @@ pub fun (bw &BufferedWriter) write(buf []byte) !int {
 pub fun (bw &BufferedWriter) flush() !void {
 }
 
+// Discard is a Writer that discards all data written to it.
+Discard struct {
+    implements {
+        Writer
+    }
+}
+
+// write discards all data and reports success.
+fun (d &Discard) write(buf []byte) !int {
+    return len(buf)
+}
+
+// discard is a Writer that discards all data written to it.
+pub var discard = Discard{}
+
 // read_all reads all bytes from a Reader until EOF.
 pub fun read_all(reader Reader) ![]byte {
     return alloc([]byte, 0)
+}
+
+// copy copies from src to dst until EOF is reached on src.
+// Returns the number of bytes copied.
+pub fun copy(dst Writer, src Reader) !int {
+    return 0
+}
+
+// copy_n copies exactly n bytes from src to dst.
+// Returns the number of bytes copied.
+pub fun copy_n(dst Writer, src Reader, n int) !int {
+    return 0
+}
+
+// limit_reader returns a Reader that reads from r but stops after n bytes.
+pub fun limit_reader(reader Reader, n int) Reader {
+    return reader
 }

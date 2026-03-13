@@ -9,12 +9,30 @@ pub type FileError = .notFound
     | .isDirectory
     | .notDirectory
     | .diskFull
+    | .tooManyOpen
+
+// FileMode represents the type of a file.
+pub type FileMode = .regular
+    | .directory
+    | .symlink
+    | .socket
+    | .pipe
+    | .device
 
 // FileInfo contains metadata about a file.
 pub FileInfo struct {
-    name   string
-    size   int
-    is_dir bool
+    name     string
+    size     int
+    is_dir   bool
+    mode     FileMode
+    mod_time int
+}
+
+// DirEntry represents an entry in a directory listing.
+pub DirEntry struct {
+    name      string
+    is_dir    bool
+    file_type FileMode
 }
 
 // File represents an open operating system file.
@@ -23,6 +41,7 @@ pub File struct {
         io.Reader
         io.Writer
         io.Closer
+        io.Seeker
     }
 
     fd   int
@@ -41,6 +60,12 @@ pub fun create(path string) !File {
     return File{ fd: fd, path: path }
 }
 
+// open_file opens a file with the specified flags and permission mode.
+pub fun open_file(path string, flags int, mode int) !File {
+    fd := try @syscall.open(path, flags, mode)
+    return File{ fd: fd, path: path }
+}
+
 // read reads up to len(buf) bytes into buf.
 pub fun (f &File) read(buf []byte) !int {
     return try @syscall.read(f.fd, buf, len(buf))
@@ -55,6 +80,20 @@ pub fun (f &File) write(buf []byte) !int {
 pub fun (f &File) close() !void {
     try @syscall.close(f.fd)
 }
+
+// seek sets the offset for the next read or write on the file.
+pub fun (f &File) seek(offset int, whence io.SeekWhence) !int {
+    return 0
+}
+
+// stdin is the standard input file.
+pub var stdin = File{ fd: 0, path: "<stdin>" }
+
+// stdout is the standard output file.
+pub var stdout = File{ fd: 1, path: "<stdout>" }
+
+// stderr is the standard error file.
+pub var stderr = File{ fd: 2, path: "<stderr>" }
 
 // args returns the command-line arguments, starting with the program name.
 pub fun args() []string {
@@ -71,8 +110,32 @@ pub fun getenv(key string) string? {
 pub fun setenv(key string, value string) !void {
 }
 
+// unsetenv removes the environment variable named by key.
+pub fun unsetenv(key string) !void {
+}
+
+// environ returns all environment variables as a slice of "KEY=VALUE" strings.
+pub fun environ() []string {
+    return alloc([]string, 0)
+}
+
 // exit terminates the program with the given exit code.
 pub fun exit(code int) {
+}
+
+// getpid returns the process ID of the current process.
+pub fun getpid() int {
+    return 0
+}
+
+// hostname returns the hostname of the machine.
+pub fun hostname() !string {
+    return ""
+}
+
+// user_home_dir returns the home directory of the current user.
+pub fun user_home_dir() !string {
+    return ""
 }
 
 // mkdir creates a directory at the given path.
@@ -91,9 +154,52 @@ pub fun remove(path string) !void {
 pub fun remove_all(path string) !void {
 }
 
+// rename renames (moves) a file or directory from old_path to new_path.
+pub fun rename(old_path string, new_path string) !void {
+}
+
+// symlink creates a symbolic link that points to target.
+pub fun symlink(target string, link string) !void {
+}
+
+// read_link returns the destination of the named symbolic link.
+pub fun read_link(path string) !string {
+    return ""
+}
+
+// chmod changes the permission bits of the named file.
+pub fun chmod(path string, mode int) !void {
+}
+
+// chown changes the numeric uid and gid of the named file.
+pub fun chown(path string, uid int, gid int) !void {
+}
+
 // stat returns file info for the named path.
 pub fun stat(path string) !FileInfo {
-    return FileInfo{ name: "", size: 0, is_dir: false }
+    return FileInfo{ name: "", size: 0, is_dir: false, mode: .regular, mod_time: 0 }
+}
+
+// lstat returns file info for the named path without following symlinks.
+pub fun lstat(path string) !FileInfo {
+    return FileInfo{ name: "", size: 0, is_dir: false, mode: .regular, mod_time: 0 }
+}
+
+// read_dir reads the named directory and returns a list of directory entries.
+pub fun read_dir(path string) ![]DirEntry {
+    return alloc([]DirEntry, 0)
+}
+
+// temp_dir returns the default directory for temporary files.
+pub fun temp_dir() string {
+    return ""
+}
+
+// temp_file creates a new temporary file with the given prefix in the
+// default temp directory. The caller is responsible for closing and
+// removing the file.
+pub fun temp_file(prefix string) !File {
+    return File{ fd: 0, path: "" }
 }
 
 // cwd returns the current working directory.
@@ -112,4 +218,51 @@ pub fun read_file(path string) ![]byte {
 
 // write_file writes data to a file, creating it if necessary.
 pub fun write_file(path string, data []byte) !void {
+}
+
+// join_path joins any number of path elements into a single path,
+// separating them with the OS-specific path separator.
+pub fun join_path(parts []string) string {
+    return ""
+}
+
+// base returns the last element of path.
+pub fun base(path string) string {
+    return ""
+}
+
+// dir returns all but the last element of path.
+pub fun dir(path string) string {
+    return ""
+}
+
+// ext returns the file name extension used by path.
+pub fun ext(path string) string {
+    return ""
+}
+
+// clean returns the shortest path name equivalent to path by purely
+// lexical processing.
+pub fun clean(path string) string {
+    return ""
+}
+
+// abs returns an absolute representation of path.
+pub fun abs(path string) !string {
+    return ""
+}
+
+// is_abs reports whether the path is absolute.
+pub fun is_abs(path string) bool {
+    return false
+}
+
+// split_path splits path into a directory and file component.
+pub fun split_path(path string) struct { dir string, file string } {
+    return .{ dir: "", file: "" }
+}
+
+// glob returns the names of all files matching the given pattern.
+pub fun glob(pattern string) ![]string {
+    return alloc([]string, 0)
 }

@@ -1,7 +1,10 @@
 package fmt
 
-pub type Format interface {
-    format() string
+use "io"
+
+// Stringer is the interface for types that can format themselves as strings.
+pub type Stringer interface {
+    string() string
 }
 
 // println prints each argument with space separators and a trailing newline.
@@ -17,6 +20,11 @@ pub fun print(args ...any) {
 // printf formats according to a format string with Go-style verbs
 // (%d, %s, %f, %v, %t, %x, %o, %b, %e, %g) and prints the result.
 pub fun printf(format string, args ...any) {
+}
+
+// eprintln prints each argument with space separators and a trailing newline
+// to stderr.
+pub fun eprintln(args ...any) {
 }
 
 // sprintf formats and returns a string using Go-style verbs.
