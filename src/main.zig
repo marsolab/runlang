@@ -6,6 +6,8 @@ const naming = @import("naming.zig");
 const driver = @import("driver.zig");
 const lsp = @import("lsp.zig");
 const init_mod = @import("init.zig");
+const formatter = @import("formatter.zig");
+const test_runner = @import("test_runner.zig");
 
 const usage =
     \\Usage: run [command] [options] <file.run>
@@ -16,6 +18,8 @@ const usage =
     \\  check    Type-check without generating code
     \\  init     Initialize a new Run project
     \\  lsp      Start the LSP server
+    \\  fmt      Format .run source files
+    \\  test     Discover and run test functions
     \\  tokens   Dump lexer token stream (debug)
     \\  ast      Dump parsed AST (debug)
     \\
@@ -23,6 +27,7 @@ const usage =
     \\  -o <file>    Output file name
     \\  --no-dce     Disable dead code elimination
     \\  --force      Overwrite existing files (init)
+    \\  --no-color   Disable colored output
     \\  -h, --help   Show this help message
     \\
 ;
@@ -71,6 +76,16 @@ pub fn main() !void {
 
     if (std.mem.eql(u8, command, "init")) {
         cmdInit(allocator, args[2..]);
+        return;
+    }
+
+    if (std.mem.eql(u8, command, "fmt")) {
+        try cmdFmt(allocator, args[2..]);
+        return;
+    }
+
+    if (std.mem.eql(u8, command, "test")) {
+        try cmdTest(allocator, args[2..]);
         return;
     }
 
@@ -154,11 +169,14 @@ fn cmdBuild(allocator: std.mem.Allocator, remaining_args: []const []const u8, co
     var input_path: ?[]const u8 = null;
     var output_path: ?[]const u8 = null;
     var no_dce = false;
+    var no_color = false;
 
     var i: usize = 0;
     while (i < remaining_args.len) : (i += 1) {
         if (std.mem.eql(u8, remaining_args[i], "--no-dce")) {
             no_dce = true;
+        } else if (std.mem.eql(u8, remaining_args[i], "--no-color")) {
+            no_color = true;
         } else if (std.mem.eql(u8, remaining_args[i], "-o")) {
             i += 1;
             if (i < remaining_args.len) output_path = remaining_args[i];
@@ -184,6 +202,7 @@ fn cmdBuild(allocator: std.mem.Allocator, remaining_args: []const []const u8, co
         .output_path = output_path,
         .command = cmd,
         .enable_dce = !no_dce,
+        .no_color = no_color,
     }) catch |err| switch (err) {
         error.ParseFailed, error.NamingFailed => std.process.exit(1),
         error.CodegenNotImplemented => return,
@@ -235,4 +254,220 @@ fn cmdInit(allocator: std.mem.Allocator, remaining_args: []const []const u8) voi
             std.process.exit(1);
         },
     };
+}
+
+fn cmdFmt(allocator: std.mem.Allocator, remaining_args: []const []const u8) !void {
+    var check_mode = false;
+    var paths: std.ArrayList([]const u8) = .empty;
+    defer paths.deinit(allocator);
+
+    for (remaining_args) |arg| {
+        if (std.mem.eql(u8, arg, "--check")) {
+            check_mode = true;
+        } else {
+            try paths.append(allocator, arg);
+        }
+    }
+
+    if (paths.items.len == 0) {
+        try File.stderr().writeAll("Error: no input file or directory\n");
+        std.process.exit(1);
+    }
+
+    const stderr = File.stderr().deprecatedWriter();
+    const stdout = File.stdout().deprecatedWriter();
+    var any_diff = false;
+
+    for (paths.items) |path| {
+        // Check if path is a directory
+        const stat = std.fs.cwd().statFile(path) catch {
+            // Try as directory
+            formatDirectory(allocator, path, check_mode, &any_diff, stderr, stdout) catch |err| {
+                stderr.print("error: could not process '{s}': {s}\n", .{ path, @errorName(err) }) catch {};
+            };
+            continue;
+        };
+        _ = stat;
+        formatSingleFile(allocator, path, check_mode, &any_diff, stderr, stdout) catch |err| {
+            stderr.print("error: could not format '{s}': {s}\n", .{ path, @errorName(err) }) catch {};
+        };
+    }
+
+    if (check_mode and any_diff) {
+        std.process.exit(1);
+    }
+}
+
+fn formatSingleFile(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    check_mode: bool,
+    any_diff: *bool,
+    stderr: anytype,
+    stdout: anytype,
+) !void {
+    const source = readFile(allocator, path) catch {
+        try stderr.print("error: could not read '{s}'\n", .{path});
+        return;
+    };
+    defer allocator.free(source);
+
+    const formatted = formatter.formatSource(allocator, source) catch {
+        try stderr.print("error: could not parse '{s}'\n", .{path});
+        return;
+    };
+    defer allocator.free(formatted);
+
+    if (check_mode) {
+        if (!std.mem.eql(u8, source, formatted)) {
+            try stdout.print("{s}\n", .{path});
+            any_diff.* = true;
+        }
+    } else {
+        if (!std.mem.eql(u8, source, formatted)) {
+            const file = try std.fs.cwd().createFile(path, .{});
+            defer file.close();
+            try file.writeAll(formatted);
+            try stdout.print("formatted: {s}\n", .{path});
+        }
+    }
+}
+
+fn formatDirectory(
+    allocator: std.mem.Allocator,
+    dir_path: []const u8,
+    check_mode: bool,
+    any_diff: *bool,
+    stderr: anytype,
+    stdout: anytype,
+) !void {
+    var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
+    defer dir.close();
+
+    var walker = try dir.walk(allocator);
+    defer walker.deinit();
+
+    while (try walker.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.basename, ".run")) continue;
+
+        const full_path = try std.fs.path.join(allocator, &.{ dir_path, entry.path });
+        defer allocator.free(full_path);
+        formatSingleFile(allocator, full_path, check_mode, any_diff, stderr, stdout) catch {};
+    }
+}
+
+fn cmdTest(allocator: std.mem.Allocator, remaining_args: []const []const u8) !void {
+    var filter: ?[]const u8 = null;
+    var verbose = false;
+    var paths: std.ArrayList([]const u8) = .empty;
+    defer paths.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < remaining_args.len) : (i += 1) {
+        if (std.mem.eql(u8, remaining_args[i], "--filter")) {
+            i += 1;
+            if (i < remaining_args.len) filter = remaining_args[i];
+        } else if (std.mem.eql(u8, remaining_args[i], "--verbose")) {
+            verbose = true;
+        } else {
+            try paths.append(allocator, remaining_args[i]);
+        }
+    }
+
+    if (paths.items.len == 0) {
+        try File.stderr().writeAll("Error: no input file or directory\n");
+        std.process.exit(1);
+    }
+
+    const stderr = File.stderr().deprecatedWriter();
+    const stdout = File.stdout().deprecatedWriter();
+
+    var all_files: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (all_files.items) |f| allocator.free(f);
+        all_files.deinit(allocator);
+    }
+
+    for (paths.items) |path| {
+        if (std.mem.endsWith(u8, path, ".run")) {
+            const owned = try allocator.dupe(u8, path);
+            try all_files.append(allocator, owned);
+        } else {
+            // Treat as directory
+            collectRunFiles(allocator, path, &all_files) catch |err| {
+                stderr.print("error: could not read directory '{s}': {s}\n", .{ path, @errorName(err) }) catch {};
+            };
+        }
+    }
+
+    var total: u32 = 0;
+    var passed: u32 = 0;
+    var failed: u32 = 0;
+
+    var timer = std.time.Timer.start() catch null;
+
+    for (all_files.items) |file_path| {
+        const source = readFile(allocator, file_path) catch {
+            stderr.print("error: could not read '{s}'\n", .{file_path}) catch {};
+            continue;
+        };
+        defer allocator.free(source);
+
+        var tests = test_runner.discoverTests(allocator, source, file_path, filter) catch {
+            stderr.print("error: could not parse '{s}'\n", .{file_path}) catch {};
+            continue;
+        };
+        defer tests.deinit(allocator);
+
+        for (tests.items) |t| {
+            total += 1;
+
+            // Run the test through the compilation pipeline
+            const test_result = test_runner.runSingleTest(allocator, file_path, t.name);
+
+            if (test_result.passed) {
+                passed += 1;
+                if (verbose) {
+                    stdout.print("  PASS  {s}::{s}\n", .{ file_path, t.name }) catch {};
+                }
+            } else {
+                failed += 1;
+                stdout.print("  FAIL  {s}::{s}", .{ file_path, t.name }) catch {};
+                if (test_result.message.len > 0) {
+                    stdout.print(" — {s}", .{test_result.message}) catch {};
+                }
+                stdout.print("\n", .{}) catch {};
+            }
+        }
+    }
+
+    // Summary
+    const elapsed_ns: u64 = if (timer) |*t| t.read() else 0;
+    const elapsed_ms = elapsed_ns / 1_000_000;
+
+    try stdout.print("\n{d} passed, {d} failed, {d} total ({d}ms)\n", .{
+        passed, failed, total, elapsed_ms,
+    });
+
+    if (failed > 0) {
+        std.process.exit(1);
+    }
+}
+
+fn collectRunFiles(allocator: std.mem.Allocator, dir_path: []const u8, files: *std.ArrayList([]const u8)) !void {
+    var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
+    defer dir.close();
+
+    var walker = try dir.walk(allocator);
+    defer walker.deinit();
+
+    while (try walker.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.basename, ".run")) continue;
+
+        const full_path = try std.fs.path.join(allocator, &.{ dir_path, entry.path });
+        try files.append(allocator, full_path);
+    }
+>>>>>>> 8a3baee (Implement M5 tooling: rich errors, formatter, test runner (#47, #48, #49))
 }

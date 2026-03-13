@@ -12,6 +12,7 @@ const ir = @import("ir.zig");
 const dce = @import("dce.zig");
 const const_fold = @import("const_fold.zig");
 const codegen_c = @import("codegen_c.zig");
+const diag_mod = @import("diagnostics.zig");
 
 const File = std.fs.File;
 
@@ -26,6 +27,7 @@ pub const CompileOptions = struct {
     output_path: ?[]const u8 = null,
     command: Command,
     enable_dce: bool = true,
+    no_color: bool = false,
 };
 
 pub const CompileError = error{
@@ -65,8 +67,28 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     const stderr = File.stderr().deprecatedWriter();
 
     if (parser.tree.errors.items.len > 0) {
+        const use_color = !options.no_color;
         for (parser.tree.errors.items) |err| {
-            stderr.print("error: {s} at offset {d}\n", .{ @tagName(err.tag), err.loc.start }) catch {};
+            const message = switch (err.tag) {
+                .expected_token => "expected token",
+                .expected_expression => "expected expression",
+                .expected_type => "expected type",
+                .expected_identifier => "expected identifier",
+                .expected_package_decl => "expected package declaration",
+                .expected_main_entrypoint => "expected main entrypoint",
+                .expected_block => "expected block",
+                .expected_string_literal => "expected string literal",
+                .invalid_token => "invalid token",
+                .invalid_alloc_type => "invalid alloc type",
+                .unexpected_eof => "unexpected end of file",
+            };
+            const d = diag_mod.Diagnostic{
+                .severity = .@"error",
+                .byte_offset = err.loc.start,
+                .end_offset = err.loc.end,
+                .message = message,
+            };
+            diag_mod.renderOneDiagnostic(d, source, options.input_path, stderr, use_color) catch {};
         }
         return CompileError.ParseFailed;
     }
@@ -122,7 +144,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     defer resolve_result.deinit(allocator);
 
     if (resolve_result.diagnostics.hasErrors()) {
-        resolve_result.diagnostics.render(source, stderr) catch {};
+        resolve_result.diagnostics.renderRich(source, options.input_path, stderr, !options.no_color) catch {};
         return CompileError.ParseFailed;
     }
 
@@ -133,7 +155,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     defer tc_result.deinit(allocator);
 
     if (tc_result.diagnostics.hasErrors()) {
-        tc_result.diagnostics.render(source, stderr) catch {};
+        tc_result.diagnostics.renderRich(source, options.input_path, stderr, !options.no_color) catch {};
         return CompileError.ParseFailed;
     }
 
@@ -144,7 +166,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     defer own_result.deinit();
 
     if (own_result.diagnostics.hasErrors()) {
-        own_result.diagnostics.render(source, stderr) catch {};
+        own_result.diagnostics.renderRich(source, options.input_path, stderr, !options.no_color) catch {};
         return CompileError.ParseFailed;
     }
 
@@ -161,7 +183,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     defer fold_result.deinit();
 
     if (fold_result.diagnostics.hasErrors()) {
-        fold_result.diagnostics.render(source, stderr) catch {};
+        fold_result.diagnostics.renderRich(source, options.input_path, stderr, !options.no_color) catch {};
         return CompileError.ParseFailed;
     }
 
