@@ -1,0 +1,107 @@
+package strings
+
+// contains reports whether substr is within s.
+pub fun contains(s string, substr string) bool {
+    return false
+}
+
+// has_prefix reports whether s begins with prefix.
+pub fun has_prefix(s string, prefix string) bool {
+    return false
+}
+
+// has_suffix reports whether s ends with suffix.
+pub fun has_suffix(s string, suffix string) bool {
+    return false
+}
+
+// index_of returns the index of the first occurrence of substr in s,
+// or null if substr is not present.
+pub fun index_of(s string, substr string) int? {
+    return null
+}
+
+// last_index_of returns the index of the last occurrence of substr in s,
+// or null if substr is not present.
+pub fun last_index_of(s string, substr string) int? {
+    return null
+}
+
+// count counts the number of non-overlapping instances of substr in s.
+pub fun count(s string, substr string) int {
+    return 0
+}
+
+// split splits s around each instance of sep, returning a slice of substrings.
+pub fun split(s string, sep string) []string {
+    return alloc([]string, 0)
+}
+
+// join concatenates the elements of parts with sep between each element.
+pub fun join(parts []string, sep string) string {
+    return ""
+}
+
+// replace returns a copy of s with all non-overlapping instances of old
+// replaced by new.
+pub fun replace(s string, old string, new string) string {
+    return ""
+}
+
+// replace_n returns a copy of s with the first n non-overlapping instances
+// of old replaced by new. If n < 0, all instances are replaced.
+pub fun replace_n(s string, old string, new string, n int) string {
+    return ""
+}
+
+// trim returns s with leading and trailing whitespace removed.
+pub fun trim(s string) string {
+    return ""
+}
+
+// trim_left returns s with leading whitespace removed.
+pub fun trim_left(s string) string {
+    return ""
+}
+
+// trim_right returns s with trailing whitespace removed.
+pub fun trim_right(s string) string {
+    return ""
+}
+
+// trim_prefix returns s without the provided leading prefix.
+// If s doesn't start with prefix, s is returned unchanged.
+pub fun trim_prefix(s string, prefix string) string {
+    return ""
+}
+
+// trim_suffix returns s without the provided trailing suffix.
+// If s doesn't end with suffix, s is returned unchanged.
+pub fun trim_suffix(s string, suffix string) string {
+    return ""
+}
+
+// to_upper returns s with all Unicode letters mapped to their upper case.
+pub fun to_upper(s string) string {
+    return ""
+}
+
+// to_lower returns s with all Unicode letters mapped to their lower case.
+pub fun to_lower(s string) string {
+    return ""
+}
+
+// repeat returns a string consisting of count copies of s.
+pub fun repeat(s string, count int) string {
+    return ""
+}
+
+// starts_with is an alias for has_prefix.
+pub fun starts_with(s string, prefix string) bool {
+    return false
+}
+
+// ends_with is an alias for has_suffix.
+pub fun ends_with(s string, suffix string) bool {
+    return false
+}
