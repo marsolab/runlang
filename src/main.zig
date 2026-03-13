@@ -469,5 +469,4 @@ fn collectRunFiles(allocator: std.mem.Allocator, dir_path: []const u8, files: *s
         const full_path = try std.fs.path.join(allocator, &.{ dir_path, entry.path });
         try files.append(allocator, full_path);
     }
->>>>>>> 8a3baee (Implement M5 tooling: rich errors, formatter, test runner (#47, #48, #49))
 }
