@@ -304,7 +304,7 @@ test "lex simple variable declaration" {
 
 test "lex keywords" {
     var lexer = Lexer.init("fn pub var let return package use struct map alloc import");
-    try std.testing.expectEqual(Tag.kw_fn, lexer.next().tag);
+    try std.testing.expectEqual(Tag.kw_fun, lexer.next().tag);
     try std.testing.expectEqual(Tag.kw_pub, lexer.next().tag);
     try std.testing.expectEqual(Tag.kw_var, lexer.next().tag);
     try std.testing.expectEqual(Tag.kw_let, lexer.next().tag);
@@ -321,7 +321,7 @@ test "lex keywords" {
 test "lex function definition" {
     var lexer = Lexer.init("pub fn add(a: int, b: int) int {\n    return a + b\n}");
     try std.testing.expectEqual(Tag.kw_pub, lexer.next().tag);
-    try std.testing.expectEqual(Tag.kw_fn, lexer.next().tag);
+    try std.testing.expectEqual(Tag.kw_fun, lexer.next().tag);
     try std.testing.expectEqual(Tag.identifier, lexer.next().tag); // add
     try std.testing.expectEqual(Tag.l_paren, lexer.next().tag);
     try std.testing.expectEqual(Tag.identifier, lexer.next().tag); // a

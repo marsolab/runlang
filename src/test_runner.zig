@@ -124,7 +124,7 @@ pub fn runSingleTest(
 // Tests
 
 test "discoverTests: finds test_ functions" {
-    const source = "package main\nfn test_add() {\n}\nfn helper() {\n}";
+    const source = "package main\nfun test_add() {\n}\nfun helper() {\n}";
     var tests = try discoverTests(std.testing.allocator, source, "test.run", null);
     defer tests.deinit(std.testing.allocator);
 
@@ -133,7 +133,7 @@ test "discoverTests: finds test_ functions" {
 }
 
 test "discoverTests: finds pub test_ functions" {
-    const source = "package main\npub fn test_sub() {\n}\npub fn main() {\n}";
+    const source = "package main\npub fun test_sub() {\n}\npub fun main() {\n}";
     var tests = try discoverTests(std.testing.allocator, source, "test.run", null);
     defer tests.deinit(std.testing.allocator);
 
@@ -142,7 +142,7 @@ test "discoverTests: finds pub test_ functions" {
 }
 
 test "discoverTests: filter by pattern" {
-    const source = "package main\nfn test_add() {\n}\nfn test_sub() {\n}";
+    const source = "package main\nfun test_add() {\n}\nfun test_sub() {\n}";
     var tests = try discoverTests(std.testing.allocator, source, "test.run", "add");
     defer tests.deinit(std.testing.allocator);
 
@@ -151,7 +151,7 @@ test "discoverTests: filter by pattern" {
 }
 
 test "discoverTests: no tests found" {
-    const source = "package main\nfn add() {\n}\nfn sub() {\n}";
+    const source = "package main\nfun add() {\n}\nfun sub() {\n}";
     var tests = try discoverTests(std.testing.allocator, source, "test.run", null);
     defer tests.deinit(std.testing.allocator);
 
@@ -159,7 +159,7 @@ test "discoverTests: no tests found" {
 }
 
 test "discoverTests: multiple tests" {
-    const source = "package main\nfn test_a() {\n}\nfn test_b() {\n}\nfn test_c() {\n}";
+    const source = "package main\nfun test_a() {\n}\nfun test_b() {\n}\nfun test_c() {\n}";
     var tests = try discoverTests(std.testing.allocator, source, "test.run", null);
     defer tests.deinit(std.testing.allocator);
 

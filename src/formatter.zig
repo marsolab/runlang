@@ -135,7 +135,7 @@ pub const Formatter = struct {
     }
 
     fn formatFnDecl(self: *Formatter, node: Node) !void {
-        try self.write("fn ");
+        try self.write("fun ");
 
         // extra_data layout: [param1, ..., paramN, count, receiver_node, ret_type]
         const params_start = node.data.lhs;
@@ -704,7 +704,7 @@ pub const Formatter = struct {
     }
 
     fn formatClosure(self: *Formatter, node: Node) !void {
-        try self.write("fn");
+        try self.write("fun");
 
         const params_start = node.data.lhs;
         const body = node.data.rhs;
@@ -898,11 +898,11 @@ test "format simple var declaration" {
 }
 
 test "format function declaration" {
-    const source = "package main\npub fn main() {\n    return\n}";
+    const source = "package main\npub fun main() {\n    return\n}";
     const result = try formatSource(std.testing.allocator, source);
     defer std.testing.allocator.free(result);
 
-    try std.testing.expectEqualStrings("package main\n\npub fn main() {\n    return\n}\n", result);
+    try std.testing.expectEqualStrings("package main\n\npub fun main() {\n    return\n}\n", result);
 }
 
 test "format let declaration" {
@@ -922,7 +922,7 @@ test "format binary expression" {
 }
 
 test "format idempotency" {
-    const source = "package main\n\nfn main() {\n    var x int = 42\n    return x\n}\n";
+    const source = "package main\n\nfun main() {\n    var x int = 42\n    return x\n}\n";
     const result = try formatSource(std.testing.allocator, source);
     defer std.testing.allocator.free(result);
 

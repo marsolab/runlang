@@ -20,7 +20,7 @@ pub const Token = struct {
         identifier,
 
         // Keywords
-        kw_fn,
+        kw_fun,
         kw_pub,
         kw_var,
         kw_let,
@@ -92,14 +92,14 @@ pub const Token = struct {
         invalid,
 
         pub fn isKeyword(tag: Tag) bool {
-            return @intFromEnum(tag) >= @intFromEnum(Tag.kw_fn) and
+            return @intFromEnum(tag) >= @intFromEnum(Tag.kw_fun) and
                 @intFromEnum(tag) <= @intFromEnum(Tag.kw_not);
         }
     };
 
     pub const keywords = std.StaticStringMap(Tag).initComptime(.{
-        .{ "fn", .kw_fn },
-        .{ "fun", .kw_fn },
+        .{ "fn", .kw_fun },
+        .{ "fun", .kw_fun },
         .{ "pub", .kw_pub },
         .{ "var", .kw_var },
         .{ "let", .kw_let },
