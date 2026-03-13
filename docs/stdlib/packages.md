@@ -468,19 +468,45 @@ resolve_ip(host string) ![]Ip               — DNS lookup
 
 ### `net/http` — HTTP Client and Server
 
-**Purpose:** HTTP/1.1 client and server with routing, middleware, and streaming support.
+**Purpose:** HTTP/1.1 client and server with high-performance routing, middleware, and streaming support. The built-in router uses a **radix tree (Patricia trie)** for O(k) route matching (where k is path length), similar to chi/httprouter. No need for third-party routers.
 
 **Key types and functions:**
 ```
 // Server
 Server            struct       — HTTP server
 Handler           interface    — fun serve_http(w &ResponseWriter, r @Request)
-ServeMux          struct       — request router/multiplexer
+Middleware        type         — fun(next Handler) Handler
 ResponseWriter    struct       — write HTTP responses (implements io.Writer)
 
 listen_and_serve(addr string, handler Handler) !void
-(mux &ServeMux) handle(pattern string, handler Handler)
-(mux &ServeMux) handle_func(pattern string, fun(&ResponseWriter, @Request))
+listen_and_serve_tls(addr, cert_file, key_file string, handler Handler) !void
+
+// Router — Patricia trie based, chi-style
+Router            struct       — radix tree request router
+new_router() Router
+
+// Route registration — supports path parameters and wildcards
+(r &Router) get(pattern string, handler Handler)
+(r &Router) post(pattern string, handler Handler)
+(r &Router) put(pattern string, handler Handler)
+(r &Router) delete(pattern string, handler Handler)
+(r &Router) patch(pattern string, handler Handler)
+(r &Router) head(pattern string, handler Handler)
+(r &Router) options(pattern string, handler Handler)
+(r &Router) handle(pattern string, handler Handler)           — any method
+(r &Router) handle_func(pattern string, fun(&ResponseWriter, @Request))
+(r &Router) method(method, pattern string, handler Handler)   — custom method
+
+// Route groups and middleware (chi-style)
+(r &Router) group(fn fun(sub &Router))              — inline group
+(r &Router) route(prefix string, sub Handler)       — mount sub-router at prefix
+(r &Router) use(middlewares ...Middleware)            — apply middleware to group
+(r &Router) with(middlewares ...Middleware) Router    — return new router with middleware
+
+// Path parameters — extracted from {name} segments
+//   Pattern: "/users/{id}/posts/{post_id}"
+//   Pattern: "/files/{path...}"  (wildcard catch-all)
+url_param(r @Request, name string) string
 
 // Request/Response
 Request           struct       — HTTP request
@@ -497,6 +523,12 @@ Header            struct       — HTTP headers (wraps map[string][]string)
 Url               struct       — parsed URL
 Cookie            struct       — HTTP cookie
 
+// ResponseWriter helpers
+(w &ResponseWriter) write_header(status_code int)
+(w &ResponseWriter) set_header(key, value string)
+(w &ResponseWriter) write_json(status int, value any) !void
+(w &ResponseWriter) redirect(url string, code int)
+
 // Client
 Client            struct       — HTTP client with timeouts and redirects
 get(url string) !Response
@@ -504,11 +536,238 @@ post(url, content_type string, body io.Reader) !Response
 head(url string) !Response
 (c &Client) do(req @Request) !Response
 
+// Built-in middleware
+log_middleware() Middleware            — request logging
+recover_middleware() Middleware        — panic recovery
+timeout_middleware(d Duration) Middleware
+cors_middleware(opts CorsOptions) Middleware
+
 // Status codes as constants
 status_ok, status_created, status_not_found, status_internal_server_error, ...
 ```
 
-**Dependencies:** `net`, `io`, `fmt`, `strings`, `time`
+**Router design notes:**
+- Patricia trie stores compressed path segments for memory efficiency
+- Route conflicts are detected at registration time, not at request time
+- `{param}` matches a single path segment, `{param...}` matches the rest of the path
+- Method-specific trees — each HTTP method has its own trie for zero-allocation matching
+- Middleware stacks are chi-style: `Use()` for group-level, `With()` for inline
+
+**Example:**
+```run
+package main
+
+use "net/http"
+
+pub fun main() {
+    r := http.new_router()
+
+    // Middleware
+    r.use(http.log_middleware())
+    r.use(http.recover_middleware())
+
+    // Routes
+    r.get("/", index_handler)
+    r.route("/api", fun(api &http.Router) {
+        api.use(auth_middleware())
+        api.get("/users/{id}", get_user)
+        api.post("/users", create_user)
+        api.get("/files/{path...}", serve_file)
+    })
+
+    http.listen_and_serve(":8080", r)
+}
+
+fun get_user(w &http.ResponseWriter, r @http.Request) {
+    id := http.url_param(r, "id")
+    // ...
+}
+```
+
+**Dependencies:** `net`, `io`, `fmt`, `strings`, `time`, `context`
+
+---
+
+### `net/http2` — HTTP/2 Protocol
+
+**Purpose:** HTTP/2 framing, multiplexed streams, flow control, and HPACK header compression. Used directly by `net/http` for h2 connections and as the transport layer for gRPC.
+
+**Key types and functions:**
+```
+Transport         struct       — HTTP/2 client transport (implements http round-tripper)
+Server            struct       — HTTP/2 server (used automatically by net/http when TLS is configured)
+
+Frame             sum type     — .data | .headers | .priority | .rst_stream | .settings
+                                | .push_promise | .ping | .goaway | .window_update | .continuation
+Stream            struct       — single HTTP/2 stream within a connection
+
+// Most users don't interact with net/http2 directly.
+// net/http uses it automatically for HTTP/2 connections.
+// grpc uses it as its transport layer.
+
+configure_server(srv &http.Server) !void   — enable HTTP/2 on existing HTTP server
+configure_transport(t &http.Transport) !void
+```
+
+**Dependencies:** `net`, `net/http`, `io`, `sync`, `crypto/tls`
+
+---
+
+### `net/grpc` — gRPC Client and Server
+
+**Purpose:** Full gRPC support — unary RPCs, server streaming, client streaming, and bidirectional streaming. Integrates with Run's green threads for natural concurrency and channels for streaming patterns.
+
+**Key types and functions:**
+```
+// Server
+Server            struct       — gRPC server
+ServiceDesc       struct       — service descriptor (generated from .proto)
+MethodDesc        struct       — method descriptor
+StreamDesc        struct       — streaming method descriptor
+
+new_server(opts ...ServerOption) Server
+(s &Server) register_service(desc @ServiceDesc, impl any)
+(s &Server) serve(listener net.Listener) !void
+(s &Server) graceful_stop()
+(s &Server) stop()
+
+ServerOption      sum type     — .max_recv_msg_size(int) | .max_send_msg_size(int)
+                                | .max_concurrent_streams(int)
+                                | .keepalive(KeepaliveParams)
+                                | .creds(Credentials)
+                                | .interceptor(UnaryServerInterceptor)
+                                | .stream_interceptor(StreamServerInterceptor)
+
+// Client
+ClientConn        struct       — gRPC client connection
+dial(target string, opts ...DialOption) !ClientConn
+(cc &ClientConn) close() !void
+
+DialOption        sum type     — .insecure | .block | .timeout(Duration)
+                                | .creds(Credentials)
+                                | .keepalive(KeepaliveParams)
+                                | .interceptor(UnaryClientInterceptor)
+                                | .stream_interceptor(StreamClientInterceptor)
+                                | .default_service_config(string)
+
+// RPC invocation (used by generated code)
+invoke(cc &ClientConn, method string, req any, reply &any, opts ...CallOption) !void
+new_stream(cc &ClientConn, desc @StreamDesc, method string, opts ...CallOption) !ClientStream
+
+// Streaming interfaces
+ServerStream      interface {
+    send(msg any) !void
+    recv(msg &any) !void
+    send_header(Metadata) !void
+    set_trailer(Metadata)
+}
+ClientStream      interface {
+    send(msg any) !void
+    recv(msg &any) !void
+    close_send() !void
+    header() !Metadata
+    trailer() Metadata
+}
+
+// Status and errors
+Status            struct       — gRPC status (code + message + details)
+Code              sum type     — .ok | .cancelled | .unknown | .invalid_argument
+                                | .deadline_exceeded | .not_found | .already_exists
+                                | .permission_denied | .resource_exhausted
+                                | .failed_precondition | .aborted | .out_of_range
+                                | .unimplemented | .internal | .unavailable
+                                | .data_loss | .unauthenticated
+
+new_status(code Code, msg string) Status
+(s @Status) err() error
+(s @Status) code() Code
+(s @Status) message() string
+from_error(err error) Status
+
+// Metadata (request/response headers)
+Metadata          struct       — key-value pairs attached to RPCs
+new_metadata(pairs ...string) Metadata
+(md &Metadata) get(key string) []string
+(md &Metadata) set(key string, values ...string)
+(md &Metadata) append(key string, values ...string)
+
+// Interceptors
+UnaryServerInterceptor    type — fun(ctx Context, req any, info @UnaryServerInfo, handler UnaryHandler) !any
+StreamServerInterceptor   type — fun(srv any, stream ServerStream, info @StreamServerInfo, handler StreamHandler) !void
+UnaryClientInterceptor    type — fun(ctx Context, method string, req any, reply &any, cc &ClientConn, invoker UnaryInvoker, opts ...CallOption) !void
+StreamClientInterceptor   type — fun(ctx Context, desc @StreamDesc, cc &ClientConn, method string, streamer Streamer, opts ...CallOption) !ClientStream
+
+// Credentials
+Credentials       interface {
+    require_transport_security() bool
+}
+insecure_credentials() Credentials
+tls_credentials(config @tls.Config) Credentials
+
+// Keepalive
+KeepaliveParams   struct {
+    time              Duration   — ping interval when idle
+    timeout           Duration   — wait for ping ack
+    permit_without_stream bool   — ping even with no active RPCs
+}
+
+// Health checking
+HealthServer      struct       — standard gRPC health check service (grpc.health.v1)
+(hs &HealthServer) set_status(service string, status ServingStatus)
+ServingStatus     sum type     — .unknown | .serving | .not_serving
+```
+
+**Design notes:**
+- gRPC streaming maps naturally to Run's channels — a bidirectional stream can be bridged to `chan[Request]` / `chan[Response]` pairs
+- Green threads mean each RPC handler runs concurrently without callback complexity
+- `context.Context` carries deadlines and cancellation across RPC boundaries
+- Interceptors provide middleware for auth, logging, metrics, and tracing
+- Protocol Buffers serialization is handled by `encoding/proto`; service stubs are generated by a `protoc-gen-run` tool
+
+**Dependencies:** `net`, `net/http2`, `encoding/proto`, `context`, `time`, `sync`, `crypto/tls`
+
+---
+
+### `encoding/proto` — Protocol Buffers
+
+**Purpose:** Protocol Buffers binary serialization (proto3). Encode and decode protobuf messages. Foundation for gRPC wire format.
+
+**Key types and functions:**
+```
+Message           interface    — types that can be serialized as protobuf
+  proto_marshal() ![]byte
+  proto_unmarshal(data []byte) !void
+
+marshal(msg Message) ![]byte           — encode message to wire format
+unmarshal(data []byte, msg &Message) !void  — decode wire format into message
+size(msg @Message) int                 — encoded size in bytes
+
+// Wire types (used by generated code and reflection)
+WireType          sum type     — .varint | .fixed64 | .length_delimited | .fixed32
+
+// Field descriptors (for reflection / dynamic messages)
+FieldDescriptor   struct {
+    number    int
+    name      string
+    wire_type WireType
+    repeated  bool
+}
+
+// Encoding helpers (used by generated code)
+encode_varint(buf &bytes.Buffer, v int) !void
+encode_bytes(buf &bytes.Buffer, data []byte) !void
+encode_fixed32(buf &bytes.Buffer, v u32) !void
+encode_fixed64(buf &bytes.Buffer, v u64) !void
+decode_varint(data []byte, offset int) !(int, int)
+decode_bytes(data []byte, offset int) !([]byte, int)
+```
+
+**Design notes:**
+- Run structs with field tags (e.g., `@proto(1)`) map to protobuf fields
+- `protoc-gen-run` generates Run struct definitions + marshal/unmarshal from `.proto` files
+- No reflection-based encoding — generated code is fast and type-safe
+
+**Dependencies:** `bytes`, `io`
 
 ---
 
@@ -1380,9 +1639,14 @@ yield()                        — yield current green thread to scheduler
 │ log  │                 │ context  │
 └──────┘                 └──────────┘
 
-┌─────────┐    ┌────────┐    ┌────────────┐
-│  net    │───▶│net/http│───▶│encoding/*  │
-└─────────┘    └────────┘    └────────────┘
+┌─────────┐    ┌────────┐    ┌──────────┐    ┌───────────────┐
+│  net    │───▶│net/http│───▶│net/http2 │───▶│   net/grpc    │
+└─────────┘    └────────┘    └──────────┘    └───────┬───────┘
+                    │                                │
+                    ▼                                ▼
+               ┌────────────┐              ┌────────────────┐
+               │encoding/*  │              │ encoding/proto  │
+               └────────────┘              └────────────────┘
 
 ┌────────┐    ┌──────┐    ┌──────┐
 │  math  │    │ simd │    │ asm  │
@@ -1414,6 +1678,9 @@ yield()                        — yield current green thread to scheduler
 | `bufio` | Scanner, line-by-line reading | P1 | `io`, `bytes` |
 | `net` | TCP/UDP, DNS | P2 | `io`, `time`, `os` |
 | `net/http` | HTTP client and server | P2 | `net`, `io`, `fmt`, `strings`, `time` |
+| `net/http2` | HTTP/2 protocol | P2 | `net`, `net/http`, `io`, `sync`, `crypto/tls` |
+| `net/grpc` | gRPC client and server | P2 | `net`, `net/http2`, `encoding/proto`, `context`, `time`, `sync`, `crypto/tls` |
+| `encoding/proto` | Protocol Buffers | P2 | `bytes`, `io` |
 | `encoding/json` | JSON encode/decode | P2 | `io`, `strings`, `bytes`, `fmt` |
 | `encoding/csv` | CSV read/write | P2 | `io`, `strings`, `bytes` |
 | `encoding/base64` | Base64 encode/decode | P2 | — |
@@ -1446,4 +1713,4 @@ yield()                        — yield current green thread to scheduler
 | `debug` | Stack traces, assertions | P3 | `fmt`, `os` |
 | `runtime` | Runtime introspection | P3 | — |
 
-**Total: 46 packages** (6 exist as stubs)
+**Total: 49 packages** (6 exist as stubs)
