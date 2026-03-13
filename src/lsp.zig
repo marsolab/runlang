@@ -799,7 +799,7 @@ fn findDefinition(tree: Ast, tokens: []const Token, name: []const u8) ?u32 {
 
 fn keywordDescription(tag: Token.Tag) []const u8 {
     return switch (tag) {
-        .kw_fn => "fn — function declaration",
+        .kw_fun => "fun — function declaration",
         .kw_pub => "pub — public visibility modifier",
         .kw_var => "var — mutable variable declaration",
         .kw_let => "let — immutable variable declaration",
@@ -889,7 +889,7 @@ test "findTokenAtOffset: returns null for whitespace" {
 }
 
 test "keywordDescription: returns descriptions" {
-    const desc = keywordDescription(.kw_fn);
+    const desc = keywordDescription(.kw_fun);
     try std.testing.expect(std.mem.indexOf(u8, desc, "function") != null);
 }
 

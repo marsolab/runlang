@@ -24,6 +24,8 @@ pub const driver = @import("driver.zig");
 pub const dce = @import("dce.zig");
 pub const lsp = @import("lsp.zig");
 pub const init = @import("init.zig");
+pub const formatter = @import("formatter.zig");
+pub const test_runner = @import("test_runner.zig");
 
 const std = @import("std");
 

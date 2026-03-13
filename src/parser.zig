@@ -106,7 +106,7 @@ pub const Parser = struct {
     fn parseTopLevel(self: *Parser) Error!NodeIndex {
         return switch (self.peekTag()) {
             .kw_pub => self.parsePubDecl(),
-            .kw_fn => self.parseFnDecl(),
+            .kw_fun => self.parseFnDecl(),
             .kw_interface => self.parseInterfaceDecl(),
             .kw_type => self.parseTypeAlias(),
             .kw_package => self.parsePackageDecl(),
@@ -131,7 +131,7 @@ pub const Parser = struct {
         self.expect(.kw_pub);
 
         const inner = switch (self.peekTag()) {
-            .kw_fn => try self.parseFnDecl(),
+            .kw_fun => try self.parseFnDecl(),
             .kw_interface => try self.parseInterfaceDecl(),
             .kw_type => try self.parseTypeAlias(),
             .kw_package => blk: {
@@ -159,7 +159,7 @@ pub const Parser = struct {
 
     fn parseFnDecl(self: *Parser) Error!NodeIndex {
         const fn_tok = self.pos;
-        self.expect(.kw_fn);
+        self.expect(.kw_fun);
 
         // Check for method receiver: fn (p: &Type) name(...)
         var receiver_node: NodeIndex = null_node;
@@ -1470,7 +1470,7 @@ pub const Parser = struct {
                 const condition = try self.parseExpr();
                 return self.parseIfExprRest(tok, condition);
             },
-            .kw_fn => {
+            .kw_fun => {
                 // Closure: fn(params) ret { body }
                 return self.parseClosure();
             },
@@ -1491,7 +1491,7 @@ pub const Parser = struct {
 
     fn parseClosure(self: *Parser) Error!NodeIndex {
         const tok = self.pos;
-        self.expect(.kw_fn);
+        self.expect(.kw_fun);
         const params_start = try self.parseParamList();
 
         var ret_type: NodeIndex = null_node;
