@@ -1,0 +1,120 @@
+package io
+
+// Reader is the interface for types that can read bytes.
+pub type Reader interface {
+    read(buf []byte) !int
+}
+
+// Writer is the interface for types that can write bytes.
+pub type Writer interface {
+    write(buf []byte) !int
+}
+
+// Closer is the interface for types that can be closed.
+pub type Closer interface {
+    close() !void
+}
+
+// File represents an open file descriptor.
+pub File struct {
+    implements {
+        Reader
+        Writer
+        Closer
+    }
+
+    fd   int
+    path string
+}
+
+// open opens a file at the given path with the specified mode.
+// Mode can be "r" (read), "w" (write), "a" (append), "rw" (read/write).
+pub fun open(path string, mode string) !File {
+    fd := try @syscall.open(path, 0, 0)
+    return File{ fd: fd, path: path }
+}
+
+// read reads up to len(buf) bytes into buf. Returns the number of bytes read.
+pub fun (f &File) read(buf []byte) !int {
+    return try @syscall.read(f.fd, buf, len(buf))
+}
+
+// write writes buf to the file. Returns the number of bytes written.
+pub fun (f &File) write(buf []byte) !int {
+    return try @syscall.write(f.fd, buf, len(buf))
+}
+
+// close closes the file.
+pub fun (f &File) close() !void {
+    try @syscall.close(f.fd)
+}
+
+// stdin is the standard input file.
+pub var stdin = File{ fd: 0, path: "<stdin>" }
+
+// stdout is the standard output file.
+pub var stdout = File{ fd: 1, path: "<stdout>" }
+
+// stderr is the standard error file.
+pub var stderr = File{ fd: 2, path: "<stderr>" }
+
+// BufferedReader wraps a Reader with an internal buffer for efficiency.
+pub BufferedReader struct {
+    implements {
+        Reader
+    }
+
+    reader Reader
+    buf    []byte
+    pos    int
+    end    int
+}
+
+// new_buffered_reader creates a BufferedReader wrapping the given Reader.
+pub fun new_buffered_reader(reader Reader) BufferedReader {
+    return BufferedReader{
+        reader: reader,
+        buf: alloc([]byte, 4096),
+        pos: 0,
+        end: 0,
+    }
+}
+
+// read reads from the internal buffer, refilling it as needed.
+pub fun (br &BufferedReader) read(buf []byte) !int {
+    return 0
+}
+
+// BufferedWriter wraps a Writer with an internal buffer for efficiency.
+pub BufferedWriter struct {
+    implements {
+        Writer
+    }
+
+    writer Writer
+    buf    []byte
+    pos    int
+}
+
+// new_buffered_writer creates a BufferedWriter wrapping the given Writer.
+pub fun new_buffered_writer(writer Writer) BufferedWriter {
+    return BufferedWriter{
+        writer: writer,
+        buf: alloc([]byte, 4096),
+        pos: 0,
+    }
+}
+
+// write writes to the internal buffer, flushing when full.
+pub fun (bw &BufferedWriter) write(buf []byte) !int {
+    return 0
+}
+
+// flush writes any buffered data to the underlying Writer.
+pub fun (bw &BufferedWriter) flush() !void {
+}
+
+// read_all reads all bytes from a Reader until EOF.
+pub fun read_all(reader Reader) ![]byte {
+    return alloc([]byte, 0)
+}

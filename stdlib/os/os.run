@@ -1,0 +1,115 @@
+package os
+
+use "io"
+
+// FileError represents errors from file system operations.
+pub type FileError = .notFound
+    | .permissionDenied
+    | .alreadyExists
+    | .isDirectory
+    | .notDirectory
+    | .diskFull
+
+// FileInfo contains metadata about a file.
+pub FileInfo struct {
+    name   string
+    size   int
+    is_dir bool
+}
+
+// File represents an open operating system file.
+pub File struct {
+    implements {
+        io.Reader
+        io.Writer
+        io.Closer
+    }
+
+    fd   int
+    path string
+}
+
+// open opens a file for reading.
+pub fun open(path string) !File {
+    fd := try @syscall.open(path, 0, 0)
+    return File{ fd: fd, path: path }
+}
+
+// create creates or truncates a file for writing.
+pub fun create(path string) !File {
+    fd := try @syscall.open(path, 577, 438)
+    return File{ fd: fd, path: path }
+}
+
+// read reads up to len(buf) bytes into buf.
+pub fun (f &File) read(buf []byte) !int {
+    return try @syscall.read(f.fd, buf, len(buf))
+}
+
+// write writes buf to the file.
+pub fun (f &File) write(buf []byte) !int {
+    return try @syscall.write(f.fd, buf, len(buf))
+}
+
+// close closes the file.
+pub fun (f &File) close() !void {
+    try @syscall.close(f.fd)
+}
+
+// args returns the command-line arguments, starting with the program name.
+pub fun args() []string {
+    return alloc([]string, 0)
+}
+
+// getenv returns the value of the environment variable named by key,
+// or null if the variable is not set.
+pub fun getenv(key string) string? {
+    return null
+}
+
+// setenv sets the value of the environment variable named by key.
+pub fun setenv(key string, value string) !void {
+}
+
+// exit terminates the program with the given exit code.
+pub fun exit(code int) {
+}
+
+// mkdir creates a directory at the given path.
+pub fun mkdir(path string) !void {
+}
+
+// mkdir_all creates a directory path, including any missing parents.
+pub fun mkdir_all(path string) !void {
+}
+
+// remove removes the named file or empty directory.
+pub fun remove(path string) !void {
+}
+
+// remove_all removes the path and any children it contains.
+pub fun remove_all(path string) !void {
+}
+
+// stat returns file info for the named path.
+pub fun stat(path string) !FileInfo {
+    return FileInfo{ name: "", size: 0, is_dir: false }
+}
+
+// cwd returns the current working directory.
+pub fun cwd() !string {
+    return ""
+}
+
+// chdir changes the current working directory.
+pub fun chdir(path string) !void {
+}
+
+// read_file reads the entire contents of a file.
+pub fun read_file(path string) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// write_file writes data to a file, creating it if necessary.
+pub fun write_file(path string, data []byte) !void {
+}

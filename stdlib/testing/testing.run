@@ -1,0 +1,93 @@
+package testing
+
+// T is the test context passed to each test function.
+// It provides methods for logging, failing, and skipping tests.
+pub T struct {
+    name    string
+    failed  bool
+    skipped bool
+    log_buf []string
+}
+
+// log records a message in the test log.
+pub fun (t &T) log(msg string) {
+}
+
+// logf records a formatted message in the test log.
+pub fun (t &T) logf(format string, args ...any) {
+}
+
+// fail marks the test as failed but continues execution.
+pub fun (t &T) fail() {
+}
+
+// fail_now marks the test as failed and stops execution.
+pub fun (t &T) fail_now() {
+}
+
+// error logs a message and marks the test as failed.
+pub fun (t &T) error(msg string) {
+}
+
+// errorf logs a formatted message and marks the test as failed.
+pub fun (t &T) errorf(format string, args ...any) {
+}
+
+// fatal logs a message, marks the test as failed, and stops execution.
+pub fun (t &T) fatal(msg string) {
+}
+
+// fatalf logs a formatted message, marks the test as failed, and stops execution.
+pub fun (t &T) fatalf(format string, args ...any) {
+}
+
+// skip marks the test as skipped and stops execution.
+pub fun (t &T) skip(msg string) {
+}
+
+// expect asserts that a condition is true. If not, the test is marked as failed
+// with the given message.
+pub fun expect(condition bool, msg string) {
+}
+
+// expect_eq asserts that expected and actual are equal.
+pub fun expect_eq(expected any, actual any) {
+}
+
+// expect_ne asserts that a and b are not equal.
+pub fun expect_ne(a any, b any) {
+}
+
+// expect_true asserts that the condition is true.
+pub fun expect_true(condition bool) {
+}
+
+// expect_false asserts that the condition is false.
+pub fun expect_false(condition bool) {
+}
+
+// expect_error asserts that the given error union contains an error.
+pub fun expect_error(result any) {
+}
+
+// fail marks the current test as failed with the given message.
+pub fun fail(msg string) {
+}
+
+// TestResult holds the summary of a test run.
+pub TestResult struct {
+    passed   int
+    failed   int
+    skipped  int
+    failures []string
+}
+
+// total returns the total number of tests run.
+pub fun (r @TestResult) total() int {
+    return 0
+}
+
+// ok returns true if all tests passed.
+pub fun (r @TestResult) ok() bool {
+    return false
+}

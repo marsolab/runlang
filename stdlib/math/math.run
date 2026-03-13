@@ -1,0 +1,139 @@
+package math
+
+// Mathematical constants.
+pub let pi = 3.14159265358979323846
+pub let e = 2.71828182845904523536
+pub let phi = 1.61803398874989484820
+pub let sqrt2 = 1.41421356237309504880
+pub let ln2 = 0.693147180559945309417
+pub let ln10 = 2.30258509299404568402
+pub let max_f64 = 1.7976931348623157e308
+pub let min_f64 = 5.0e-324
+pub let max_int = 9223372036854775807
+pub let min_int = -9223372036854775808
+
+// abs returns the absolute value of x.
+pub fun abs(x f64) f64 {
+    return 0.0
+}
+
+// abs_int returns the absolute value of an integer.
+pub fun abs_int(x int) int {
+    return 0
+}
+
+// min returns the smaller of a or b.
+pub fun min(a f64, b f64) f64 {
+    return 0.0
+}
+
+// max returns the larger of a or b.
+pub fun max(a f64, b f64) f64 {
+    return 0.0
+}
+
+// min_int returns the smaller of a or b.
+pub fun min_int(a int, b int) int {
+    return 0
+}
+
+// max_int returns the larger of a or b.
+pub fun max_int(a int, b int) int {
+    return 0
+}
+
+// floor returns the greatest integer value less than or equal to x.
+pub fun floor(x f64) f64 {
+    return 0.0
+}
+
+// ceil returns the least integer value greater than or equal to x.
+pub fun ceil(x f64) f64 {
+    return 0.0
+}
+
+// round returns the nearest integer, rounding half away from zero.
+pub fun round(x f64) f64 {
+    return 0.0
+}
+
+// sqrt returns the square root of x.
+pub fun sqrt(x f64) f64 {
+    return 0.0
+}
+
+// pow returns base raised to the power of exp.
+pub fun pow(base f64, exp f64) f64 {
+    return 0.0
+}
+
+// log returns the natural logarithm of x.
+pub fun log(x f64) f64 {
+    return 0.0
+}
+
+// log2 returns the base-2 logarithm of x.
+pub fun log2(x f64) f64 {
+    return 0.0
+}
+
+// log10 returns the base-10 logarithm of x.
+pub fun log10(x f64) f64 {
+    return 0.0
+}
+
+// sin returns the sine of x (in radians).
+pub fun sin(x f64) f64 {
+    return 0.0
+}
+
+// cos returns the cosine of x (in radians).
+pub fun cos(x f64) f64 {
+    return 0.0
+}
+
+// tan returns the tangent of x (in radians).
+pub fun tan(x f64) f64 {
+    return 0.0
+}
+
+// asin returns the arcsine of x (in radians).
+pub fun asin(x f64) f64 {
+    return 0.0
+}
+
+// acos returns the arccosine of x (in radians).
+pub fun acos(x f64) f64 {
+    return 0.0
+}
+
+// atan returns the arctangent of x (in radians).
+pub fun atan(x f64) f64 {
+    return 0.0
+}
+
+// atan2 returns the arctangent of y/x, using the signs of both
+// to determine the quadrant of the return value.
+pub fun atan2(y f64, x f64) f64 {
+    return 0.0
+}
+
+// exp returns e raised to the power of x.
+pub fun exp(x f64) f64 {
+    return 0.0
+}
+
+// is_nan reports whether x is an IEEE 754 "not-a-number" value.
+pub fun is_nan(x f64) bool {
+    return false
+}
+
+// is_inf reports whether x is positive or negative infinity.
+pub fun is_inf(x f64) bool {
+    return false
+}
+
+// clamp returns x clamped to the range [lo, hi].
+pub fun clamp(x f64, lo f64, hi f64) f64 {
+    return 0.0
+}
