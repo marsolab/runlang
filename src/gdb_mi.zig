@@ -31,8 +31,8 @@ pub const GdbMi = struct {
 
         return .{
             .process = child,
-            .stdout_reader = child.stdout.?.reader().any(),
-            .stdin_writer = child.stdin.?.writer().any(),
+            .stdout_reader = child.stdout.?.deprecatedReader().any(),
+            .stdin_writer = child.stdin.?.deprecatedWriter().any(),
             .allocator = allocator,
             .next_token = 1,
             .read_buf = .empty,
