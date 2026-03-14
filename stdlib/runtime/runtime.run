@@ -1,0 +1,60 @@
+package runtime
+
+// MemStats contains memory allocation statistics.
+pub MemStats struct {
+    alloc_count         int
+    free_count          int
+    bytes_allocated     int
+    bytes_freed         int
+    generation_checks   int
+    generation_failures int
+}
+
+// num_cpu returns the number of logical CPUs available to the process.
+pub fun num_cpu() int {
+    return 0
+}
+
+// num_goroutine returns the number of active green threads.
+pub fun num_goroutine() int {
+    return 0
+}
+
+// gomaxprocs sets the maximum number of OS threads that can execute
+// green threads simultaneously and returns the previous setting.
+// If n < 1, it does not change the current setting.
+pub fun gomaxprocs(n int) int {
+    return 0
+}
+
+// mem_stats populates the given MemStats with current memory statistics.
+pub fun mem_stats(stats &MemStats) {
+}
+
+// version returns the Run runtime version string.
+pub fun version() string {
+    return ""
+}
+
+// gc_disable disables the generational reference checker.
+pub fun gc_disable() {
+}
+
+// gc_enable enables the generational reference checker.
+pub fun gc_enable() {
+}
+
+// yield yields the processor, allowing other green threads to run.
+pub fun yield() {
+}
+
+// caller returns the file name and line number of the caller
+// at the given stack depth (0 = immediate caller).
+pub fun caller(skip int) struct { file string, line int, ok bool } {
+    return .{ file: "", line: 0, ok: false }
+}
+
+// stack returns a formatted stack trace of the current goroutine.
+pub fun stack() string {
+    return ""
+}

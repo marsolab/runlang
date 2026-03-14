@@ -1,0 +1,83 @@
+package unicode
+
+// max_rune is the maximum valid Unicode code point.
+pub let max_rune = 1114111
+
+// replacement_char is the Unicode replacement character U+FFFD.
+pub let replacement_char = 65533
+
+// is_letter reports whether the rune is a Unicode letter.
+pub fun is_letter(r int) bool {
+    return false
+}
+
+// is_digit reports whether the rune is a decimal digit.
+pub fun is_digit(r int) bool {
+    return false
+}
+
+// is_upper reports whether the rune is an upper case letter.
+pub fun is_upper(r int) bool {
+    return false
+}
+
+// is_lower reports whether the rune is a lower case letter.
+pub fun is_lower(r int) bool {
+    return false
+}
+
+// is_title reports whether the rune is a title case letter.
+pub fun is_title(r int) bool {
+    return false
+}
+
+// is_space reports whether the rune is a Unicode whitespace character.
+pub fun is_space(r int) bool {
+    return false
+}
+
+// is_punct reports whether the rune is a Unicode punctuation character.
+pub fun is_punct(r int) bool {
+    return false
+}
+
+// is_control reports whether the rune is a Unicode control character.
+pub fun is_control(r int) bool {
+    return false
+}
+
+// is_graphic reports whether the rune is a graphic character
+// (letter, mark, number, punctuation, symbol, or space).
+pub fun is_graphic(r int) bool {
+    return false
+}
+
+// is_print reports whether the rune is a printable character.
+pub fun is_print(r int) bool {
+    return false
+}
+
+// is_symbol reports whether the rune is a Unicode symbol character.
+pub fun is_symbol(r int) bool {
+    return false
+}
+
+// is_number reports whether the rune is a Unicode number character.
+pub fun is_number(r int) bool {
+    return false
+}
+
+// to_upper maps the rune to upper case.
+pub fun to_upper(r int) int {
+    return 0
+}
+
+// to_lower maps the rune to lower case.
+pub fun to_lower(r int) int {
+    return 0
+}
+
+// to_title maps the rune to title case.
+pub fun to_title(r int) int {
+    return 0
+}

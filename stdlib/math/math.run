@@ -11,6 +11,8 @@ pub let max_f64 = 1.7976931348623157e308
 pub let min_f64 = 5.0e-324
 pub let max_int = 9223372036854775807
 pub let min_int = -9223372036854775808
+pub let inf = 1.0 / 0.0
+pub let nan = 0.0 / 0.0
 
 // abs returns the absolute value of x.
 pub fun abs(x f64) f64 {
@@ -136,4 +138,44 @@ pub fun is_inf(x f64) bool {
 // clamp returns x clamped to the range [lo, hi].
 pub fun clamp(x f64, lo f64, hi f64) f64 {
     return 0.0
+}
+
+// clamp_int returns x clamped to the integer range [lo, hi].
+pub fun clamp_int(x int, lo int, hi int) int {
+    return 0
+}
+
+// trunc returns the integer value of x, truncating toward zero.
+pub fun trunc(x f64) f64 {
+    return 0.0
+}
+
+// exp2 returns 2 raised to the power of x.
+pub fun exp2(x f64) f64 {
+    return 0.0
+}
+
+// mod returns the floating-point remainder of x/y.
+pub fun mod(x f64, y f64) f64 {
+    return 0.0
+}
+
+// remainder returns the IEEE 754 floating-point remainder of x/y.
+pub fun remainder(x f64, y f64) f64 {
+    return 0.0
+}
+
+// hypot returns sqrt(x*x + y*y), taking care to avoid overflow and underflow.
+pub fun hypot(x f64, y f64) f64 {
+    return 0.0
+}
+
+// copysign returns a value with the magnitude of x and the sign of y.
+pub fun copysign(x f64, y f64) f64 {
+    return 0.0
+}
+
+// signbit reports whether x is negative or negative zero.
+pub fun signbit(x f64) bool {
+    return false
 }

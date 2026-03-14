@@ -1,0 +1,79 @@
+package sort
+
+// Less is the interface for types that define a natural ordering.
+pub type Less interface {
+    less(other any) bool
+}
+
+// ints sorts a slice of integers in ascending order.
+pub fun ints(s []int) {
+}
+
+// floats sorts a slice of floats in ascending order.
+pub fun floats(s []f64) {
+}
+
+// strings_sort sorts a slice of strings in ascending order.
+pub fun strings_sort(s []string) {
+}
+
+// sort sorts the slice s using the provided comparison function.
+// The comparison function should return true if a should come before b.
+pub fun sort(s []any, cmp fun(a any, b any) bool) {
+}
+
+// stable sorts the slice s using a stable sort algorithm and the
+// provided comparison function.
+pub fun stable(s []any, cmp fun(a any, b any) bool) {
+}
+
+// is_sorted reports whether the slice is sorted according to the
+// provided comparison function.
+pub fun is_sorted(s []any, cmp fun(a any, b any) bool) bool {
+    return false
+}
+
+// is_sorted_ints reports whether the int slice is sorted in ascending order.
+pub fun is_sorted_ints(s []int) bool {
+    return false
+}
+
+// is_sorted_floats reports whether the float slice is sorted in ascending order.
+pub fun is_sorted_floats(s []f64) bool {
+    return false
+}
+
+// is_sorted_strings reports whether the string slice is sorted in ascending order.
+pub fun is_sorted_strings(s []string) bool {
+    return false
+}
+
+// reverse reverses the elements of the slice in place.
+pub fun reverse(s []any) {
+}
+
+// search uses binary search to find and return the smallest index i
+// in [0, len(s)) at which cmp(s[i]) is true, assuming that on the range
+// [0, len(s)), cmp(s[i]) == true implies cmp(s[i+1]) == true.
+// Returns len(s) if no such index exists.
+pub fun search(s []any, cmp fun(a any) bool) int {
+    return 0
+}
+
+// search_ints searches for x in a sorted slice of ints and returns
+// the index as specified by search.
+pub fun search_ints(s []int, x int) int {
+    return 0
+}
+
+// search_floats searches for x in a sorted slice of floats and returns
+// the index as specified by search.
+pub fun search_floats(s []f64, x f64) int {
+    return 0
+}
+
+// search_strings searches for x in a sorted slice of strings and returns
+// the index as specified by search.
+pub fun search_strings(s []string, x string) int {
+    return 0
+}
