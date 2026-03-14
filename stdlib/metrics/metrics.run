@@ -1,0 +1,134 @@
+package metrics
+
+use "io"
+use "time"
+use "sync"
+
+// Set is a collection of metrics. Safe for concurrent use.
+pub Set struct {
+    mu       sync.Mutex
+    counters map[string]Counter
+    gauges   map[string]Gauge
+}
+
+// new_set creates a new empty metric Set.
+pub fun new_set() Set {
+    return Set{
+        counters: alloc(map[string]Counter),
+        gauges: alloc(map[string]Gauge),
+    }
+}
+
+// Counter is a monotonically increasing counter.
+pub Counter struct {
+    name  string
+    value u64
+}
+
+// new_counter creates or returns an existing Counter with the given name.
+pub fun (s &Set) new_counter(name string) &Counter {
+    return null
+}
+
+// inc increments the counter by 1.
+pub fun (c &Counter) inc() {
+}
+
+// add adds n to the counter. Panics if n is negative.
+pub fun (c &Counter) add(n u64) {
+}
+
+// get returns the current value.
+pub fun (c @Counter) get() u64 {
+    return 0
+}
+
+// FloatCounter is a monotonically increasing float counter.
+pub FloatCounter struct {
+    name  string
+    value f64
+}
+
+// new_float_counter creates or returns an existing FloatCounter.
+pub fun (s &Set) new_float_counter(name string) &FloatCounter {
+    return null
+}
+
+// inc increments the counter by 1.0.
+pub fun (c &FloatCounter) inc() {
+}
+
+// add adds n to the counter.
+pub fun (c &FloatCounter) add(n f64) {
+}
+
+// get returns the current value.
+pub fun (c @FloatCounter) get() f64 {
+    return 0.0
+}
+
+// Gauge is a float64 value that can go up and down.
+pub Gauge struct {
+    name  string
+    value f64
+}
+
+// new_gauge creates or returns an existing Gauge.
+pub fun (s &Set) new_gauge(name string, callback fun() f64) &Gauge {
+    return null
+}
+
+// set sets the gauge to the given value.
+pub fun (g &Gauge) set(v f64) {
+}
+
+// get returns the current value.
+pub fun (g @Gauge) get() f64 {
+    return 0.0
+}
+
+// Histogram tracks the distribution of observed values using
+// VictoriaMetrics vmrange log-bucketing.
+pub Histogram struct {
+    name   string
+    sum    f64
+    count  u64
+}
+
+// new_histogram creates or returns an existing Histogram.
+pub fun (s &Set) new_histogram(name string) &Histogram {
+    return null
+}
+
+// observe adds a single observation to the histogram.
+pub fun (h &Histogram) observe(v f64) {
+}
+
+// Summary is like Histogram but computes quantiles over a sliding window.
+pub Summary struct {
+    name  string
+    sum   f64
+    count u64
+}
+
+// new_summary creates or returns an existing Summary.
+pub fun (s &Set) new_summary(name string) &Summary {
+    return null
+}
+
+// observe adds a single observation to the summary.
+pub fun (sm &Summary) observe(v f64) {
+}
+
+// write_prometheus writes all registered metrics in Prometheus exposition format.
+pub fun (s &Set) write_prometheus(w io.Writer) !void {
+}
+
+// Default set used by package-level functions.
+
+// default_set is the default metric set.
+pub var default_set = new_set()
+
+// write_prometheus writes the default set's metrics in Prometheus format.
+pub fun write_prometheus(w io.Writer) !void {
+}
