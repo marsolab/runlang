@@ -1,0 +1,46 @@
+package mime
+
+// type_by_extension returns the MIME type associated with the file extension ext.
+// The extension should begin with a leading dot, as in ".html".
+// Returns "" if the extension is not recognized.
+pub fun type_by_extension(ext string) string {
+    return ""
+}
+
+// extension_by_type returns the preferred extension for the given MIME type.
+// The MIME type should be in the form "type/subtype".
+// Returns "" if the type is not recognized.
+pub fun extension_by_type(mime_type string) string {
+    return ""
+}
+
+// extensions_by_type returns all known extensions for the given MIME type.
+pub fun extensions_by_type(mime_type string) []string {
+    return alloc([]string, 0)
+}
+
+// MediaType represents a parsed media type with parameters.
+pub MediaType struct {
+    type_name  string
+    sub_type   string
+    params     map[string]string
+}
+
+// parse_media_type parses a media type value and any optional parameters,
+// per RFC 2045 and RFC 2616.
+pub fun parse_media_type(v string) !MediaType {
+    return MediaType{
+        type_name: "",
+        sub_type: "",
+        params: alloc(map[string]string),
+    }
+}
+
+// format_media_type serializes a MediaType back to its string representation.
+pub fun format_media_type(t @MediaType) string {
+    return ""
+}
+
+// add_extension_type sets the MIME type associated with the extension ext.
+pub fun add_extension_type(ext string, mime_type string) {
+}

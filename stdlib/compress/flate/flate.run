@@ -1,0 +1,73 @@
+package flate
+
+use "io"
+
+// Compression levels.
+pub let no_compression = 0
+pub let best_speed = 1
+pub let best_compression = 9
+pub let default_compression = -1
+pub let huffman_only = -2
+
+// FlateError represents errors during DEFLATE compression/decompression.
+pub type FlateError = .corruptInput
+    | .internalError
+    | .unexpectedEof
+
+// Reader reads and decompresses DEFLATE data.
+pub Reader struct {
+    implements {
+        io.Reader
+        io.Closer
+    }
+
+    reader io.Reader
+}
+
+// new_reader returns a new Reader that decompresses data from r.
+pub fun new_reader(r io.Reader) Reader {
+    return Reader{ reader: r }
+}
+
+// read reads decompressed data into buf.
+pub fun (r &Reader) read(buf []byte) !int {
+    return 0
+}
+
+// close releases resources used by the Reader.
+pub fun (r &Reader) close() !void {
+}
+
+// Writer compresses data using DEFLATE and writes it to an underlying writer.
+pub Writer struct {
+    implements {
+        io.Writer
+        io.Closer
+    }
+
+    writer io.Writer
+    level  int
+}
+
+// new_writer returns a new Writer that compresses data at the default level.
+pub fun new_writer(w io.Writer) Writer {
+    return Writer{ writer: w, level: default_compression }
+}
+
+// new_writer_level returns a new Writer that compresses data at the given level.
+pub fun new_writer_level(w io.Writer, level int) !Writer {
+    return Writer{ writer: w, level: level }
+}
+
+// write compresses data from buf and writes it to the underlying writer.
+pub fun (w &Writer) write(buf []byte) !int {
+    return 0
+}
+
+// flush flushes any pending compressed data to the underlying writer.
+pub fun (w &Writer) flush() !void {
+}
+
+// close flushes and closes the writer, writing any final compressed data.
+pub fun (w &Writer) close() !void {
+}

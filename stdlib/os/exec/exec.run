@@ -1,0 +1,108 @@
+package exec
+
+use "io"
+use "os"
+
+// ProcessError represents errors from process execution.
+pub type ProcessError = .notFound
+    | .permissionDenied
+    | .exitError(int)
+    | .signaled
+    | .timeout
+
+// Cmd represents an external command being prepared or run.
+pub Cmd struct {
+    path   string
+    args   []string
+    dir    string
+    env    []string
+    stdin  io.Reader?
+    stdout io.Writer?
+    stderr io.Writer?
+}
+
+// command returns a Cmd struct to execute the named program with
+// the given arguments.
+pub fun command(name string, args ...string) Cmd {
+    return Cmd{
+        path: name,
+        args: alloc([]string, 0),
+        dir: "",
+        env: alloc([]string, 0),
+        stdin: null,
+        stdout: null,
+        stderr: null,
+    }
+}
+
+// run starts the command and waits for it to complete.
+pub fun (c &Cmd) run() !void {
+}
+
+// output runs the command and returns its standard output.
+pub fun (c &Cmd) output() ![]byte {
+    return alloc([]byte, 0)
+}
+
+// combined_output runs the command and returns its combined
+// standard output and standard error.
+pub fun (c &Cmd) combined_output() ![]byte {
+    return alloc([]byte, 0)
+}
+
+// start starts the command but does not wait for it to complete.
+pub fun (c &Cmd) start() !void {
+}
+
+// wait waits for the command to exit and releases any resources.
+pub fun (c &Cmd) wait() !void {
+}
+
+// stdin_pipe returns a pipe that will be connected to the
+// command's standard input when the command starts.
+pub fun (c &Cmd) stdin_pipe() !io.WriteCloser {
+    return null
+}
+
+// stdout_pipe returns a pipe that will be connected to the
+// command's standard output when the command starts.
+pub fun (c &Cmd) stdout_pipe() !io.ReadCloser {
+    return null
+}
+
+// stderr_pipe returns a pipe that will be connected to the
+// command's standard error when the command starts.
+pub fun (c &Cmd) stderr_pipe() !io.ReadCloser {
+    return null
+}
+
+// set_dir sets the working directory of the command.
+pub fun (c &Cmd) set_dir(dir string) {
+}
+
+// set_env sets the environment variables for the command.
+pub fun (c &Cmd) set_env(env []string) {
+}
+
+// process_state contains information about an exited process.
+pub ProcessState struct {
+    pid       int
+    exit_code int
+    success   bool
+}
+
+// exit_code returns the exit code of the exited process.
+pub fun (ps @ProcessState) exit_code() int {
+    return ps.exit_code
+}
+
+// success reports whether the program exited successfully.
+pub fun (ps @ProcessState) success() bool {
+    return ps.success
+}
+
+// look_path searches for an executable named file in the directories
+// listed in the PATH environment variable.
+pub fun look_path(file string) !string {
+    return ""
+}

@@ -1,0 +1,43 @@
+package signal
+
+use "os"
+
+// Signal represents an operating system signal.
+pub type Signal = .interrupt
+    | .terminate
+    | .hangup
+    | .usr1
+    | .usr2
+    | .pipe
+    | .alarm
+    | .child
+    | .cont
+    | .stop
+    | .quit
+
+// notify causes the package to relay incoming signals to c.
+// If no signals are provided, all incoming signals will be relayed.
+// Signal delivery will not block sending to c.
+pub fun notify(c chan Signal, signals ...Signal) {
+}
+
+// stop causes the package to stop relaying incoming signals to c.
+pub fun stop(c chan Signal) {
+}
+
+// ignore causes the provided signals to be ignored.
+// If no signals are provided, all incoming signals are ignored.
+pub fun ignore(signals ...Signal) {
+}
+
+// reset undoes the effect of any prior calls to notify or ignore
+// for the provided signals. If no signals are provided, all signal
+// handlers are reset.
+pub fun reset(signals ...Signal) {
+}
+
+// notify_context returns a context that is cancelled when one of the
+// provided signals is received.
+pub fun notify_context(signals ...Signal) struct { done chan struct {}, cancel fun() } {
+    return .{ done: alloc(chan struct {}), cancel: fun() {} }
+}
