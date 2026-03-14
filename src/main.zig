@@ -5,6 +5,7 @@ const Parser = @import("parser.zig").Parser;
 const naming = @import("naming.zig");
 const driver = @import("driver.zig");
 const lsp = @import("lsp.zig");
+const dap = @import("dap.zig");
 const init_mod = @import("init.zig");
 const formatter = @import("formatter.zig");
 const test_runner = @import("test_runner.zig");
@@ -16,6 +17,7 @@ const usage =
     \\  build    Compile a .run source file to native binary
     \\  run      Compile and immediately execute
     \\  check    Type-check without generating code
+    \\  debug    Start a DAP debug server (for IDEs and AI agents)
     \\  init     Initialize a new Run project
     \\  lsp      Start the LSP server
     \\  fmt      Format .run source files
@@ -28,6 +30,7 @@ const usage =
     \\  --no-dce     Disable dead code elimination
     \\  --force      Overwrite existing files (init)
     \\  --no-color   Disable colored output
+    \\  -g           Compile with debug symbols
     \\  -h, --help   Show this help message
     \\
 ;
@@ -71,6 +74,11 @@ pub fn main() !void {
 
     if (std.mem.eql(u8, command, "lsp")) {
         try lsp.serve(allocator);
+        return;
+    }
+
+    if (std.mem.eql(u8, command, "debug")) {
+        try dap.serve(allocator);
         return;
     }
 
@@ -170,6 +178,7 @@ fn cmdBuild(allocator: std.mem.Allocator, remaining_args: []const []const u8, co
     var output_path: ?[]const u8 = null;
     var no_dce = false;
     var no_color = false;
+    var debug_mode = false;
 
     var i: usize = 0;
     while (i < remaining_args.len) : (i += 1) {
@@ -177,6 +186,8 @@ fn cmdBuild(allocator: std.mem.Allocator, remaining_args: []const []const u8, co
             no_dce = true;
         } else if (std.mem.eql(u8, remaining_args[i], "--no-color")) {
             no_color = true;
+        } else if (std.mem.eql(u8, remaining_args[i], "-g")) {
+            debug_mode = true;
         } else if (std.mem.eql(u8, remaining_args[i], "-o")) {
             i += 1;
             if (i < remaining_args.len) output_path = remaining_args[i];
@@ -203,6 +214,7 @@ fn cmdBuild(allocator: std.mem.Allocator, remaining_args: []const []const u8, co
         .command = cmd,
         .enable_dce = !no_dce,
         .no_color = no_color,
+        .debug = debug_mode,
     }) catch |err| switch (err) {
         error.ParseFailed, error.NamingFailed => std.process.exit(1),
         error.CodegenNotImplemented => return,
