@@ -89,3 +89,23 @@ Once the compiler and language are stable enough (post-M6 at minimum), the compi
 ### Labels
 
 Component labels for categorizing issues: `type-system`, `runtime`, `stdlib`, `tooling`, `compiler`, `concurrency`, `memory`, `testing`, `assembly`, `simd`, `numa`
+
+## Website
+
+The `website/` directory contains the landing page and documentation site built with Astro + Starlight + Tailwind CSS v4 + React.
+
+### Package Manager
+
+**Always use `bun`** (not npm/yarn/pnpm) for all JavaScript/TypeScript projects in this repository.
+
+```bash
+cd website
+bun install            # Install dependencies
+bun run dev            # Dev server at localhost:4321
+bun run build          # Production build to website/dist/
+bun run preview        # Preview production build
+```
+
+### Deployment
+
+The website deploys to **Cloudflare Pages**. Configuration is in `website/wrangler.jsonc`.

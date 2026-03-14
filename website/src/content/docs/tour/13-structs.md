@@ -1,0 +1,48 @@
+---
+title: "Structs"
+sidebar:
+  order: 13
+---
+
+Structs are the primary way to define custom data types in Run.
+
+```go
+package main
+
+use "fmt"
+
+pub type Point struct {
+    x: f64
+    y: f64
+}
+
+pub fun main() {
+    p := Point{ x: 3.0, y: 4.0 }
+    fmt.println(p.x)
+    fmt.println(p.y)
+}
+```
+
+## Field access
+
+Struct fields are accessed using dot notation.
+
+```go
+p := Point{ x: 1.0, y: 2.0 }
+p.x = 5.0
+fmt.println(p.x) // 5.0
+```
+
+## Visibility
+
+Structs can be made public with `pub`. Field visibility follows the same rules — fields are private by default within the struct's package.
+
+```go
+pub type Config struct {
+    pub host: string
+    pub port: int
+    secret: string  // private to this package
+}
+```
+
+Methods are declared separately from structs and are covered in a later chapter.

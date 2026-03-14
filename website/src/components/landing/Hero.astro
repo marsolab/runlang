@@ -1,0 +1,76 @@
+---
+---
+
+<section class="relative overflow-hidden pt-32 pb-20">
+  <!-- Gradient background -->
+  <div class="pointer-events-none absolute inset-0 bg-gradient-to-b from-run-primary/10 via-transparent to-transparent"></div>
+
+  <div class="relative mx-auto max-w-7xl px-6">
+    <div class="grid items-center gap-12 lg:grid-cols-2">
+      <!-- Text -->
+      <div>
+        <div class="mb-4 inline-block rounded-full border border-run-primary/30 bg-run-primary/10 px-4 py-1.5 text-sm text-run-primary">
+          Active Development
+        </div>
+        <h1 class="mb-6 text-5xl leading-tight font-bold tracking-tight text-white lg:text-6xl">
+          Go's simplicity meets<br />
+          <span class="bg-gradient-to-r from-run-primary to-run-accent bg-clip-text text-transparent">
+            systems-level control
+          </span>
+        </h1>
+        <p class="mb-8 max-w-xl text-lg leading-relaxed text-gray-400">
+          Memory safety without a garbage collector or borrow checker. Generational references,
+          green threads, and a type system that stays out of your way.
+        </p>
+        <div class="flex flex-wrap gap-4">
+          <a
+            href="/tour/00-introduction/"
+            class="inline-flex items-center rounded-lg bg-run-primary px-6 py-3 text-sm font-medium text-white transition hover:bg-run-primary/90"
+          >
+            Start the Tour
+            <svg class="ml-2 h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
+          </a>
+          <a
+            href="/reference/specification/"
+            class="inline-flex items-center rounded-lg border border-white/20 px-6 py-3 text-sm font-medium text-gray-300 transition hover:border-white/40 hover:text-white"
+          >
+            Read the Docs
+          </a>
+        </div>
+      </div>
+
+      <!-- Code example -->
+      <div class="rounded-xl border border-white/10 bg-run-code-bg shadow-2xl">
+        <div class="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+          <span class="h-3 w-3 rounded-full bg-red-500/70"></span>
+          <span class="h-3 w-3 rounded-full bg-yellow-500/70"></span>
+          <span class="h-3 w-3 rounded-full bg-green-500/70"></span>
+          <span class="ml-3 text-xs text-gray-500">main.run</span>
+        </div>
+        <pre class="overflow-x-auto p-6 text-sm leading-relaxed"><code class="text-gray-300"><span class="text-blue-400">pub</span> <span class="text-purple-400">Point</span> <span class="text-blue-400">struct</span> &#123;
+    x <span class="text-green-400">f64</span>
+    y <span class="text-green-400">f64</span>
+&#125;
+
+<span class="text-blue-400">fun</span> (p <span class="text-yellow-400">@Point</span>) <span class="text-white">length</span>() <span class="text-green-400">f64</span> &#123;
+    <span class="text-blue-400">return</span> math.sqrt(p.x * p.x + p.y * p.y)
+&#125;
+
+<span class="text-blue-400">fun</span> (p <span class="text-yellow-400">&Point</span>) <span class="text-white">translate</span>(dx <span class="text-green-400">f64</span>, dy <span class="text-green-400">f64</span>) &#123;
+    p.x = p.x + dx
+    p.y = p.y + dy
+&#125;
+
+<span class="text-blue-400">pub</span> <span class="text-blue-400">fun</span> <span class="text-white">main</span>() <span class="text-red-400">!void</span> &#123;
+    p := <span class="text-purple-400">Point</span>&#123; x: <span class="text-orange-300">3.0</span>, y: <span class="text-orange-300">4.0</span> &#125;
+    p.translate(<span class="text-orange-300">1.0</span>, <span class="text-orange-300">-1.0</span>)
+
+    content := <span class="text-blue-400">try</span> read_file(<span class="text-green-300">"config.txt"</span>) <span class="text-gray-500">:: "loading config"</span>
+    fmt.println(content)
+&#125;</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
