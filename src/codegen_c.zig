@@ -1,5 +1,6 @@
 const std = @import("std");
 const ir = @import("ir.zig");
+const diagnostics = @import("diagnostics.zig");
 
 pub const CCodegen = struct {
     output: std.ArrayList(u8),
@@ -8,6 +9,12 @@ pub const CCodegen = struct {
     indent_level: u32,
     current_func: ?*const ir.Function,
     vargs_counter: u32 = 0,
+    /// Original .run source text for debug line computation (null = no debug).
+    debug_source: ?[]const u8 = null,
+    /// Original .run source file path for #line directives.
+    debug_source_path: ?[]const u8 = null,
+    /// Last emitted #line number to avoid duplicate directives.
+    last_emitted_line: u32 = 0,
 
     pub fn init(allocator: std.mem.Allocator, module: *const ir.Module) CCodegen {
         return .{
@@ -16,6 +23,19 @@ pub const CCodegen = struct {
             .allocator = allocator,
             .indent_level = 0,
             .current_func = null,
+        };
+    }
+
+    /// Initialize with debug info for emitting #line directives.
+    pub fn initDebug(allocator: std.mem.Allocator, module: *const ir.Module, source: []const u8, source_path: []const u8) CCodegen {
+        return .{
+            .output = .empty,
+            .module = module,
+            .allocator = allocator,
+            .indent_level = 0,
+            .current_func = null,
+            .debug_source = source,
+            .debug_source_path = source_path,
         };
     }
 
@@ -74,6 +94,17 @@ pub const CCodegen = struct {
     fn emitFunction(self: *CCodegen, func: *const ir.Function) !void {
         self.current_func = func;
         defer self.current_func = null;
+        self.last_emitted_line = 0;
+
+        // Emit #line for the function definition if debug info is available
+        if (self.debug_source != null) {
+            for (self.module.func_debug_infos.items) |fdi| {
+                if (std.mem.eql(u8, fdi.mangled_name, func.name)) {
+                    try self.emitLineDirective(.{ .byte_offset = fdi.source_byte_offset });
+                    break;
+                }
+            }
+        }
 
         // Function signature
         try self.emitIndent();
@@ -197,7 +228,20 @@ pub const CCodegen = struct {
         };
     }
 
+    /// Emit a #line directive if debug mode is active and the source line changed.
+    fn emitLineDirective(self: *CCodegen, src_loc: ir.SrcLoc) !void {
+        if (self.debug_source == null or self.debug_source_path == null) return;
+        if (src_loc.byte_offset == 0) return;
+
+        const info = diagnostics.getSourceLine(self.debug_source.?, src_loc.byte_offset);
+        if (info.line_number != self.last_emitted_line) {
+            self.last_emitted_line = info.line_number;
+            try self.writer().print("#line {d} \"{s}\"\n", .{ info.line_number, self.debug_source_path.? });
+        }
+    }
+
     fn emitInst(self: *CCodegen, inst: ir.Inst) !void {
+        try self.emitLineDirective(inst.src_loc);
         switch (inst.op) {
             .const_int => {
                 try self.emitIndent();

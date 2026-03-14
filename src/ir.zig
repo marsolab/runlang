@@ -5,11 +5,28 @@ pub const null_ref: Ref = 0;
 pub const BlockId = u32;
 pub const FuncId = u32;
 
+/// Source location for debug info, mapping IR instructions back to .run source.
+pub const SrcLoc = struct {
+    /// Byte offset into the source file (0 = no location).
+    byte_offset: u32 = 0,
+    /// Index into Module.source_files (for future multi-file support).
+    file_index: u16 = 0,
+};
+
+/// Debug info for a function, mapping mangled C names back to Run names.
+pub const FunctionDebugInfo = struct {
+    mangled_name: []const u8,
+    original_name: []const u8,
+    source_byte_offset: u32,
+};
+
 pub const Inst = struct {
     op: Op,
     result: Ref,
     arg1: Ref,
     arg2: Ref,
+    /// Source location for debug info (default = no location).
+    src_loc: SrcLoc = .{},
 
     pub const Op = enum(u8) {
         // Constants
@@ -252,6 +269,10 @@ pub const Module = struct {
     asm_infos: std.ArrayList(AsmInfo),
     /// Strings allocated by the lowering pass that this module owns.
     owned_strings: std.ArrayList([]const u8),
+    /// Source file paths for debug info (indexed by SrcLoc.file_index).
+    source_files: std.ArrayList([]const u8),
+    /// Debug info mapping mangled function names to original Run names.
+    func_debug_infos: std.ArrayList(FunctionDebugInfo),
 
     pub fn init() Module {
         return .{
@@ -261,6 +282,8 @@ pub const Module = struct {
             .local_infos = .empty,
             .asm_infos = .empty,
             .owned_strings = .empty,
+            .source_files = .empty,
+            .func_debug_infos = .empty,
         };
     }
 
@@ -283,6 +306,8 @@ pub const Module = struct {
             allocator.free(s);
         }
         self.owned_strings.deinit(allocator);
+        self.source_files.deinit(allocator);
+        self.func_debug_infos.deinit(allocator);
     }
 
     pub fn addFunction(self: *Module, allocator: std.mem.Allocator, name: []const u8) !FuncId {
@@ -359,9 +384,14 @@ pub const Module = struct {
     }
 };
 
-// Helper to build instructions concisely
+/// Helper to build instructions concisely.
 pub fn makeInst(op: Inst.Op, result: Ref, arg1: Ref, arg2: Ref) Inst {
     return .{ .op = op, .result = result, .arg1 = arg1, .arg2 = arg2 };
+}
+
+/// Helper to build instructions with source location for debug info.
+pub fn makeInstWithLoc(op: Inst.Op, result: Ref, arg1: Ref, arg2: Ref, src_loc: SrcLoc) Inst {
+    return .{ .op = op, .result = result, .arg1 = arg1, .arg2 = arg2, .src_loc = src_loc };
 }
 
 // Tests

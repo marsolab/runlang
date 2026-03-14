@@ -29,6 +29,8 @@ pub const CompileOptions = struct {
     command: Command,
     enable_dce: bool = true,
     no_color: bool = false,
+    /// Compile with debug symbols and #line directives for debugger support.
+    debug: bool = false,
 };
 
 pub const CompileError = error{
@@ -173,10 +175,15 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
         return CompileError.ParseFailed;
     }
 
-    // 7. Lower AST to IR
-    var module = lower_mod.lower(allocator, &parser.tree, tokens.items) catch {
-        return CompileError.OutOfMemory;
-    };
+    // 7. Lower AST to IR (with source path for debug info)
+    var module = if (options.debug)
+        lower_mod.lowerWithSource(allocator, &parser.tree, tokens.items, options.input_path) catch {
+            return CompileError.OutOfMemory;
+        }
+    else
+        lower_mod.lower(allocator, &parser.tree, tokens.items) catch {
+            return CompileError.OutOfMemory;
+        };
     defer module.deinit(allocator);
 
     // 7b. Constant folding
@@ -208,8 +215,11 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
         }
     }
 
-    // 8. Generate C code
-    var cg = codegen_c.CCodegen.init(allocator, &module);
+    // 8. Generate C code (with #line directives in debug mode)
+    var cg = if (options.debug)
+        codegen_c.CCodegen.initDebug(allocator, &module, source, options.input_path)
+    else
+        codegen_c.CCodegen.init(allocator, &module);
     defer cg.deinit();
     const c_source = cg.generate() catch {
         return CompileError.OutOfMemory;
@@ -280,15 +290,17 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
         rasm_asm_files.append(allocator, asm_path) catch continue;
     }
 
-    invokeZigCC(allocator, tmp_path, out_path, runtime_dir, rasm_asm_files.items) catch {
+    invokeZigCC(allocator, tmp_path, out_path, runtime_dir, rasm_asm_files.items, options.debug) catch {
         stderr.writeAll("error: C compilation failed\n") catch {};
         return CompileError.CCompileFailed;
     };
 
-    // Clean up temp files
-    std.fs.cwd().deleteFile(tmp_path) catch {};
-    for (rasm_asm_files.items) |asm_path| {
-        std.fs.cwd().deleteFile(asm_path) catch {};
+    // Clean up temp files (keep in debug mode for source-level debugging)
+    if (!options.debug) {
+        std.fs.cwd().deleteFile(tmp_path) catch {};
+        for (rasm_asm_files.items) |asm_path| {
+            std.fs.cwd().deleteFile(asm_path) catch {};
+        }
     }
 
     if (options.command == .run) {
@@ -374,6 +386,7 @@ pub fn invokeZigCC(
     output_path: []const u8,
     runtime_dir: []const u8,
     extra_asm_files: []const []const u8,
+    debug: bool,
 ) !void {
     const runtime_sources = [_][]const u8{
         "run_main.c",
@@ -428,6 +441,13 @@ pub fn invokeZigCC(
     // Disable stack protector — green thread context switching is
     // incompatible with stack canaries.
     try args.append(allocator, "-fno-stack-protector");
+
+    // Debug mode: emit DWARF debug info and disable optimizations
+    if (debug) {
+        try args.append(allocator, "-g");
+        try args.append(allocator, "-O0");
+        try args.append(allocator, "-fno-inline");
+    }
 
     // Link pthread for scheduler
     try args.append(allocator, "-lpthread");

@@ -18,6 +18,16 @@ pub fn lower(
     tree: *const Ast,
     tokens: []const Token,
 ) LowerError!ir.Module {
+    return lowerWithSource(allocator, tree, tokens, null);
+}
+
+/// Lower a typed AST into an IR Module, optionally recording source debug info.
+pub fn lowerWithSource(
+    allocator: std.mem.Allocator,
+    tree: *const Ast,
+    tokens: []const Token,
+    source_path: ?[]const u8,
+) LowerError!ir.Module {
     var ctx = LoweringContext{
         .allocator = allocator,
         .tree = tree,
@@ -25,6 +35,7 @@ pub fn lower(
         .module = ir.Module.init(),
         .current_func = null,
         .current_block = null,
+        .current_src_loc = .{},
         .var_map = .empty,
         .var_lookup = .empty,
         .var_shadow_stack = .empty,
@@ -35,6 +46,10 @@ pub fn lower(
         .owned_stack = .empty,
         .owned_scope_stack = .empty,
     };
+    // Register the source file for debug info
+    if (source_path) |path| {
+        try ctx.module.source_files.append(allocator, path);
+    }
     try ctx.lowerModule();
     return ctx.module;
 }
@@ -46,6 +61,8 @@ const LoweringContext = struct {
     module: ir.Module,
     current_func: ?*ir.Function,
     current_block: ?*ir.BasicBlock,
+    /// Current source location for debug info, stamped onto emitted instructions.
+    current_src_loc: ir.SrcLoc,
 
     // Variable tracking: map from variable name to its local_idx in Module.local_infos
     var_map: std.ArrayList(VarEntry),
@@ -244,6 +261,7 @@ const LoweringContext = struct {
     fn lowerFnDecl(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
         const node = self.tree.nodes.items[node_idx];
         const fn_tok = node.main_token;
+        self.setSrcLocFromNode(node_idx);
 
         var name_tok = fn_tok + 1;
         if (self.tokens[name_tok].tag == .l_paren) {
@@ -258,6 +276,13 @@ const LoweringContext = struct {
 
         const mangled = try std.fmt.allocPrint(self.allocator, "run_main__{s}", .{name});
         try self.module.owned_strings.append(self.allocator, mangled);
+
+        // Record debug info for function name demangling
+        try self.module.func_debug_infos.append(self.allocator, .{
+            .mangled_name = mangled,
+            .original_name = name,
+            .source_byte_offset = self.tokens[fn_tok].loc.start,
+        });
 
         const func_id = try self.module.addFunction(self.allocator, mangled);
         self.current_func = self.module.getFunction(func_id);
@@ -295,6 +320,7 @@ const LoweringContext = struct {
 
     fn lowerStmt(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
         if (node_idx == null_node) return;
+        self.setSrcLocFromNode(node_idx);
         const node = self.tree.nodes.items[node_idx];
         switch (node.tag) {
             .expr_stmt => {
@@ -956,7 +982,23 @@ const LoweringContext = struct {
 
     fn emit(self: *LoweringContext, inst: ir.Inst) LowerError!void {
         if (self.current_block) |block| {
-            try block.addInst(self.allocator, inst);
+            var located = inst;
+            if (located.src_loc.byte_offset == 0) {
+                located.src_loc = self.current_src_loc;
+            }
+            try block.addInst(self.allocator, located);
+        }
+    }
+
+    /// Set current source location from an AST node's main token.
+    fn setSrcLocFromNode(self: *LoweringContext, node_idx: NodeIndex) void {
+        if (node_idx == null_node) return;
+        const node = self.tree.nodes.items[node_idx];
+        if (node.main_token < self.tokens.len) {
+            self.current_src_loc = .{
+                .byte_offset = self.tokens[node.main_token].loc.start,
+                .file_index = 0,
+            };
         }
     }
 

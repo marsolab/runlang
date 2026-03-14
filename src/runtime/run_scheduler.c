@@ -1019,3 +1019,67 @@ void run_stack_growth_init(void) {
 }
 
 #endif
+
+/* ========================================================================
+ * Debug Helper: dump all green threads as JSON (#debugger)
+ * Called via GDB's -data-evaluate-expression from the DAP adapter.
+ * ======================================================================== */
+
+static const char *g_status_str(run_g_status_t s) {
+    switch (s) {
+        case G_IDLE:     return "idle";
+        case G_RUNNABLE: return "runnable";
+        case G_RUNNING:  return "running";
+        case G_WAITING:  return "waiting";
+        case G_DEAD:     return "dead";
+        default:         return "unknown";
+    }
+}
+
+static int dump_g(char *buf, size_t remaining, run_g_t *g, bool *first) {
+    if (g == NULL || remaining < 128) return 0;
+    int n = snprintf(buf, remaining,
+        "%s{\"id\":%lu,\"status\":\"%s\",\"stack_base\":\"%p\",\"in_syscall\":%s}",
+        *first ? "" : ",",
+        (unsigned long)g->id,
+        g_status_str(g->status),
+        g->stack_base,
+        g->in_syscall ? "true" : "false");
+    *first = false;
+    return (n > 0 && (size_t)n < remaining) ? n : 0;
+}
+
+void run_debug_dump_goroutines(char *buf, size_t buf_size) {
+    if (buf == NULL || buf_size < 3) return;
+
+    int pos = 0;
+    buf[pos++] = '[';
+    bool first = true;
+    size_t remaining = buf_size - 2; /* reserve space for ] and \0 */
+
+    /* Dump Gs in each P's local queue */
+    for (uint32_t i = 0; i < num_ps; i++) {
+        run_g_queue_t *q = &all_ps[i].local_queue;
+        for (run_g_t *g = q->head; g != NULL; g = g->sched_next) {
+            int n = dump_g(buf + pos, remaining, g, &first);
+            pos += n;
+            remaining -= (size_t)n;
+        }
+        /* Also dump the currently running G on this P's bound M */
+        if (all_ps[i].bound_m && all_ps[i].bound_m->current_g) {
+            int n = dump_g(buf + pos, remaining, all_ps[i].bound_m->current_g, &first);
+            pos += n;
+            remaining -= (size_t)n;
+        }
+    }
+
+    /* Dump Gs in the global queue */
+    for (run_g_t *g = global_queue.head; g != NULL; g = g->sched_next) {
+        int n = dump_g(buf + pos, remaining, g, &first);
+        pos += n;
+        remaining -= (size_t)n;
+    }
+
+    buf[pos++] = ']';
+    buf[pos] = '\0';
+}

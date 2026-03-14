@@ -203,4 +203,10 @@ size_t run_stack_max_size(void);
 /* Install the SIGSEGV handler for stack growth. */
 void run_stack_growth_init(void);
 
+/* ---------- Debug helpers (#debugger) ---------- */
+
+/* Dump all green threads as a JSON array into buf.
+ * Called by the DAP adapter via GDB's expression evaluation. */
+void run_debug_dump_goroutines(char *buf, size_t buf_size);
+
 #endif

@@ -27,6 +27,9 @@ pub const init = @import("init.zig");
 pub const formatter = @import("formatter.zig");
 pub const test_runner = @import("test_runner.zig");
 pub const rasm = @import("rasm.zig");
+pub const gdb_mi = @import("gdb_mi.zig");
+pub const debug_engine = @import("debug_engine.zig");
+pub const dap = @import("dap.zig");
 
 const std = @import("std");
 
