@@ -4,7 +4,6 @@ sidebar:
   order: 38
 ---
 
-
 Run is built on a few deliberate principles. Understanding them helps you write idiomatic code and explains why certain features are absent.
 
 ## Simplicity over expressiveness

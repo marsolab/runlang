@@ -4,7 +4,6 @@ sidebar:
   order: 30
 ---
 
-
 When iterating over a collection, you often need the index alongside the value. Run supports this with a two-variable `for` loop.
 
 ```go

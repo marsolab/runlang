@@ -4,7 +4,6 @@ sidebar:
   order: 23
 ---
 
-
 Functions in Run are first-class values. They can be assigned to variables, passed as arguments, and returned from other functions.
 
 ```go

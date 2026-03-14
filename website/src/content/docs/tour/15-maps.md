@@ -4,7 +4,6 @@ sidebar:
   order: 15
 ---
 
-
 Maps are unordered collections of key-value pairs. They are a built-in type in Run.
 
 ```go

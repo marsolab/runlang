@@ -4,7 +4,6 @@ sidebar:
   order: 19
 ---
 
-
 Sum types (also called tagged unions or enums with data) let you define a type that can be one of several variants. Each variant can optionally carry associated data.
 
 ```go

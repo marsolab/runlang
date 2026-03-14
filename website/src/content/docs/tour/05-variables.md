@@ -4,7 +4,6 @@ sidebar:
   order: 5
 ---
 
-
 Run has two keywords for declaring variables: `var` for mutable bindings and `let` for immutable bindings.
 
 ## Mutable variables with `var`

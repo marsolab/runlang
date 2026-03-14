@@ -4,7 +4,6 @@ sidebar:
   order: 7
 ---
 
-
 Functions are declared with the `fun` keyword. Parameters use `name: type` syntax, and the return type follows the parameter list.
 
 ```go

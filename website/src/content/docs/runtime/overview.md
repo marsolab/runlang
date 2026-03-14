@@ -4,18 +4,17 @@ sidebar:
   order: 0
 ---
 
-
 Design documentation for the Run language runtime library (`librunrt`).
 
 ## Documents
 
-| Document | Description |
-|---|---|
-| [Architecture](architecture.md) | Runtime component diagram, initialization sequence, how generated C code interacts with the runtime |
-| [Memory](memory.md) | Generational allocation, virtual memory abstraction, slab allocator, arena allocator, custom allocator interface |
-| [Scheduler](scheduler.md) | Green thread scheduler based on Go's GMP model — goroutine/machine/processor design |
-| [Concurrency](concurrency.md) | Channels (buffered and unbuffered), synchronization primitives, scheduler integration |
-| [Platform](platform.md) | Platform-specific details for Linux, macOS, and Windows — virtual memory, threads, signals, context switching |
+| Document                        | Description                                                                                                      |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| [Architecture](architecture.md) | Runtime component diagram, initialization sequence, how generated C code interacts with the runtime              |
+| [Memory](memory.md)             | Generational allocation, virtual memory abstraction, slab allocator, arena allocator, custom allocator interface |
+| [Scheduler](scheduler.md)       | Green thread scheduler based on Go's GMP model — goroutine/machine/processor design                              |
+| [Concurrency](concurrency.md)   | Channels (buffered and unbuffered), synchronization primitives, scheduler integration                            |
+| [Platform](platform.md)         | Platform-specific details for Linux, macOS, and Windows — virtual memory, threads, signals, context switching    |
 
 ## Overview
 

@@ -4,7 +4,6 @@ sidebar:
   order: 20
 ---
 
-
 By default, values in Run cannot be `null`. To allow a value to be absent, use the `?` suffix to create a nullable type.
 
 ```go

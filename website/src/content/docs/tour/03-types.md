@@ -4,17 +4,16 @@ sidebar:
   order: 3
 ---
 
-
 Run has a simple type system with the following built-in types:
 
 ## Integer types
 
-- `int`  - platform-sized signed integer
+- `int` - platform-sized signed integer
 - `uint` - platform-sized unsigned integer
-- `i32`  - 32-bit signed integer
-- `i64`  - 64-bit signed integer
-- `u32`  - 32-bit unsigned integer
-- `u64`  - 64-bit unsigned integer
+- `i32` - 32-bit signed integer
+- `i64` - 64-bit signed integer
+- `u32` - 32-bit unsigned integer
+- `u64` - 64-bit unsigned integer
 - `byte` - alias for `u8`, a single byte
 
 ## Floating point types
@@ -25,7 +24,7 @@ Run has a simple type system with the following built-in types:
 ## Other types
 
 - `bool` - boolean value, `true` or `false`
-- `string`  - UTF-8 encoded string
+- `string` - UTF-8 encoded string
 
 ## Type inference
 

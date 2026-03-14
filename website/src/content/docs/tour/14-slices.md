@@ -4,7 +4,6 @@ sidebar:
   order: 14
 ---
 
-
 ## Arrays
 
 Arrays have a fixed size known at compile time.

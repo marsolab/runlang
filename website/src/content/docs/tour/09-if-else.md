@@ -4,7 +4,6 @@ sidebar:
   order: 9
 ---
 
-
 Run's `if` statements do not require parentheses around the condition, but braces are always required.
 
 ```go

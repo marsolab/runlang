@@ -36,12 +36,7 @@ interface TabsListProps {
 
 export function TabsList({ children, className }: TabsListProps) {
   return (
-    <div
-      className={cn(
-        "inline-flex items-center gap-1 rounded-lg bg-white/5 p-1",
-        className
-      )}
-    >
+    <div className={cn("inline-flex items-center gap-1 rounded-lg bg-white/5 p-1", className)}>
       {children}
     </div>
   );
@@ -62,10 +57,8 @@ export function TabsTrigger({ value, children, className }: TabsTriggerProps) {
       onClick={() => setActiveTab(value)}
       className={cn(
         "rounded-md px-3 py-1.5 text-sm font-medium transition",
-        isActive
-          ? "bg-run-primary text-white shadow-sm"
-          : "text-gray-400 hover:text-white",
-        className
+        isActive ? "bg-run-primary text-white shadow-sm" : "text-gray-400 hover:text-white",
+        className,
       )}
     >
       {children}

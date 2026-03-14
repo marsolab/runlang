@@ -4,7 +4,6 @@ sidebar:
   order: 33
 ---
 
-
 Run is safe by default. Memory safety comes from generational references, concurrency safety comes from channels. But sometimes you need to go lower — raw pointer manipulation, type layout inspection, or shared memory with manual synchronization.
 
 For that, there's the `unsafe` package. It's a standard library package, not a keyword or special syntax. Just like Go's `import "unsafe"`, importing it is the signal.
@@ -81,4 +80,3 @@ pub fun main() {
 - Keep files that import `unsafe` focused and small
 - `grep "unsafe"` across your project to audit all low-level code
 - The package is for escaping safety guarantees, not for everyday code
-

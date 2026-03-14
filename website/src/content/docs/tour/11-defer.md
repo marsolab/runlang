@@ -4,7 +4,6 @@ sidebar:
   order: 11
 ---
 
-
 The `defer` statement schedules a call to run when the enclosing function returns. This is useful for cleanup actions like closing files or releasing resources.
 
 ```go

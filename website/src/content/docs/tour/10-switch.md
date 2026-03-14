@@ -4,7 +4,6 @@ sidebar:
   order: 10
 ---
 
-
 Run's `switch` is used for pattern matching. There is no fallthrough — only the matched branch executes.
 
 ```go

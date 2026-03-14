@@ -4,7 +4,6 @@ sidebar:
   order: 36
 ---
 
-
 Run follows a simple, conventional directory layout for organizing projects.
 
 ## Standard layout

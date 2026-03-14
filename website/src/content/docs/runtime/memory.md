@@ -4,7 +4,6 @@ sidebar:
   order: 3
 ---
 
-
 ## Overview
 
 Run's memory system provides safety through **generational references** — a lightweight alternative to garbage collection and borrow checking. Every heap allocation carries a generation counter. When memory is freed, the generation is incremented. Any subsequent access through a stale reference detects the mismatch and traps.
@@ -127,16 +126,16 @@ For small allocations (under 4 KB), a size-class slab allocator replaces raw `ma
 ### Size Classes
 
 | Class | Size (bytes) |
-|-------|-------------|
-| 0 | 16 |
-| 1 | 32 |
-| 2 | 64 |
-| 3 | 128 |
-| 4 | 256 |
-| 5 | 512 |
-| 6 | 1024 |
-| 7 | 2048 |
-| 8 | 4096 |
+| ----- | ------------ |
+| 0     | 16           |
+| 1     | 32           |
+| 2     | 64           |
+| 3     | 128          |
+| 4     | 256          |
+| 5     | 512          |
+| 6     | 1024         |
+| 7     | 2048         |
+| 8     | 4096         |
 
 ### Design
 

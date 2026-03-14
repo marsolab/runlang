@@ -4,7 +4,6 @@ sidebar:
   order: 18
 ---
 
-
 Interfaces define a set of methods that a type must implement. Interface implementations in Run are explicit — you must declare which interfaces a struct implements inside its definition.
 
 ```go

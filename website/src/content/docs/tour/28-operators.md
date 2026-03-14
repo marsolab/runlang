@@ -4,7 +4,6 @@ sidebar:
   order: 28
 ---
 
-
 Run provides the standard set of operators for arithmetic, comparison, and logic.
 
 ## Arithmetic operators

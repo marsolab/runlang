@@ -4,7 +4,6 @@ sidebar:
   order: 0
 ---
 
-
 Welcome to the Run language tour! This tour will walk you through the basics of the Run language.
 
 ## What is Run?

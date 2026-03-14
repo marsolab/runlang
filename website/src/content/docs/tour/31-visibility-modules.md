@@ -4,7 +4,6 @@ sidebar:
   order: 31
 ---
 
-
 Run uses a simple module system: each file is a module and each directory is a package. Visibility is controlled by the `pub` keyword.
 
 ## Private by default

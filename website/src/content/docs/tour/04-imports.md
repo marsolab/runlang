@@ -4,7 +4,6 @@ sidebar:
   order: 4
 ---
 
-
 The word `use` is used to import packages into your program.
 
 ```go

@@ -39,23 +39,25 @@ c := alloc(chan[int])
 ```
 
 Valid allocation targets are:
+
 - slices (`[]T`)
 - maps (`map[K]V`)
 - channels (`chan T` or `chan[T]`)
 
 `alloc` arguments:
+
 - `alloc(type)` — use type defaults
 - `alloc(type, capacity)` — set initial capacity/buffer
 - `alloc(type, capacity, allocator: expr)` — custom allocator
 - `alloc(type, allocator: expr)` — custom allocator with default capacity
 
 Default behavior when capacity is omitted:
+
 - slice: empty slice with capacity 0 (grows on append)
 - map: map with runtime default buckets
 - channel: unbuffered channel
 
 Custom allocators in `alloc` are **named** via `allocator:` for readability and to avoid positional ambiguity.
-
 
 ## Variables
 
@@ -118,6 +120,7 @@ fun (p &Point) translate(dx f64, dy f64) {
 ```
 
 **Receiver types:**
+
 - `&T` — read/write pointer receiver. The method can read and modify the struct.
 - `@T` — read-only pointer receiver. Compiler-enforced immutability on the receiver.
 - `T` — value receiver. The method receives a copy of the struct. Useful for small types where copying is cheaper than pointer indirection.
@@ -404,12 +407,12 @@ fun fast_add(a u64, b u64) u64 {
 
 Run assembly uses **abstract register names** that map to platform registers at compile time:
 
-| Abstract | x86-64 (System V) | ARM64 (AAPCS) |
-|----------|-------------------|---------------|
-| `r0`–`r15` | `rax`, `rbx`, `rcx`, ... | `x0`–`x15` |
-| `f0`–`f15` | `xmm0`–`xmm15` | `v0`–`v15` (scalar) |
-| `sp` | `rsp` | `sp` |
-| `fp` | `rbp` | `x29` |
+| Abstract   | x86-64 (System V)        | ARM64 (AAPCS)       |
+| ---------- | ------------------------ | ------------------- |
+| `r0`–`r15` | `rax`, `rbx`, `rcx`, ... | `x0`–`x15`          |
+| `f0`–`f15` | `xmm0`–`xmm15`           | `v0`–`v15` (scalar) |
+| `sp`       | `rsp`                    | `sp`                |
+| `fp`       | `rbp`                    | `x29`               |
 
 This allows writing assembly that is structurally portable while still mapping to
 efficient native instructions. For platform-specific instructions, use conditional
@@ -465,6 +468,7 @@ SIMD types are concrete, matching how SIMD hardware works with fixed register wi
 ### Vector Types
 
 128-bit vectors:
+
 - `v4f32` — 4 × `f32` (SSE / NEON)
 - `v2f64` — 2 × `f64`
 - `v4i32` — 4 × `i32`
@@ -472,6 +476,7 @@ SIMD types are concrete, matching how SIMD hardware works with fixed register wi
 - `v16i8` — 16 × `i8`
 
 256-bit vectors (x86-64 AVX):
+
 - `v8f32` — 8 × `f32`
 - `v4f64` — 4 × `f64`
 - `v8i32` — 8 × `i32`
@@ -504,6 +509,7 @@ a[2] = 9.0             // insert lane
 ### Alignment
 
 SIMD types are automatically aligned to their natural boundary:
+
 - 128-bit types: 16-byte aligned
 - 256-bit types: 32-byte aligned
 
@@ -528,6 +534,7 @@ data := simd.load_unaligned(ptr)     // unaligned load (slower)
 ### Platform Mapping
 
 SIMD operations lower to C compiler intrinsics in the codegen backend:
+
 - **x86-64**: SSE/AVX intrinsics (`_mm_add_ps`, `_mm256_mul_ps`, etc.) via `<immintrin.h>`
 - **ARM64**: NEON intrinsics (`vaddq_f32`, `vmulq_f32`, etc.) via `<arm_neon.h>`
 
@@ -539,6 +546,7 @@ For operations not covered by the built-in functions, use inline assembly (see A
 ### Standard Library: `simd` Package
 
 The `simd` package provides higher-level helpers:
+
 - `simd.hadd(v)` — horizontal sum
 - `simd.dot(a, b)` — dot product
 - `simd.shuffle(v, ...)` — lane permutation
@@ -565,6 +573,7 @@ dist := numa.distance(0, 1)          // relative distance between nodes
 ```
 
 The runtime discovers NUMA topology at startup:
+
 - **Linux**: reads `/sys/devices/system/node/` or uses `libnuma`
 - **Windows**: `GetNumaProcessorNodeEx`, `GetNumaAvailableMemoryNode`
 - **macOS/Apple Silicon**: UMA (single node) — NUMA APIs return trivial values
@@ -604,6 +613,7 @@ numa.pin(node: 1)
 ### Scheduler Integration
 
 The GMP scheduler is NUMA-aware:
+
 - **Processors (P)** are assigned to NUMA nodes
 - **Work stealing** prefers same-NUMA-node Ps before cross-node Ps
 - **OS threads (M)** are pinned to CPUs on their P's NUMA node
@@ -614,11 +624,11 @@ minimizing cross-node memory traffic without explicit management in most cases.
 
 ### Platform Support
 
-| Feature | Linux | Windows | macOS |
-|---------|-------|---------|-------|
-| Topology discovery | `/sys/` + `libnuma` | `GetNumaProcessorNodeEx` | UMA (trivial) |
-| NUMA-local alloc | `mbind()` / `VirtualAllocExNuma` | `VirtualAllocExNuma` | Default alloc |
-| Thread affinity | `pthread_setaffinity_np` | `SetThreadAffinityMask` | Default scheduling |
+| Feature            | Linux                            | Windows                  | macOS              |
+| ------------------ | -------------------------------- | ------------------------ | ------------------ |
+| Topology discovery | `/sys/` + `libnuma`              | `GetNumaProcessorNodeEx` | UMA (trivial)      |
+| NUMA-local alloc   | `mbind()` / `VirtualAllocExNuma` | `VirtualAllocExNuma`     | Default alloc      |
+| Thread affinity    | `pthread_setaffinity_np`         | `SetThreadAffinityMask`  | Default scheduling |
 
 ## Visibility and Modules
 

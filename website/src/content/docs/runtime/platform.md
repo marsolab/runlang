@@ -4,22 +4,21 @@ sidebar:
   order: 4
 ---
 
-
 ## Platform Support Matrix
 
-| Feature | Linux | macOS | Windows |
-|---|---|---|---|
-| Virtual memory | `mmap` / `munmap` | `mmap` / `munmap` | `VirtualAlloc` / `VirtualFree` |
-| Page release | `madvise(MADV_DONTNEED)` | `madvise(MADV_FREE)` | `VirtualFree(MEM_DECOMMIT)` |
-| Thread creation | `pthread_create` | `pthread_create` | `CreateThread` |
-| Thread parking | `pthread_cond_wait` | `pthread_cond_wait` | `WaitForSingleObject` |
-| Mutexes | `pthread_mutex` | `pthread_mutex` | `CRITICAL_SECTION` |
-| CPU count | `sysconf(_SC_NPROCESSORS_ONLN)` | `sysconf(_SC_NPROCESSORS_ONLN)` | `GetSystemInfo` |
-| Stack guard fault | `SIGSEGV` handler | `SIGSEGV` handler | SEH (Structured Exception Handling) |
-| Preemption signal | `SIGURG` | `SIGURG` | `SuspendThread` / `GetThreadContext` |
-| Network polling | `epoll` | `kqueue` | IOCP |
-| Context switch | System V ABI asm | System V ABI asm | Windows ABI asm |
-| TLS | `__thread` / `pthread_key` | `__thread` / `pthread_key` | `__declspec(thread)` / `TlsAlloc` |
+| Feature           | Linux                           | macOS                           | Windows                              |
+| ----------------- | ------------------------------- | ------------------------------- | ------------------------------------ |
+| Virtual memory    | `mmap` / `munmap`               | `mmap` / `munmap`               | `VirtualAlloc` / `VirtualFree`       |
+| Page release      | `madvise(MADV_DONTNEED)`        | `madvise(MADV_FREE)`            | `VirtualFree(MEM_DECOMMIT)`          |
+| Thread creation   | `pthread_create`                | `pthread_create`                | `CreateThread`                       |
+| Thread parking    | `pthread_cond_wait`             | `pthread_cond_wait`             | `WaitForSingleObject`                |
+| Mutexes           | `pthread_mutex`                 | `pthread_mutex`                 | `CRITICAL_SECTION`                   |
+| CPU count         | `sysconf(_SC_NPROCESSORS_ONLN)` | `sysconf(_SC_NPROCESSORS_ONLN)` | `GetSystemInfo`                      |
+| Stack guard fault | `SIGSEGV` handler               | `SIGSEGV` handler               | SEH (Structured Exception Handling)  |
+| Preemption signal | `SIGURG`                        | `SIGURG`                        | `SuspendThread` / `GetThreadContext` |
+| Network polling   | `epoll`                         | `kqueue`                        | IOCP                                 |
+| Context switch    | System V ABI asm                | System V ABI asm                | Windows ABI asm                      |
+| TLS               | `__thread` / `pthread_key`      | `__thread` / `pthread_key`      | `__declspec(thread)` / `TlsAlloc`    |
 
 ## Virtual Memory
 
@@ -52,6 +51,7 @@ munmap(ptr, size);
 ```
 
 **macOS-specific notes:**
+
 - `MAP_ANONYMOUS` is available (not just `MAP_ANON`)
 - `MADV_FREE` is preferred over `MADV_DONTNEED` (lazier, better performance)
 - Mach VM APIs (`vm_allocate`, `vm_deallocate`) are an alternative but unnecessary — `mmap` works fine
@@ -224,6 +224,7 @@ AddVectoredExceptionHandler(1, stack_fault_handler);
 ### Linux and macOS: SIGURG
 
 Go 1.14+ uses `SIGURG` for asynchronous preemption because:
+
 - It is not commonly used by applications
 - It does not interfere with debuggers
 - It is safe to deliver to any thread

@@ -4,7 +4,6 @@ sidebar:
   order: 34
 ---
 
-
 Run uses a default global allocator for heap allocations. For performance-critical or specialized use cases, `alloc` supports a named custom allocator argument.
 
 ## The default allocator
@@ -58,7 +57,6 @@ pub fun main() {
 Most programs never need custom allocators. The default allocator works well for general use. Custom allocators are a tool for optimization once you understand your program's allocation patterns.
 
 ## Create your own allocator
-
 
 Implement the `Allocator` interface to create a custom allocator.
 

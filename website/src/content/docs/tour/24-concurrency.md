@@ -4,7 +4,6 @@ sidebar:
   order: 24
 ---
 
-
 Run has built-in support for concurrency through green threads. Use the `run` keyword to spawn a lightweight concurrent task — similar to goroutines in Go.
 
 ```go

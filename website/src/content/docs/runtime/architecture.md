@@ -4,7 +4,6 @@ sidebar:
   order: 1
 ---
 
-
 ## Component Diagram
 
 ```
@@ -51,6 +50,7 @@ Source (.run) → Lexer → Parser → AST → Resolve → TypeCheck → Lower �
 ```
 
 The generated C code:
+
 - `#include "run_runtime.h"` for access to all runtime APIs
 - Defines `void run_main__main(void)` as the user's entry point
 - Calls `run_gen_alloc`/`run_gen_free`/`run_gen_check` for heap memory
@@ -75,6 +75,7 @@ int main(void) {
 ### Step 1: `run_scheduler_init()`
 
 Future behavior (when scheduler is implemented):
+
 1. Query CPU count via `sysconf(_SC_NPROCESSORS_ONLN)` (or `GetSystemInfo` on Windows)
 2. Read `RUN_MAXPROCS` environment variable (defaults to CPU count)
 3. Allocate P structs (one per logical processor)
@@ -89,6 +90,7 @@ The user's main function runs directly on the main M/P. Any `run` statements in 
 ### Step 3: `run_scheduler_run()`
 
 Future behavior:
+
 1. Enter scheduling loop on the main M
 2. Pick runnable Gs from local/global queues
 3. Context-switch to each G, run until it yields or blocks
@@ -105,6 +107,7 @@ Future behavior:
 ## Current State
 
 The runtime currently operates in a simplified mode:
+
 - `run_scheduler_init()` is a no-op
 - `run_spawn()` calls the function directly (synchronous execution, no green threads)
 - `run_scheduler_run()` is a no-op

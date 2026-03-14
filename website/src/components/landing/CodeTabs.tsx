@@ -161,7 +161,13 @@ function renderCode(code: { text: string; type?: string }[]) {
         lines.push(currentLine);
       }
       currentLine = [item];
-      if (item.text === "" || item.text.endsWith("}") || item.text.endsWith("{") || item.text.endsWith(",") || item.text.endsWith(")")) {
+      if (
+        item.text === "" ||
+        item.text.endsWith("}") ||
+        item.text.endsWith("{") ||
+        item.text.endsWith(",") ||
+        item.text.endsWith(")")
+      ) {
         lines.push(currentLine);
         currentLine = [];
       }

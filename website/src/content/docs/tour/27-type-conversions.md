@@ -4,7 +4,6 @@ sidebar:
   order: 27
 ---
 
-
 Run requires explicit conversions between types. There are no implicit coercions — even between numeric types of different sizes.
 
 ```go

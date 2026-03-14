@@ -4,7 +4,6 @@ sidebar:
   order: 25
 ---
 
-
 Channels are the primary way to communicate between concurrent tasks in Run. They allow one task to send a value and another to receive it.
 
 ## Creating channels
@@ -52,7 +51,7 @@ fun producer(ch: chan int) {
     for i in 0..5 {
         ch <- i  // send
     }
-    
+
     close(ch)
 }
 

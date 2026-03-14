@@ -4,7 +4,6 @@ sidebar:
   order: 2
 ---
 
-
 ## Overview
 
 Channels are the primary synchronization and communication mechanism in Run. They provide typed, thread-safe message passing between green threads, deeply integrated with the scheduler for efficient blocking and waking.
@@ -45,6 +44,7 @@ run_chan_t *run_chan_new(size_t elem_size, size_t buffer_cap);
 ```
 
 Implementation:
+
 1. Allocate the `run_chan_t` struct
 2. If `buffer_cap > 0`, allocate a circular buffer of `elem_size * buffer_cap` bytes
 3. Initialize the mutex, zero out queues, set `closed = false`
@@ -220,6 +220,7 @@ select {
 ```
 
 Implementation approach:
+
 1. Register the G on all specified channels' wait queues
 2. If any channel is immediately ready, proceed with that case
 3. If none are ready and there's a `default` case, execute default

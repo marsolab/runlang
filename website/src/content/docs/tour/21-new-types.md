@@ -4,7 +4,6 @@ sidebar:
   order: 21
 ---
 
-
 The `type` keyword creates a distinct type from an existing one. Unlike a type alias, a newtype is not interchangeable with its underlying type — the compiler treats them as different types.
 
 ```go

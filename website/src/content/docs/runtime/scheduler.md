@@ -4,7 +4,6 @@ sidebar:
   order: 5
 ---
 
-
 ## Overview
 
 Run's scheduler is modeled after Go's GMP scheduler. It multiplexes many lightweight green threads ("run routines") onto a smaller number of OS threads, providing concurrency with low overhead.
@@ -318,6 +317,7 @@ For Gs executing tight loops without function calls:
 When a G is about to make a blocking syscall (file I/O, network, sleep):
 
 1. **Before syscall**: M detaches from its P
+
    ```c
    run_p_t *p = m->current_p;
    p->status = P_SYSCALL;

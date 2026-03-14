@@ -4,7 +4,6 @@ sidebar:
   order: 6
 ---
 
-
 Immutable variables are declared with the `let` keyword. They must be assigned a value and cannot be reassigned.
 
 ```go

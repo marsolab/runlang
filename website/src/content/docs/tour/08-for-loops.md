@@ -4,7 +4,6 @@ sidebar:
   order: 8
 ---
 
-
 Run uses `for` as its only loop construct. It covers all common looping patterns.
 
 ## Infinite loop

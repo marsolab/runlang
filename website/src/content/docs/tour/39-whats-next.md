@@ -4,7 +4,6 @@ sidebar:
   order: 39
 ---
 
-
 Congratulations — you have completed the Run language tour! Here is a summary of what you learned and where to go from here.
 
 ## What you covered

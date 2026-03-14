@@ -4,7 +4,6 @@ sidebar:
   order: 12
 ---
 
-
 Run has two pointer types that control access to the pointed-to value.
 
 ## Read/write pointers

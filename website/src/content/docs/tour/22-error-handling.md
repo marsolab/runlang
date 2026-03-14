@@ -4,7 +4,6 @@ sidebar:
   order: 22
 ---
 
-
 Run uses error unions for error handling, inspired by Zig. A function that can fail returns `!T` — either a value of type `T` or an error.
 
 ```go

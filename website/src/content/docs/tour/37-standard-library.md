@@ -4,47 +4,46 @@ sidebar:
   order: 37
 ---
 
-
 Run ships with a comprehensive standard library, comparable in scope to Go's. It covers the most common tasks so you can build real applications without third-party dependencies.
 
 ## Core packages
 
-| Package    | Description                          |
-|------------|--------------------------------------|
-| `fmt`      | String formatting and printing       |
-| `strings`  | String searching, splitting, joining |
-| `bytes`    | Byte slice utilities                 |
-| `math`     | Mathematical functions and constants |
-| `time`     | Time, durations, and timers          |
+| Package   | Description                          |
+| --------- | ------------------------------------ |
+| `fmt`     | String formatting and printing       |
+| `strings` | String searching, splitting, joining |
+| `bytes`   | Byte slice utilities                 |
+| `math`    | Mathematical functions and constants |
+| `time`    | Time, durations, and timers          |
 
 ## I/O and system
 
-| Package    | Description                          |
-|------------|--------------------------------------|
-| `io`       | Readers, writers, buffered I/O       |
-| `os`       | File system, processes, environment  |
-| `log`      | Structured logging                   |
+| Package | Description                         |
+| ------- | ----------------------------------- |
+| `io`    | Readers, writers, buffered I/O      |
+| `os`    | File system, processes, environment |
+| `log`   | Structured logging                  |
 
 ## Networking
 
-| Package    | Description                          |
-|------------|--------------------------------------|
-| `net`      | TCP/UDP sockets, DNS resolution      |
-| `http`     | HTTP server and client               |
+| Package | Description                     |
+| ------- | ------------------------------- |
+| `net`   | TCP/UDP sockets, DNS resolution |
+| `http`  | HTTP server and client          |
 
 ## Data and encoding
 
-| Package    | Description                          |
-|------------|--------------------------------------|
-| `json`     | JSON encoding and decoding           |
-| `crypto`   | Hashing, encryption, TLS            |
+| Package  | Description                |
+| -------- | -------------------------- |
+| `json`   | JSON encoding and decoding |
+| `crypto` | Hashing, encryption, TLS   |
 
 ## Concurrency and testing
 
-| Package    | Description                          |
-|------------|--------------------------------------|
-| `sync`     | Mutexes, atomics, wait groups        |
-| `testing`  | Built-in test framework              |
+| Package   | Description                   |
+| --------- | ----------------------------- |
+| `sync`    | Mutexes, atomics, wait groups |
+| `testing` | Built-in test framework       |
 
 ## Example: a small HTTP server
 

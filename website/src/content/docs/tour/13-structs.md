@@ -4,7 +4,6 @@ sidebar:
   order: 13
 ---
 
-
 Structs are the primary way to define custom data types in Run.
 
 ```go

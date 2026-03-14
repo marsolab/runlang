@@ -4,7 +4,6 @@ sidebar:
   order: 16
 ---
 
-
 Strings in Run are UTF-8 encoded byte sequences. The string type is `string`.
 
 ```go

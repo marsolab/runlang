@@ -4,7 +4,6 @@ sidebar:
   order: 29
 ---
 
-
 `break` exits a loop immediately. `continue` skips the rest of the current iteration and moves to the next one.
 
 ## Break

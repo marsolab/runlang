@@ -4,7 +4,6 @@ sidebar:
   order: 26
 ---
 
-
 Run uses generational references for memory safety — no garbage collector, no borrow checker.
 
 ## How it works

@@ -4,7 +4,6 @@ sidebar:
   order: 17
 ---
 
-
 In Run, methods are functions with a **receiver** — declared outside the struct, just like in Go. The struct definition contains only data; methods are defined alongside it.
 
 ```go

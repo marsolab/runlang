@@ -4,7 +4,6 @@ sidebar:
   order: 32
 ---
 
-
 When a function returns `!T`, the set of errors it can produce is inferred by the compiler. You do not need to declare error types manually.
 
 ## Inferred error sets
