@@ -84,7 +84,8 @@ pub const Parser = struct {
 
         self.advance(); // consume package
 
-        if (self.peekTag() != .identifier) {
+        // Accept keywords as package names (e.g., "package asm")
+        if (self.peekTag() != .identifier and !self.peekTag().isKeyword()) {
             try self.addError(.expected_identifier, self.currentLoc(), null);
             return null_node;
         }
@@ -485,8 +486,11 @@ pub const Parser = struct {
             const first_variant = try self.parseVariantDef();
             try variants.append(self.tree.allocator, first_variant);
 
-            while (self.peekTag() == .pipe) {
+            while (true) {
+                self.skipNewlines();
+                if (self.peekTag() != .pipe) break;
                 self.advance();
+                self.skipNewlines();
                 const v = try self.parseVariantDef();
                 try variants.append(self.tree.allocator, v);
             }
