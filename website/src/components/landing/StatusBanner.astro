@@ -1,0 +1,46 @@
+---
+const components = [
+  { name: "Lexer", status: "complete" },
+  { name: "Parser", status: "complete" },
+  { name: "Name Resolution", status: "complete" },
+  { name: "Type Checking", status: "in-progress" },
+  { name: "IR Lowering", status: "complete" },
+  { name: "C Code Generation", status: "complete" },
+  { name: "Runtime Library", status: "mvp" },
+  { name: "Standard Library", status: "not-started" },
+];
+
+const statusStyles: Record<string, { label: string; classes: string }> = {
+  complete: { label: "Complete", classes: "bg-green-500/10 text-green-400 border-green-500/20" },
+  "in-progress": { label: "In Progress", classes: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20" },
+  mvp: { label: "MVP", classes: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
+  "not-started": { label: "Not Started", classes: "bg-gray-500/10 text-gray-500 border-gray-500/20" },
+};
+---
+
+<section class="py-20">
+  <div class="mx-auto max-w-3xl px-6">
+    <div class="mb-12 text-center">
+      <h2 class="mb-4 text-3xl font-bold text-white">Compiler status</h2>
+      <p class="text-lg text-gray-400">Run is in active development. Here's where we stand.</p>
+    </div>
+    <div class="rounded-xl border border-white/10 bg-white/5 p-6">
+      <div class="space-y-3">
+        {components.map((comp) => {
+          const style = statusStyles[comp.status];
+          return (
+            <div class="flex items-center justify-between rounded-lg px-4 py-3 transition hover:bg-white/5">
+              <span class="text-sm font-medium text-white">{comp.name}</span>
+              <span class:list={["inline-flex rounded-full border px-3 py-1 text-xs font-medium", style.classes]}>
+                {style.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+    <p class="mt-6 text-center text-sm text-gray-500">
+      This is a great time to <a href="https://github.com/marsolab/runlang/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer" class="text-run-primary hover:underline">get involved</a>.
+    </p>
+  </div>
+</section>

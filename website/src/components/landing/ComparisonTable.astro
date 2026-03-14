@@ -1,0 +1,72 @@
+---
+const rows = [
+  {
+    feature: "Memory Safety",
+    run: "Generational refs",
+    go: "Garbage collector",
+    rust: "Borrow checker",
+    zig: "Manual",
+  },
+  {
+    feature: "Concurrency",
+    run: "Green threads",
+    go: "Goroutines",
+    rust: "async / Tokio",
+    zig: "async",
+  },
+  {
+    feature: "Generics",
+    run: "None (built-in collections)",
+    go: "Yes",
+    rust: "Yes",
+    zig: "Comptime",
+  },
+  {
+    feature: "Error Handling",
+    run: "Error unions + context",
+    go: "Multiple returns",
+    rust: "Result<T, E>",
+    zig: "Error unions",
+  },
+  {
+    feature: "Learning Curve",
+    run: "Low",
+    go: "Low",
+    rust: "High",
+    zig: "Medium",
+  },
+];
+---
+
+<section class="py-20">
+  <div class="mx-auto max-w-5xl px-6">
+    <div class="mb-12 text-center">
+      <h2 class="mb-4 text-3xl font-bold text-white">How Run compares</h2>
+      <p class="text-lg text-gray-400">The sweet spot between simplicity and control.</p>
+    </div>
+    <div class="overflow-x-auto rounded-xl border border-white/10">
+      <table class="w-full text-left text-sm">
+        <thead>
+          <tr class="border-b border-white/10 bg-white/5">
+            <th class="px-6 py-4 font-medium text-gray-400"></th>
+            <th class="px-6 py-4 font-bold text-run-primary">Run</th>
+            <th class="px-6 py-4 font-medium text-gray-400">Go</th>
+            <th class="px-6 py-4 font-medium text-gray-400">Rust</th>
+            <th class="px-6 py-4 font-medium text-gray-400">Zig</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr class:list={["border-b border-white/5", i % 2 === 0 ? "bg-transparent" : "bg-white/[0.02]"]}>
+              <td class="px-6 py-4 font-medium text-white">{row.feature}</td>
+              <td class="px-6 py-4 text-run-accent">{row.run}</td>
+              <td class="px-6 py-4 text-gray-400">{row.go}</td>
+              <td class="px-6 py-4 text-gray-400">{row.rust}</td>
+              <td class="px-6 py-4 text-gray-400">{row.zig}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
