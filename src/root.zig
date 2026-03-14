@@ -26,6 +26,7 @@ pub const lsp = @import("lsp.zig");
 pub const init = @import("init.zig");
 pub const formatter = @import("formatter.zig");
 pub const test_runner = @import("test_runner.zig");
+pub const rasm = @import("rasm.zig");
 
 const std = @import("std");
 

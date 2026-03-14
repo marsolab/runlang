@@ -215,7 +215,11 @@ pub const Lexer = struct {
         const c = self.peek();
         return switch (c) {
             '+' => self.advance1(.plus),
-            '-' => self.advance1(.minus),
+            '-' => blk: {
+                if (self.peekNext() == @as(u8, '>'))
+                    break :blk self.advance2(.arrow_right);
+                break :blk self.advance1(.minus);
+            },
             '*' => self.advance1(.star),
             '/' => self.advance1(.slash),
             '%' => self.advance1(.percent),
@@ -230,6 +234,8 @@ pub const Lexer = struct {
             ',' => self.advance1(.comma),
             '?' => self.advance1(.question),
             '|' => self.advance1(.pipe),
+            '#' => self.advance1(.hash),
+            ';' => self.advance1(.semicolon),
             ':' => blk: {
                 if (self.peekNext() == @as(u8, '='))
                     break :blk self.advance2(.colon_equal);
@@ -369,6 +375,32 @@ test "lex colon vs colon_colon" {
     try std.testing.expectEqual(Tag.colon, lexer.next().tag);
     try std.testing.expectEqual(Tag.colon_colon, lexer.next().tag);
     try std.testing.expectEqual(Tag.colon, lexer.next().tag);
+    try std.testing.expectEqual(Tag.eof, lexer.next().tag);
+}
+
+test "lex arrow_right and hash and semicolon" {
+    var lexer = Lexer.init("-> # ;");
+    try std.testing.expectEqual(Tag.arrow_right, lexer.next().tag);
+    try std.testing.expectEqual(Tag.hash, lexer.next().tag);
+    try std.testing.expectEqual(Tag.semicolon, lexer.next().tag);
+    try std.testing.expectEqual(Tag.eof, lexer.next().tag);
+}
+
+test "lex asm keyword" {
+    var lexer = Lexer.init("asm clobber");
+    try std.testing.expectEqual(Tag.kw_asm, lexer.next().tag);
+    try std.testing.expectEqual(Tag.kw_clobber, lexer.next().tag);
+    try std.testing.expectEqual(Tag.eof, lexer.next().tag);
+}
+
+test "lex minus vs arrow_right" {
+    var lexer = Lexer.init("a - b a -> r0");
+    try std.testing.expectEqual(Tag.identifier, lexer.next().tag);
+    try std.testing.expectEqual(Tag.minus, lexer.next().tag);
+    try std.testing.expectEqual(Tag.identifier, lexer.next().tag);
+    try std.testing.expectEqual(Tag.identifier, lexer.next().tag);
+    try std.testing.expectEqual(Tag.arrow_right, lexer.next().tag);
+    try std.testing.expectEqual(Tag.identifier, lexer.next().tag);
     try std.testing.expectEqual(Tag.eof, lexer.next().tag);
 }
 

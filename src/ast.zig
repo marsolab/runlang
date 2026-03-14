@@ -36,6 +36,8 @@ pub const Ast = struct {
         expected_string_literal,
         invalid_token,
         invalid_alloc_type,
+        expected_asm_register,
+        expected_arrow_right,
         unexpected_eof,
     };
 
@@ -276,5 +278,30 @@ pub const Node = struct {
         /// `.{ field1: val1, field2: val2 }`
         /// lhs = null_node, rhs = extra_data start for field inits
         anon_struct_literal,
+
+        // Assembly
+        /// `asm(inputs; clobber: regs) ret_type { body }`
+        /// main_token = kw_asm
+        /// lhs = extra_data start, rhs = body block node
+        /// extra_data layout: [input_count, input1, ..., inputN, clobber_count, clobber1, ..., clobberM, ret_type_node]
+        asm_expr,
+        /// Input binding: `expr -> register`
+        /// main_token = register identifier token
+        /// lhs = expression node, rhs = null_node
+        asm_input,
+        /// Assembly body block containing raw assembly text and optional platform conditionals
+        /// main_token = l_brace token
+        /// lhs = extra_data start for body items, rhs = body item count
+        /// Body items are either asm_simple_body or asm_platform nodes
+        asm_body,
+        /// Raw assembly text span (non-platform-conditional instructions)
+        /// main_token = first token of text span
+        /// lhs = source start offset, rhs = source end offset
+        asm_simple_body,
+        /// Platform-conditional section: `#x86_64 { ... }`
+        /// main_token = hash token
+        /// lhs = source start offset (of body text), rhs = source end offset
+        /// The platform name is the identifier token at main_token + 1
+        asm_platform,
     };
 };

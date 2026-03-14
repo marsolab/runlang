@@ -1477,6 +1477,9 @@ pub const Parser = struct {
             .kw_alloc => {
                 return self.parseAllocExpr();
             },
+            .kw_asm => {
+                return self.parseAsmExpr();
+            },
             .eof => {
                 try self.addError(.unexpected_eof, self.currentLoc(), null);
                 return null_node;
@@ -1487,6 +1490,191 @@ pub const Parser = struct {
                 return null_node;
             },
         };
+    }
+
+    /// Parse inline assembly expression: `asm(inputs; clobber: regs) ret_type { body }`
+    fn parseAsmExpr(self: *Parser) Error!NodeIndex {
+        const tok = self.pos;
+        self.expect(.kw_asm);
+        self.expectToken(.l_paren);
+
+        // Parse input list: expr -> register, ...
+        var inputs: std.ArrayList(NodeIndex) = .empty;
+        defer inputs.deinit(self.tree.allocator);
+
+        while (self.peekTag() != .r_paren and self.peekTag() != .semicolon and !self.isAtEnd()) {
+            const expr = try self.parseExpr();
+
+            if (self.peekTag() != .arrow_right) {
+                try self.addError(.expected_arrow_right, self.currentLoc(), null);
+                break;
+            }
+            self.advance(); // consume ->
+
+            if (self.peekTag() != .identifier) {
+                try self.addError(.expected_asm_register, self.currentLoc(), null);
+                break;
+            }
+            const reg_tok = self.pos;
+            self.advance(); // consume register name
+
+            const input_node = try self.tree.addNode(.{
+                .tag = .asm_input,
+                .main_token = reg_tok,
+                .data = .{ .lhs = expr, .rhs = null_node },
+            });
+            try inputs.append(self.tree.allocator, input_node);
+
+            if (self.peekTag() == .comma) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        // Parse optional clobber list: ; clobber: reg1, reg2, memory
+        var clobbers: std.ArrayList(NodeIndex) = .empty;
+        defer clobbers.deinit(self.tree.allocator);
+
+        if (self.peekTag() == .semicolon) {
+            self.advance(); // consume ;
+            self.skipNewlines();
+            if (self.peekTag() == .kw_clobber) {
+                self.advance(); // consume clobber
+                self.expectToken(.colon);
+                while (self.peekTag() == .identifier and !self.isAtEnd()) {
+                    const clobber_tok = self.pos;
+                    self.advance();
+                    const clobber_node = try self.tree.addNode(.{
+                        .tag = .ident,
+                        .main_token = clobber_tok,
+                        .data = .{ .lhs = null_node, .rhs = null_node },
+                    });
+                    try clobbers.append(self.tree.allocator, clobber_node);
+                    if (self.peekTag() == .comma) {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        self.expectToken(.r_paren);
+
+        // Parse optional return type
+        var ret_type: NodeIndex = null_node;
+        if (self.isTypeStart()) {
+            ret_type = try self.parseType();
+        }
+
+        self.skipNewlines();
+
+        // Parse assembly body block
+        const body = try self.parseAsmBody();
+
+        // Build extra_data: [input_count, input1, ..., inputN, clobber_count, clobber1, ..., clobberM, ret_type_node]
+        const extra_start: u32 = @intCast(self.tree.extra_data.items.len);
+        _ = try self.tree.addExtra(@intCast(inputs.items.len));
+        for (inputs.items) |input| {
+            _ = try self.tree.addExtra(input);
+        }
+        _ = try self.tree.addExtra(@intCast(clobbers.items.len));
+        for (clobbers.items) |clobber| {
+            _ = try self.tree.addExtra(clobber);
+        }
+        _ = try self.tree.addExtra(ret_type);
+
+        return self.tree.addNode(.{
+            .tag = .asm_expr,
+            .main_token = tok,
+            .data = .{ .lhs = extra_start, .rhs = body },
+        });
+    }
+
+    /// Parse assembly body: `{ instructions }` with optional `#platform { ... }` sections
+    fn parseAsmBody(self: *Parser) Error!NodeIndex {
+        const tok = self.pos;
+        self.expectToken(.l_brace);
+        self.skipNewlines();
+
+        var items: std.ArrayList(NodeIndex) = .empty;
+        defer items.deinit(self.tree.allocator);
+
+        while (self.peekTag() != .r_brace and !self.isAtEnd()) {
+            self.skipNewlines();
+            if (self.peekTag() == .r_brace) break;
+
+            if (self.peekTag() == .hash) {
+                // Platform conditional: #x86_64 { ... } or #arm64 { ... }
+                const hash_tok = self.pos;
+                self.advance(); // consume #
+
+                if (self.peekTag() != .identifier) {
+                    try self.addError(.expected_identifier, self.currentLoc(), null);
+                    break;
+                }
+                self.advance(); // consume platform name
+                self.skipNewlines();
+
+                // Parse the platform body
+                if (self.peekTag() != .l_brace) {
+                    try self.addError(.expected_block, self.currentLoc(), null);
+                    break;
+                }
+                // Record source positions of the inner body
+                self.advance(); // consume {
+                const body_start = self.pos;
+                var depth: u32 = 1;
+                while (depth > 0 and !self.isAtEnd()) {
+                    if (self.peekTag() == .l_brace) depth += 1;
+                    if (self.peekTag() == .r_brace) depth -= 1;
+                    if (depth > 0) self.advance();
+                }
+                const body_end = self.pos;
+                if (self.peekTag() == .r_brace) self.advance(); // consume }
+
+                // Use token positions to capture source range
+                const src_start = if (body_start < self.tokens.len) self.tokens[body_start].loc.start else 0;
+                const src_end = if (body_end < self.tokens.len) self.tokens[body_end].loc.start else src_start;
+
+                const platform_node = try self.tree.addNode(.{
+                    .tag = .asm_platform,
+                    .main_token = hash_tok,
+                    .data = .{ .lhs = src_start, .rhs = src_end },
+                });
+                try items.append(self.tree.allocator, platform_node);
+            } else {
+                // Raw assembly text — collect tokens until we hit a # or }
+                const text_start_tok = self.pos;
+                const src_start = self.tokens[text_start_tok].loc.start;
+                while (self.peekTag() != .r_brace and self.peekTag() != .hash and !self.isAtEnd()) {
+                    self.advance();
+                }
+                const src_end = if (self.pos < self.tokens.len) self.tokens[self.pos].loc.start else src_start;
+
+                const text_node = try self.tree.addNode(.{
+                    .tag = .asm_simple_body,
+                    .main_token = text_start_tok,
+                    .data = .{ .lhs = src_start, .rhs = src_end },
+                });
+                try items.append(self.tree.allocator, text_node);
+            }
+            self.skipNewlines();
+        }
+        self.expectToken(.r_brace);
+
+        const extra_start: u32 = @intCast(self.tree.extra_data.items.len);
+        for (items.items) |item| {
+            _ = try self.tree.addExtra(item);
+        }
+        const count: u32 = @intCast(items.items.len);
+
+        return self.tree.addNode(.{
+            .tag = .asm_body,
+            .main_token = tok,
+            .data = .{ .lhs = extra_start, .rhs = count },
+        });
     }
 
     fn parseClosure(self: *Parser) Error!NodeIndex {
@@ -2772,4 +2960,100 @@ test "parse package declaration and use import" {
     }
     try std.testing.expect(saw_package);
     try std.testing.expect(saw_import);
+}
+
+test "parse basic inline asm expression" {
+    const source = "fn main() {\n    x := asm(a -> r0, b -> r1) u64 {\n        add r0, r0, r1\n    }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_asm = false;
+    var found_inputs: u32 = 0;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .asm_expr) found_asm = true;
+        if (node.tag == .asm_input) found_inputs += 1;
+    }
+    try std.testing.expect(found_asm);
+    try std.testing.expectEqual(@as(u32, 2), found_inputs);
+}
+
+test "parse asm with clobber list" {
+    const source = "fn main() {\n    asm(x -> r0; clobber: r2, r3) {\n        mov r2, r0\n    }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_asm = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .asm_expr) {
+            found_asm = true;
+            // Check extra_data: input_count=1, then input node, then clobber_count=2
+            const extra = parser.tree.extra_data.items;
+            const input_count = extra[node.data.lhs];
+            try std.testing.expectEqual(@as(u32, 1), input_count);
+            const clobber_offset = node.data.lhs + 1 + input_count;
+            const clobber_count = extra[clobber_offset];
+            try std.testing.expectEqual(@as(u32, 2), clobber_count);
+        }
+    }
+    try std.testing.expect(found_asm);
+}
+
+test "parse asm with no inputs" {
+    const source = "fn main() {\n    asm() {\n        nop\n    }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_asm = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .asm_expr) {
+            found_asm = true;
+            const extra = parser.tree.extra_data.items;
+            const input_count = extra[node.data.lhs];
+            try std.testing.expectEqual(@as(u32, 0), input_count);
+        }
+    }
+    try std.testing.expect(found_asm);
+}
+
+test "parse asm with platform conditionals" {
+    const source = "fn main() {\n    asm(data -> r0) {\n        #x86_64 {\n            popcnt r0, r0\n        }\n        #arm64 {\n            cnt v0.8b, v0.8b\n        }\n    }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_asm = false;
+    var platform_count: u32 = 0;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .asm_expr) found_asm = true;
+        if (node.tag == .asm_platform) platform_count += 1;
+    }
+    try std.testing.expect(found_asm);
+    try std.testing.expectEqual(@as(u32, 2), platform_count);
 }

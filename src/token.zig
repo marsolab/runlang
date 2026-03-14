@@ -50,6 +50,8 @@ pub const Token = struct {
         kw_and,
         kw_or,
         kw_not,
+        kw_asm,
+        kw_clobber,
 
         // Operators
         plus, // +
@@ -69,10 +71,13 @@ pub const Token = struct {
         ampersand, // &
         at, // @
         arrow_left, // <-
+        arrow_right, // ->
         dot_dot, // ..
         ellipsis, // ...
         dot, // .
         pipe, // |
+        hash, // #
+        semicolon, // ;
 
         // Delimiters
         l_paren, // (
@@ -93,7 +98,7 @@ pub const Token = struct {
 
         pub fn isKeyword(tag: Tag) bool {
             return @intFromEnum(tag) >= @intFromEnum(Tag.kw_fun) and
-                @intFromEnum(tag) <= @intFromEnum(Tag.kw_not);
+                @intFromEnum(tag) <= @intFromEnum(Tag.kw_clobber);
         }
     };
 
@@ -129,6 +134,8 @@ pub const Token = struct {
         .{ "and", .kw_and },
         .{ "or", .kw_or },
         .{ "not", .kw_not },
+        .{ "asm", .kw_asm },
+        .{ "clobber", .kw_clobber },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {

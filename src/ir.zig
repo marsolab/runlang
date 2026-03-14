@@ -92,6 +92,9 @@ pub const Inst = struct {
         local_set, // arg1 = local_idx, arg2 = value ref
         local_get, // result = ref, arg1 = local_idx
 
+        // Inline assembly
+        inline_asm, // result = asm output, arg1 = asm_info index in Module.asm_infos
+
         // SSA / misc
         phi,
         nop,
@@ -211,11 +214,42 @@ pub const LocalInfo = struct {
     c_type: []const u8,
 };
 
+/// Metadata for an inline assembly expression.
+pub const AsmInfo = struct {
+    /// The assembly template string (raw source text of instructions)
+    template: []const u8,
+    /// Input operands: each is (register_name, ir_ref)
+    inputs: std.ArrayList(AsmOperand),
+    /// Clobber register names
+    clobbers: std.ArrayList([]const u8),
+    /// C return type string, or "void" if no return
+    return_type: []const u8,
+    /// Platform-conditional sections (optional)
+    platform_sections: std.ArrayList(PlatformSection),
+
+    pub const PlatformSection = struct {
+        platform: []const u8,
+        template: []const u8,
+    };
+
+    pub fn deinit(self: *AsmInfo, allocator: std.mem.Allocator) void {
+        self.inputs.deinit(allocator);
+        self.clobbers.deinit(allocator);
+        self.platform_sections.deinit(allocator);
+    }
+};
+
+pub const AsmOperand = struct {
+    register: []const u8,
+    ref: Ref,
+};
+
 pub const Module = struct {
     functions: std.ArrayList(Function),
     string_constants: std.ArrayList(StringConstant),
     call_infos: std.ArrayList(CallInfo),
     local_infos: std.ArrayList(LocalInfo),
+    asm_infos: std.ArrayList(AsmInfo),
     /// Strings allocated by the lowering pass that this module owns.
     owned_strings: std.ArrayList([]const u8),
 
@@ -225,6 +259,7 @@ pub const Module = struct {
             .string_constants = .empty,
             .call_infos = .empty,
             .local_infos = .empty,
+            .asm_infos = .empty,
             .owned_strings = .empty,
         };
     }
@@ -240,6 +275,10 @@ pub const Module = struct {
         }
         self.call_infos.deinit(allocator);
         self.local_infos.deinit(allocator);
+        for (self.asm_infos.items) |*ai| {
+            ai.deinit(allocator);
+        }
+        self.asm_infos.deinit(allocator);
         for (self.owned_strings.items) |s| {
             allocator.free(s);
         }
@@ -295,6 +334,12 @@ pub const Module = struct {
         }
         const index: u32 = @intCast(self.local_infos.items.len);
         try self.local_infos.append(allocator, .{ .name = name, .c_type = c_type });
+        return index;
+    }
+
+    pub fn addAsmInfo(self: *Module, allocator: std.mem.Allocator, info: AsmInfo) !u32 {
+        const index: u32 = @intCast(self.asm_infos.items.len);
+        try self.asm_infos.append(allocator, info);
         return index;
     }
 
