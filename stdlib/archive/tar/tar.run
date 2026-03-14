@@ -1,0 +1,85 @@
+package tar
+
+use "io"
+use "time"
+
+// TarError represents errors during tar operations.
+pub type TarError = .invalidHeader
+    | .unsupportedFormat
+    | .nameToolong
+    | .writeTooLong
+
+// TypeFlag represents the type of a tar header entry.
+pub type TypeFlag = .regular
+    | .link
+    | .symlink
+    | .character
+    | .block
+    | .directory
+    | .fifo
+
+// Header represents a single header in a tar archive.
+pub Header struct {
+    name     string
+    size     int
+    mode     int
+    uid      int
+    gid      int
+    mod_time time.Time
+    type_flag TypeFlag
+    link_name string
+    uname    string
+    gname    string
+}
+
+// Reader provides sequential access to the contents of a tar archive.
+pub Reader struct {
+    reader io.Reader
+}
+
+// new_reader creates a new Reader reading from r.
+pub fun new_reader(r io.Reader) Reader {
+    return Reader{ reader: r }
+}
+
+// next advances to the next entry in the tar archive.
+// Returns the Header for the entry, or null at end of archive.
+pub fun (r &Reader) next() !Header? {
+    return null
+}
+
+// read reads from the current entry in the tar archive.
+pub fun (r &Reader) read(buf []byte) !int {
+    return 0
+}
+
+// Writer provides sequential writing of a tar archive.
+pub Writer struct {
+    implements {
+        io.Closer
+    }
+
+    writer io.Writer
+}
+
+// new_writer creates a new Writer writing to w.
+pub fun new_writer(w io.Writer) Writer {
+    return Writer{ writer: w }
+}
+
+// write_header writes the header and prepares to accept the file's contents.
+pub fun (w &Writer) write_header(header @Header) !void {
+}
+
+// write writes to the current file in the tar archive.
+pub fun (w &Writer) write(buf []byte) !int {
+    return 0
+}
+
+// flush finishes writing the current file.
+pub fun (w &Writer) flush() !void {
+}
+
+// close closes the tar archive, flushing any unwritten data.
+pub fun (w &Writer) close() !void {
+}

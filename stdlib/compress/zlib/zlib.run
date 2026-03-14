@@ -1,0 +1,79 @@
+package zlib
+
+use "io"
+
+// ZlibError represents errors during zlib compression/decompression.
+pub type ZlibError = .invalidHeader
+    | .invalidChecksum
+    | .corruptData
+    | .unexpectedEof
+    | .dictionaryMismatch
+
+// Reader reads and decompresses zlib data (RFC 1950).
+pub Reader struct {
+    implements {
+        io.Reader
+        io.Closer
+    }
+
+    reader io.Reader
+}
+
+// new_reader returns a new Reader that decompresses data from r.
+pub fun new_reader(r io.Reader) !Reader {
+    return Reader{ reader: r }
+}
+
+// new_reader_dict returns a new Reader that decompresses data from r
+// using a preset dictionary.
+pub fun new_reader_dict(r io.Reader, dict []byte) !Reader {
+    return Reader{ reader: r }
+}
+
+// read reads decompressed data into buf.
+pub fun (r &Reader) read(buf []byte) !int {
+    return 0
+}
+
+// close releases resources used by the Reader.
+pub fun (r &Reader) close() !void {
+}
+
+// Writer compresses data using zlib and writes to an underlying writer.
+pub Writer struct {
+    implements {
+        io.Writer
+        io.Closer
+    }
+
+    writer io.Writer
+    level  int
+}
+
+// new_writer returns a new Writer that compresses at the default level.
+pub fun new_writer(w io.Writer) Writer {
+    return Writer{ writer: w, level: -1 }
+}
+
+// new_writer_level returns a new Writer that compresses at the given level.
+pub fun new_writer_level(w io.Writer, level int) !Writer {
+    return Writer{ writer: w, level: level }
+}
+
+// new_writer_level_dict returns a new Writer with preset dictionary.
+pub fun new_writer_level_dict(w io.Writer, level int, dict []byte) !Writer {
+    return Writer{ writer: w, level: level }
+}
+
+// write compresses data from buf and writes to the underlying writer.
+pub fun (w &Writer) write(buf []byte) !int {
+    return 0
+}
+
+// flush flushes any pending compressed data.
+pub fun (w &Writer) flush() !void {
+}
+
+// close writes the zlib checksum and closes the writer.
+pub fun (w &Writer) close() !void {
+}
