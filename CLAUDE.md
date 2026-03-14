@@ -82,6 +82,10 @@ The milestones are ordered by dependency — each builds on the previous:
 
 M7 is the foundation (assembly provides the low-level escape hatch). M8 and M9 can proceed in parallel after M7.
 
+### Long-term Goal: Self-Hosted Compiler (#188)
+
+Once the compiler and language are stable enough (post-M6 at minimum), the compiler will be rewritten in Run itself. The current Zig implementation becomes the bootstrap compiler (stage 0), the Run rewrite becomes stage 1, and self-hosting is proven when stage 1 can compile itself (stage 2) with matching output.
+
 ### Labels
 
 Component labels for categorizing issues: `type-system`, `runtime`, `stdlib`, `tooling`, `compiler`, `concurrency`, `memory`, `testing`, `assembly`, `simd`, `numa`
