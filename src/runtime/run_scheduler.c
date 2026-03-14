@@ -1027,30 +1027,35 @@ void run_stack_growth_init(void) {
 
 static const char *g_status_str(run_g_status_t s) {
     switch (s) {
-        case G_IDLE:     return "idle";
-        case G_RUNNABLE: return "runnable";
-        case G_RUNNING:  return "running";
-        case G_WAITING:  return "waiting";
-        case G_DEAD:     return "dead";
-        default:         return "unknown";
+    case G_IDLE:
+        return "idle";
+    case G_RUNNABLE:
+        return "runnable";
+    case G_RUNNING:
+        return "running";
+    case G_WAITING:
+        return "waiting";
+    case G_DEAD:
+        return "dead";
+    default:
+        return "unknown";
     }
 }
 
 static int dump_g(char *buf, size_t remaining, run_g_t *g, bool *first) {
-    if (g == NULL || remaining < 128) return 0;
+    if (g == NULL || remaining < 128)
+        return 0;
     int n = snprintf(buf, remaining,
-        "%s{\"id\":%lu,\"status\":\"%s\",\"stack_base\":\"%p\",\"in_syscall\":%s}",
-        *first ? "" : ",",
-        (unsigned long)g->id,
-        g_status_str(g->status),
-        g->stack_base,
-        g->in_syscall ? "true" : "false");
+                     "%s{\"id\":%lu,\"status\":\"%s\",\"stack_base\":\"%p\",\"in_syscall\":%s}",
+                     *first ? "" : ",", (unsigned long)g->id, g_status_str(g->status),
+                     g->stack_base, g->in_syscall ? "true" : "false");
     *first = false;
     return (n > 0 && (size_t)n < remaining) ? n : 0;
 }
 
 void run_debug_dump_goroutines(char *buf, size_t buf_size) {
-    if (buf == NULL || buf_size < 3) return;
+    if (buf == NULL || buf_size < 3)
+        return;
 
     int pos = 0;
     buf[pos++] = '[';

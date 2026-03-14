@@ -412,10 +412,57 @@ pub const DapServer = struct {
         var buf = std.ArrayList(u8).empty;
         defer buf.deinit(self.allocator);
 
-        try std.json.stringify(value, .{}, buf.writer(self.allocator));
+        try writeJsonValue(buf.writer(self.allocator), value);
         try self.transport.writeMessage(buf.items);
     }
 };
+
+/// Serialize a std.json.Value to a writer as JSON text.
+fn writeJsonValue(writer: anytype, value: std.json.Value) @TypeOf(writer).Error!void {
+    switch (value) {
+        .null => try writer.writeAll("null"),
+        .bool => |b| try writer.writeAll(if (b) "true" else "false"),
+        .integer => |n| try writer.print("{d}", .{n}),
+        .float => |f| try writer.print("{d}", .{f}),
+        .string => |s| {
+            try writer.writeByte('"');
+            for (s) |c| {
+                switch (c) {
+                    '"' => try writer.writeAll("\\\""),
+                    '\\' => try writer.writeAll("\\\\"),
+                    '\n' => try writer.writeAll("\\n"),
+                    '\r' => try writer.writeAll("\\r"),
+                    '\t' => try writer.writeAll("\\t"),
+                    else => try writer.writeByte(c),
+                }
+            }
+            try writer.writeByte('"');
+        },
+        .array => |arr| {
+            try writer.writeByte('[');
+            for (arr.items, 0..) |item, i| {
+                if (i > 0) try writer.writeByte(',');
+                try writeJsonValue(writer, item);
+            }
+            try writer.writeByte(']');
+        },
+        .object => |obj| {
+            try writer.writeByte('{');
+            var first = true;
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                if (!first) try writer.writeByte(',');
+                first = false;
+                try writer.writeByte('"');
+                try writer.writeAll(entry.key_ptr.*);
+                try writer.writeAll("\":");
+                try writeJsonValue(writer, entry.value_ptr.*);
+            }
+            try writer.writeByte('}');
+        },
+        .number_string => |s| try writer.writeAll(s),
+    }
+}
 
 /// Entry point: start the DAP server on stdin/stdout.
 pub fn serve(allocator: std.mem.Allocator) !void {
