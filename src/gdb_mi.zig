@@ -1,8 +1,15 @@
 const std = @import("std");
 
-/// GDB Machine Interface (MI) client.
+/// MI backend type — GDB or LLDB (both speak the MI protocol).
+pub const MiBackend = enum {
+    gdb,
+    lldb,
+};
+
+/// GDB/LLDB Machine Interface (MI) client.
 ///
-/// Manages a GDB subprocess and provides structured access to its MI protocol.
+/// Manages a debugger subprocess and provides structured access to its MI protocol.
+/// Both GDB and LLDB support the MI wire format, so this client works with either.
 /// GDB/MI uses line-oriented text records with a well-defined grammar:
 ///   - Result records:  ^done,key=value,...
 ///   - Async exec:      *stopped,reason="breakpoint-hit",...
@@ -17,12 +24,18 @@ pub const GdbMi = struct {
     next_token: u32,
     read_buf: std.ArrayList(u8),
     line_buf: [4096]u8,
+    backend: MiBackend,
 
     pub fn init(allocator: std.mem.Allocator, binary_path: []const u8) !GdbMi {
-        var child = std.process.Child.init(
-            &.{ "gdb", "--interpreter=mi3", "--quiet", binary_path },
-            allocator,
-        );
+        return initWithBackend(allocator, binary_path, .gdb);
+    }
+
+    pub fn initWithBackend(allocator: std.mem.Allocator, binary_path: []const u8, backend: MiBackend) !GdbMi {
+        const argv: []const []const u8 = switch (backend) {
+            .gdb => &.{ "gdb", "--interpreter=mi3", "--quiet", binary_path },
+            .lldb => &.{ "lldb-mi", "--interpreter=mi2", binary_path },
+        };
+        var child = std.process.Child.init(argv, allocator);
         child.stdin_behavior = .Pipe;
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = .Pipe;
@@ -37,7 +50,28 @@ pub const GdbMi = struct {
             .next_token = 1,
             .read_buf = .empty,
             .line_buf = undefined,
+            .backend = backend,
         };
+    }
+
+    /// Auto-detect the best available MI backend.
+    /// Tries GDB first, then lldb-mi, then returns an error.
+    pub fn detectBackend(allocator: std.mem.Allocator) !MiBackend {
+        // Try GDB
+        if (canRunCommand(allocator, &.{ "gdb", "--version" })) return .gdb;
+        // Try LLDB MI
+        if (canRunCommand(allocator, &.{ "lldb-mi", "--version" })) return .lldb;
+        return error.NoDebuggerFound;
+    }
+
+    fn canRunCommand(allocator: std.mem.Allocator, argv: []const []const u8) bool {
+        var child = std.process.Child.init(argv, allocator);
+        child.stdin_behavior = .Ignore;
+        child.stdout_behavior = .Ignore;
+        child.stderr_behavior = .Ignore;
+        child.spawn() catch return false;
+        _ = child.wait() catch return false;
+        return true;
     }
 
     pub fn deinit(self: *GdbMi) void {
@@ -352,4 +386,10 @@ test "extractValue: missing key" {
 test "unquote: basic" {
     try std.testing.expectEqualStrings("hello", unquote("\"hello\""));
     try std.testing.expectEqualStrings("hello", unquote("hello"));
+}
+
+test "MiBackend: enum values" {
+    const gdb = MiBackend.gdb;
+    const lldb = MiBackend.lldb;
+    try std.testing.expect(gdb != lldb);
 }
