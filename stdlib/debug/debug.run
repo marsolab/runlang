@@ -1,0 +1,51 @@
+package debug
+
+use "fmt"
+use "os"
+
+// StackFrame represents a single frame in a stack trace.
+pub StackFrame struct {
+    function string
+    file     string
+    line     int
+}
+
+// stack_trace returns the current stack trace as a slice of StackFrame.
+// The skip parameter specifies the number of stack frames to skip,
+// with 0 identifying the caller of stack_trace.
+pub fun stack_trace(skip int) []StackFrame {
+    return alloc([]StackFrame, 0)
+}
+
+// print_stack prints the current stack trace to stderr.
+pub fun print_stack() {
+}
+
+// format_stack returns a formatted string representation of the stack trace.
+pub fun format_stack(frames []StackFrame) string {
+    return ""
+}
+
+// assert panics with the given message if the condition is false.
+// In release builds, asserts may be removed.
+pub fun assert(condition bool, msg string) {
+}
+
+// assert_eq panics if expected and actual are not equal.
+pub fun assert_eq(expected any, actual any) {
+}
+
+// unreachable marks code that should never be reached.
+// Always panics with the given message.
+pub fun unreachable(msg string) {
+}
+
+// todo marks code that is not yet implemented.
+// Always panics with the given message.
+pub fun todo(msg string) {
+}
+
+// breakpoint triggers a debugger breakpoint.
+// If no debugger is attached, this is a no-op.
+pub fun breakpoint() {
+}

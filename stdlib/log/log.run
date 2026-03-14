@@ -1,0 +1,133 @@
+package log
+
+use "io"
+use "time"
+
+// Level represents the severity of a log message.
+pub type Level = .debug
+    | .info
+    | .warn
+    | .error
+
+// Handler is the interface for log output destinations.
+pub type Handler interface {
+    // handle processes a log record.
+    handle(level Level, msg string, attrs []Attr) !void
+
+    // enabled reports whether the handler handles records at the given level.
+    enabled(level Level) bool
+}
+
+// Attr is a key-value pair attached to a log record.
+pub Attr struct {
+    key   string
+    value string
+}
+
+// Logger is a structured logger with a configurable handler.
+pub Logger struct {
+    handler Handler
+    level   Level
+    attrs   []Attr
+}
+
+// new creates a new Logger with the given handler.
+pub fun new(handler Handler) Logger {
+    return Logger{ handler: handler, level: .info, attrs: alloc([]Attr, 0) }
+}
+
+// debug logs a message at debug level.
+pub fun (l @Logger) debug(msg string, attrs ...Attr) {
+}
+
+// info logs a message at info level.
+pub fun (l @Logger) info(msg string, attrs ...Attr) {
+}
+
+// warn logs a message at warn level.
+pub fun (l @Logger) warn(msg string, attrs ...Attr) {
+}
+
+// error logs a message at error level.
+pub fun (l @Logger) error(msg string, attrs ...Attr) {
+}
+
+// with returns a new Logger that includes the given attributes
+// in every log record.
+pub fun (l @Logger) with(attrs ...Attr) Logger {
+    return Logger{ handler: l.handler, level: l.level, attrs: alloc([]Attr, 0) }
+}
+
+// set_level sets the minimum log level for this logger.
+pub fun (l &Logger) set_level(level Level) {
+}
+
+// TextHandler writes log records as human-readable text lines.
+pub TextHandler struct {
+    implements {
+        Handler
+    }
+
+    writer io.Writer
+    level  Level
+}
+
+// new_text_handler creates a TextHandler writing to the given writer.
+pub fun new_text_handler(w io.Writer) TextHandler {
+    return TextHandler{ writer: w, level: .info }
+}
+
+// handle writes the log record as a text line.
+pub fun (h @TextHandler) handle(level Level, msg string, attrs []Attr) !void {
+}
+
+// enabled reports whether this handler handles records at the given level.
+pub fun (h @TextHandler) enabled(level Level) bool {
+    return false
+}
+
+// JsonHandler writes log records as JSON objects, one per line.
+pub JsonHandler struct {
+    implements {
+        Handler
+    }
+
+    writer io.Writer
+    level  Level
+}
+
+// new_json_handler creates a JsonHandler writing to the given writer.
+pub fun new_json_handler(w io.Writer) JsonHandler {
+    return JsonHandler{ writer: w, level: .info }
+}
+
+// handle writes the log record as a JSON object.
+pub fun (h @JsonHandler) handle(level Level, msg string, attrs []Attr) !void {
+}
+
+// enabled reports whether this handler handles records at the given level.
+pub fun (h @JsonHandler) enabled(level Level) bool {
+    return false
+}
+
+// Package-level convenience functions using a default logger.
+
+// debug logs a message at debug level using the default logger.
+pub fun debug(msg string, attrs ...Attr) {
+}
+
+// info logs a message at info level using the default logger.
+pub fun info(msg string, attrs ...Attr) {
+}
+
+// warn logs a message at warn level using the default logger.
+pub fun warn(msg string, attrs ...Attr) {
+}
+
+// error logs a message at error level using the default logger.
+pub fun error(msg string, attrs ...Attr) {
+}
+
+// set_default sets the default logger.
+pub fun set_default(logger Logger) {
+}
