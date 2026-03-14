@@ -74,6 +74,43 @@ pub fun expect_error(result any) {
 pub fun fail(msg string) {
 }
 
+// B is the benchmark context passed to each benchmark function.
+// It provides timing control and iteration counting.
+pub B struct {
+    name     string
+    n        int
+    duration int
+    running  bool
+    bytes    int
+}
+
+// reset_timer resets the benchmark timer and counters.
+// It does not affect whether the timer is running.
+pub fun (b &B) reset_timer() {
+}
+
+// start_timer starts timing the benchmark. This function is called
+// automatically before a benchmark function is invoked.
+pub fun (b &B) start_timer() {
+}
+
+// stop_timer stops timing the benchmark.
+pub fun (b &B) stop_timer() {
+}
+
+// report_metric adds a custom reported metric to the benchmark results.
+pub fun (b &B) report_metric(n f64, unit string) {
+}
+
+// set_bytes records the number of bytes processed in a single
+// benchmark iteration. This is used to compute throughput.
+pub fun (b &B) set_bytes(n int) {
+}
+
+// run_n runs the benchmark function f n times.
+pub fun (b &B) run_n(n int, f fun(b &B)) {
+}
+
 // TestResult holds the summary of a test run.
 pub TestResult struct {
     passed   int

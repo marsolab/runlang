@@ -1,0 +1,161 @@
+package hash
+
+// Hash32 is the interface for 32-bit hash functions.
+pub type Hash32 interface {
+    // write adds data to the running hash.
+    write(data []byte) !int
+
+    // sum32 returns the current 32-bit hash value.
+    sum32() u32
+
+    // reset resets the hash to its initial state.
+    reset()
+
+    // size returns the number of bytes sum will produce.
+    size() int
+
+    // block_size returns the hash's underlying block size.
+    block_size() int
+}
+
+// Hash64 is the interface for 64-bit hash functions.
+pub type Hash64 interface {
+    // write adds data to the running hash.
+    write(data []byte) !int
+
+    // sum64 returns the current 64-bit hash value.
+    sum64() u64
+
+    // reset resets the hash to its initial state.
+    reset()
+
+    // size returns the number of bytes sum will produce.
+    size() int
+
+    // block_size returns the hash's underlying block size.
+    block_size() int
+}
+
+// Fnv32 implements the FNV-1 and FNV-1a 32-bit hash algorithms.
+pub Fnv32 struct {
+    implements {
+        Hash32
+    }
+
+    state u32
+}
+
+// fnv32 returns a new Fnv32 hash computing the FNV-1 hash.
+pub fun fnv32() Fnv32 {
+    return Fnv32{ state: 2166136261 }
+}
+
+// fnv32a returns a new Fnv32 hash computing the FNV-1a hash.
+pub fun fnv32a() Fnv32 {
+    return Fnv32{ state: 2166136261 }
+}
+
+// write adds data to the running hash.
+pub fun (h &Fnv32) write(data []byte) !int {
+    return 0
+}
+
+// sum32 returns the current 32-bit hash value.
+pub fun (h @Fnv32) sum32() u32 {
+    return 0
+}
+
+// reset resets the hash to its initial state.
+pub fun (h &Fnv32) reset() {
+}
+
+// size returns the number of bytes sum will produce.
+pub fun (h @Fnv32) size() int {
+    return 4
+}
+
+// block_size returns the hash's underlying block size.
+pub fun (h @Fnv32) block_size() int {
+    return 1
+}
+
+// Fnv64 implements the FNV-1 and FNV-1a 64-bit hash algorithms.
+pub Fnv64 struct {
+    implements {
+        Hash64
+    }
+
+    state u64
+}
+
+// fnv64 returns a new Fnv64 hash computing the FNV-1 hash.
+pub fun fnv64() Fnv64 {
+    return Fnv64{ state: 14695981039346656037 }
+}
+
+// fnv64a returns a new Fnv64 hash computing the FNV-1a hash.
+pub fun fnv64a() Fnv64 {
+    return Fnv64{ state: 14695981039346656037 }
+}
+
+// write adds data to the running hash.
+pub fun (h &Fnv64) write(data []byte) !int {
+    return 0
+}
+
+// sum64 returns the current 64-bit hash value.
+pub fun (h @Fnv64) sum64() u64 {
+    return 0
+}
+
+// reset resets the hash to its initial state.
+pub fun (h &Fnv64) reset() {
+}
+
+// size returns the number of bytes sum will produce.
+pub fun (h @Fnv64) size() int {
+    return 8
+}
+
+// block_size returns the hash's underlying block size.
+pub fun (h @Fnv64) block_size() int {
+    return 1
+}
+
+// Xxhash64 implements the xxHash 64-bit hash algorithm.
+pub Xxhash64 struct {
+    implements {
+        Hash64
+    }
+
+    state u64
+}
+
+// xxhash64 returns a new Xxhash64 hash with the given seed.
+pub fun xxhash64(seed u64) Xxhash64 {
+    return Xxhash64{ state: seed }
+}
+
+// write adds data to the running hash.
+pub fun (h &Xxhash64) write(data []byte) !int {
+    return 0
+}
+
+// sum64 returns the current 64-bit hash value.
+pub fun (h @Xxhash64) sum64() u64 {
+    return 0
+}
+
+// reset resets the hash to its initial state.
+pub fun (h &Xxhash64) reset() {
+}
+
+// size returns the number of bytes sum will produce.
+pub fun (h @Xxhash64) size() int {
+    return 8
+}
+
+// block_size returns the hash's underlying block size.
+pub fun (h @Xxhash64) block_size() int {
+    return 32
+}

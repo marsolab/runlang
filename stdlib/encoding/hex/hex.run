@@ -1,0 +1,41 @@
+package hex
+
+// HexError represents errors during hex decoding.
+pub type HexError = .invalidByte
+    | .oddLength
+
+// encode returns the hexadecimal encoding of src.
+pub fun encode(src []byte) string {
+    return ""
+}
+
+// decode decodes the hexadecimal string src.
+pub fun decode(src string) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// encode_to_bytes encodes src into dst and returns the number of bytes written.
+pub fun encode_to_bytes(dst []byte, src []byte) int {
+    return 0
+}
+
+// decode_bytes decodes src into dst and returns the number of bytes written.
+pub fun decode_bytes(dst []byte, src []byte) !int {
+    return 0
+}
+
+// encoded_len returns the length of an encoding of n source bytes.
+pub fun encoded_len(n int) int {
+    return 0
+}
+
+// decoded_len returns the length of a decoding of n source bytes.
+pub fun decoded_len(n int) int {
+    return 0
+}
+
+// dump returns a string containing a hex dump of the given data,
+// similar to the output of `hexdump -C`.
+pub fun dump(data []byte) string {
+    return ""
+}

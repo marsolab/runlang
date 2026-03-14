@@ -1,0 +1,99 @@
+package gzip
+
+use "io"
+use "time"
+
+// GzipError represents errors during gzip compression/decompression.
+pub type GzipError = .invalidHeader
+    | .invalidChecksum
+    | .corruptData
+    | .unexpectedEof
+
+// Header contains the metadata from a gzip file header.
+pub Header struct {
+    name    string
+    comment string
+    mod_time time.Time
+    extra   []byte
+}
+
+// Reader reads and decompresses gzip data.
+pub Reader struct {
+    implements {
+        io.Reader
+        io.Closer
+    }
+
+    reader io.Reader
+    header Header
+}
+
+// new_reader returns a new Reader reading from r.
+// It reads and parses the gzip header.
+pub fun new_reader(r io.Reader) !Reader {
+    return Reader{
+        reader: r,
+        header: Header{ name: "", comment: "", extra: alloc([]byte, 0) },
+    }
+}
+
+// read reads decompressed data into buf.
+pub fun (r &Reader) read(buf []byte) !int {
+    return 0
+}
+
+// close releases resources used by the Reader.
+pub fun (r &Reader) close() !void {
+}
+
+// header returns the gzip header from the stream.
+pub fun (r @Reader) header() Header {
+    return r.header
+}
+
+// Writer compresses data using gzip and writes to an underlying writer.
+pub Writer struct {
+    implements {
+        io.Writer
+        io.Closer
+    }
+
+    writer io.Writer
+    level  int
+    header Header
+}
+
+// new_writer returns a new Writer that compresses at the default level.
+pub fun new_writer(w io.Writer) Writer {
+    return Writer{
+        writer: w,
+        level: -1,
+        header: Header{ name: "", comment: "", extra: alloc([]byte, 0) },
+    }
+}
+
+// new_writer_level returns a new Writer that compresses at the given level.
+pub fun new_writer_level(w io.Writer, level int) !Writer {
+    return Writer{
+        writer: w,
+        level: level,
+        header: Header{ name: "", comment: "", extra: alloc([]byte, 0) },
+    }
+}
+
+// write compresses data from buf and writes it to the underlying writer.
+pub fun (w &Writer) write(buf []byte) !int {
+    return 0
+}
+
+// flush flushes any pending compressed data to the underlying writer.
+pub fun (w &Writer) flush() !void {
+}
+
+// close writes the gzip footer and closes the writer.
+pub fun (w &Writer) close() !void {
+}
+
+// set_header sets the gzip header fields for subsequent writes.
+pub fun (w &Writer) set_header(h Header) {
+}

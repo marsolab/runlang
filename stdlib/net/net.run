@@ -1,0 +1,181 @@
+package net
+
+use "io"
+use "time"
+
+// NetError represents network-related errors.
+pub type NetError = .connectionRefused
+    | .connectionReset
+    | .timeout
+    | .addressInUse
+    | .hostUnreachable
+    | .networkUnreachable
+    | .dnsNotFound
+    | .connectionAborted
+    | .connectionClosed
+
+// Addr is the interface for network addresses.
+pub type Addr interface {
+    // network returns the name of the network (e.g., "tcp", "udp").
+    network() string
+
+    // string returns the string form of the address (e.g., "192.168.1.1:8080").
+    string() string
+}
+
+// Ip represents an IP address.
+pub Ip struct {
+    data []byte
+}
+
+// TcpAddr represents a TCP endpoint address.
+pub TcpAddr struct {
+    implements {
+        Addr
+    }
+
+    ip   Ip
+    port int
+    zone string
+}
+
+// network returns "tcp".
+pub fun (a @TcpAddr) network() string {
+    return "tcp"
+}
+
+// string returns the address in "host:port" format.
+pub fun (a @TcpAddr) string() string {
+    return ""
+}
+
+// UdpAddr represents a UDP endpoint address.
+pub UdpAddr struct {
+    implements {
+        Addr
+    }
+
+    ip   Ip
+    port int
+    zone string
+}
+
+// network returns "udp".
+pub fun (a @UdpAddr) network() string {
+    return "udp"
+}
+
+// string returns the address in "host:port" format.
+pub fun (a @UdpAddr) string() string {
+    return ""
+}
+
+// Conn is a generic stream-oriented network connection.
+pub type Conn interface {
+    read(buf []byte) !int
+    write(buf []byte) !int
+    close() !void
+    local_addr() Addr
+    remote_addr() Addr
+    set_deadline(t time.Time) !void
+    set_read_deadline(t time.Time) !void
+    set_write_deadline(t time.Time) !void
+}
+
+// Listener is a generic network listener for stream-oriented protocols.
+pub type Listener interface {
+    accept() !Conn
+    close() !void
+    addr() Addr
+}
+
+// UdpConn represents a UDP connection.
+pub UdpConn struct {
+    fd int
+}
+
+// listen announces on the local network address.
+// The network must be "tcp", "tcp4", "tcp6".
+pub fun listen(network string, address string) !Listener {
+    return null
+}
+
+// dial connects to the address on the named network.
+pub fun dial(network string, address string) !Conn {
+    return null
+}
+
+// dial_timeout acts like dial but takes a timeout.
+pub fun dial_timeout(network string, address string, timeout time.Duration) !Conn {
+    return null
+}
+
+// resolve_tcp_addr resolves a TCP address.
+pub fun resolve_tcp_addr(network string, address string) !TcpAddr {
+    return TcpAddr{ ip: Ip{ data: alloc([]byte, 0) }, port: 0, zone: "" }
+}
+
+// resolve_udp_addr resolves a UDP address.
+pub fun resolve_udp_addr(network string, address string) !UdpAddr {
+    return UdpAddr{ ip: Ip{ data: alloc([]byte, 0) }, port: 0, zone: "" }
+}
+
+// listen_udp listens for incoming UDP packets.
+pub fun listen_udp(network string, addr @UdpAddr) !UdpConn {
+    return UdpConn{ fd: 0 }
+}
+
+// read_from reads a UDP packet, returning the number of bytes read
+// and the source address.
+pub fun (c &UdpConn) read_from(buf []byte) !struct { n int, addr UdpAddr } {
+    return .{ n: 0, addr: UdpAddr{ ip: Ip{ data: alloc([]byte, 0) }, port: 0, zone: "" } }
+}
+
+// write_to writes a UDP packet to the given address.
+pub fun (c &UdpConn) write_to(buf []byte, addr @UdpAddr) !int {
+    return 0
+}
+
+// close closes the UDP connection.
+pub fun (c &UdpConn) close() !void {
+}
+
+// ipv4 creates an IPv4 address from four bytes.
+pub fun ipv4(a byte, b byte, c byte, d byte) Ip {
+    return Ip{ data: alloc([]byte, 4) }
+}
+
+// parse_ip parses an IP address string.
+pub fun parse_ip(s string) !Ip {
+    return Ip{ data: alloc([]byte, 0) }
+}
+
+// string returns the string form of the IP address.
+pub fun (ip @Ip) string() string {
+    return ""
+}
+
+// is_loopback reports whether ip is a loopback address.
+pub fun (ip @Ip) is_loopback() bool {
+    return false
+}
+
+// is_private reports whether ip is a private address.
+pub fun (ip @Ip) is_private() bool {
+    return false
+}
+
+// lookup_host looks up the given host using the local resolver.
+pub fun lookup_host(host string) ![]Ip {
+    return alloc([]Ip, 0)
+}
+
+// join_host_port combines host and port into a network address "host:port".
+pub fun join_host_port(host string, port string) string {
+    return ""
+}
+
+// split_host_port splits a network address "host:port" into host and port.
+pub fun split_host_port(hostport string) !struct { host string, port string } {
+    return .{ host: "", port: "" }
+}

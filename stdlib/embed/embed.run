@@ -1,0 +1,38 @@
+package embed
+
+// File represents a single embedded file.
+pub File struct {
+    name string
+    data []byte
+}
+
+// Dir represents a directory of embedded files.
+pub Dir struct {
+    files []File
+}
+
+// open returns the embedded file with the given name, or an error
+// if the file is not found in the embedded directory.
+pub fun (d @Dir) open(name string) !File {
+    return File{ name: "", data: alloc([]byte, 0) }
+}
+
+// read_dir returns the list of files in the embedded directory.
+pub fun (d @Dir) read_dir() []File {
+    return d.files
+}
+
+// read_file returns the contents of the named embedded file.
+pub fun (d @Dir) read_file(name string) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// string returns the contents of the file as a string.
+pub fun (f @File) string() string {
+    return ""
+}
+
+// bytes returns the raw contents of the file.
+pub fun (f @File) bytes() []byte {
+    return f.data
+}

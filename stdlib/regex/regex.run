@@ -1,0 +1,94 @@
+package regex
+
+// Regex is a compiled regular expression.
+pub Regex struct {
+    pattern string
+}
+
+// RegexError represents errors during regex compilation.
+pub type RegexError = .invalidSyntax
+    | .invalidEscape
+    | .invalidCharClass
+    | .invalidRepetition
+    | .unmatchedParenthesis
+
+// Match represents a single match result.
+pub Match struct {
+    text  string
+    start int
+    end   int
+}
+
+// compile parses a regular expression and returns a Regex that can be
+// used to match against text. Returns an error if the pattern is invalid.
+pub fun compile(pattern string) !Regex {
+    return Regex{ pattern: pattern }
+}
+
+// must_compile is like compile but panics if the pattern is invalid.
+// It simplifies safe initialization of package-level Regex values.
+pub fun must_compile(pattern string) Regex {
+    return Regex{ pattern: pattern }
+}
+
+// is_match reports whether the string s contains any match of the pattern.
+pub fun (re @Regex) is_match(s string) bool {
+    return false
+}
+
+// find returns the leftmost match of the pattern in s, or null if no match.
+pub fun (re @Regex) find(s string) Match? {
+    return null
+}
+
+// find_all returns all non-overlapping matches of the pattern in s.
+pub fun (re @Regex) find_all(s string) []Match {
+    return alloc([]Match, 0)
+}
+
+// find_n returns the first n non-overlapping matches. If n < 0, returns all.
+pub fun (re @Regex) find_n(s string, n int) []Match {
+    return alloc([]Match, 0)
+}
+
+// replace replaces all matches of the pattern in s with repl.
+pub fun (re @Regex) replace(s string, repl string) string {
+    return ""
+}
+
+// replace_all is an alias for replace.
+pub fun (re @Regex) replace_all(s string, repl string) string {
+    return ""
+}
+
+// replace_n replaces the first n matches. If n < 0, replaces all.
+pub fun (re @Regex) replace_n(s string, repl string, n int) string {
+    return ""
+}
+
+// split slices s into substrings separated by the pattern.
+pub fun (re @Regex) split(s string) []string {
+    return alloc([]string, 0)
+}
+
+// split_n slices s into at most n substrings.
+pub fun (re @Regex) split_n(s string, n int) []string {
+    return alloc([]string, 0)
+}
+
+// group returns the text of the i-th capturing group (0 = full match).
+pub fun (m @Match) group(i int) string? {
+    return null
+}
+
+// string returns the matched text.
+pub fun (m @Match) string() string {
+    return m.text
+}
+
+// Convenience functions that compile and match in one step.
+
+// match_string reports whether s contains any match of the pattern.
+pub fun match_string(pattern string, s string) !bool {
+    return false
+}

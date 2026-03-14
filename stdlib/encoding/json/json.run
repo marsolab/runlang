@@ -1,0 +1,130 @@
+package json
+
+use "io"
+
+// Value represents a JSON value.
+pub type Value = .null
+    | .bool(bool)
+    | .int(int)
+    | .float(f64)
+    | .string(string)
+    | .array([]Value)
+    | .object(map[string]Value)
+
+// JsonError represents errors during JSON encoding/decoding.
+pub type JsonError = .syntaxError
+    | .unexpectedEof
+    | .invalidCharacter
+    | .typeMismatch
+    | .unknownField
+    | .overflow
+
+// marshal encodes a value as JSON bytes.
+pub fun marshal(v any) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// marshal_indent encodes a value as indented JSON bytes.
+pub fun marshal_indent(v any, prefix string, indent string) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// unmarshal decodes JSON bytes into a value.
+pub fun unmarshal(data []byte, v &any) !void {
+}
+
+// marshal_string encodes a value as a JSON string.
+pub fun marshal_string(v any) !string {
+    return ""
+}
+
+// parse parses JSON bytes into a dynamic Value tree.
+pub fun parse(data []byte) !Value {
+    return .null
+}
+
+// parse_string parses a JSON string into a dynamic Value tree.
+pub fun parse_string(s string) !Value {
+    return .null
+}
+
+// get retrieves a nested value by key path from a Value.
+pub fun (v Value) get(key string) Value? {
+    return null
+}
+
+// get_index retrieves an element by index from an array Value.
+pub fun (v Value) get_index(i int) Value? {
+    return null
+}
+
+// as_string returns the string if the Value is a string, or null.
+pub fun (v Value) as_string() string? {
+    return null
+}
+
+// as_int returns the int if the Value is an int, or null.
+pub fun (v Value) as_int() int? {
+    return null
+}
+
+// as_float returns the float if the Value is a float, or null.
+pub fun (v Value) as_float() f64? {
+    return null
+}
+
+// as_bool returns the bool if the Value is a bool, or null.
+pub fun (v Value) as_bool() bool? {
+    return null
+}
+
+// as_array returns the array if the Value is an array, or null.
+pub fun (v Value) as_array() []Value? {
+    return null
+}
+
+// as_object returns the object if the Value is an object, or null.
+pub fun (v Value) as_object() map[string]Value? {
+    return null
+}
+
+// Encoder writes JSON values to an output stream.
+pub Encoder struct {
+    writer io.Writer
+    indent string
+    prefix string
+}
+
+// new_encoder returns a new Encoder that writes to w.
+pub fun new_encoder(w io.Writer) Encoder {
+    return Encoder{ writer: w, indent: "", prefix: "" }
+}
+
+// encode writes the JSON encoding of v to the stream.
+pub fun (enc &Encoder) encode(v any) !void {
+}
+
+// set_indent sets the indentation for subsequent encoding.
+pub fun (enc &Encoder) set_indent(prefix string, indent string) {
+}
+
+// Decoder reads and decodes JSON values from an input stream.
+pub Decoder struct {
+    reader io.Reader
+}
+
+// new_decoder returns a new Decoder that reads from r.
+pub fun new_decoder(r io.Reader) Decoder {
+    return Decoder{ reader: r }
+}
+
+// decode reads the next JSON value from the stream and stores it
+// in the value pointed to by v.
+pub fun (dec &Decoder) decode(v &any) !void {
+}
+
+// more reports whether there is another element in the current
+// array or object being parsed.
+pub fun (dec &Decoder) more() bool {
+    return false
+}

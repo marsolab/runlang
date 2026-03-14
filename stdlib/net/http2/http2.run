@@ -1,0 +1,85 @@
+package http2
+
+use "io"
+use "net"
+use "net/http"
+use "sync"
+use "crypto/tls"
+
+// Http2Error represents HTTP/2 protocol errors.
+pub type Http2Error = .protocolError
+    | .internalError
+    | .flowControlError
+    | .settingsTimeout
+    | .streamClosed
+    | .frameSizeError
+    | .refusedStream
+    | .cancel
+    | .compressionError
+    | .connectError
+    | .enhanceYourCalm
+    | .inadequateSecurity
+
+// FrameType identifies the type of an HTTP/2 frame.
+pub type FrameType = .data
+    | .headers
+    | .priority
+    | .rstStream
+    | .settings
+    | .pushPromise
+    | .ping
+    | .goAway
+    | .windowUpdate
+    | .continuation
+
+// Frame represents a raw HTTP/2 frame.
+pub Frame struct {
+    frame_type FrameType
+    flags      byte
+    stream_id  u32
+    payload    []byte
+}
+
+// Transport is an HTTP/2 client transport.
+// It manages HTTP/2 connections and provides an interface compatible
+// with the HTTP/1.1 transport.
+pub Transport struct {
+    allow_http          bool
+    tls_config          tls.Config?
+    dial_timeout        int
+    max_header_list_size u32
+}
+
+// new_transport creates a new HTTP/2 Transport.
+pub fun new_transport() Transport {
+    return Transport{
+        allow_http: false,
+        tls_config: null,
+        dial_timeout: 0,
+        max_header_list_size: 0,
+    }
+}
+
+// Server configures HTTP/2 for an existing http.Server.
+pub Server struct {
+    max_concurrent_streams u32
+    max_read_frame_size    u32
+    idle_timeout           int
+}
+
+// configure_server adds HTTP/2 support to the given HTTP server.
+pub fun configure_server(srv &http.Server) !void {
+}
+
+// ClientConn represents a client HTTP/2 connection.
+pub ClientConn struct {
+    closed bool
+}
+
+// close closes the HTTP/2 client connection.
+pub fun (cc &ClientConn) close() !void {
+}
+
+// ping sends a PING frame and waits for a response.
+pub fun (cc &ClientConn) ping() !void {
+}

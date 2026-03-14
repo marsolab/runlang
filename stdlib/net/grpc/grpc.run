@@ -1,0 +1,168 @@
+package grpc
+
+use "context"
+use "time"
+use "net"
+use "crypto/tls"
+
+// Code represents a gRPC status code.
+pub type Code = .ok
+    | .cancelled
+    | .unknown
+    | .invalidArgument
+    | .deadlineExceeded
+    | .notFound
+    | .alreadyExists
+    | .permissionDenied
+    | .resourceExhausted
+    | .failedPrecondition
+    | .aborted
+    | .outOfRange
+    | .unimplemented
+    | .internal
+    | .unavailable
+    | .dataLoss
+    | .unauthenticated
+
+// Status represents a gRPC status with a code and message.
+pub Status struct {
+    code    Code
+    message string
+}
+
+// GrpcError represents gRPC-related errors.
+pub type GrpcError = .connectionFailed
+    | .streamReset
+    | .headerListTooLarge
+    | .invalidMetadata
+
+// new_status creates a new Status with the given code and message.
+pub fun new_status(code Code, message string) Status {
+    return Status{ code: code, message: message }
+}
+
+// ok creates an OK status.
+pub fun ok() Status {
+    return Status{ code: .ok, message: "" }
+}
+
+// errorf creates an error Status.
+pub fun errorf(code Code, format string, args ...any) Status {
+    return Status{ code: code, message: "" }
+}
+
+// Metadata is a map of gRPC metadata key-value pairs.
+pub Metadata struct {
+    data map[string][]string
+}
+
+// UnaryHandler is the handler for a unary RPC method.
+pub type UnaryHandler = fun(ctx context.Context, req []byte) ![]byte
+
+// StreamHandler is the handler for a streaming RPC method.
+pub type StreamHandler = fun(ctx context.Context, stream @ServerStream) !void
+
+// ServerStream is the interface for server-side streaming.
+pub type ServerStream interface {
+    send(msg []byte) !void
+    recv() ![]byte
+    send_header(md Metadata) !void
+    set_trailer(md Metadata)
+}
+
+// ClientStream is the interface for client-side streaming.
+pub type ClientStream interface {
+    send(msg []byte) !void
+    recv() ![]byte
+    close_send() !void
+    header() !Metadata
+    trailer() Metadata
+}
+
+// ServiceDesc describes a gRPC service.
+pub ServiceDesc struct {
+    service_name string
+    methods      []MethodDesc
+    streams      []StreamDesc
+}
+
+// MethodDesc describes a unary RPC method.
+pub MethodDesc struct {
+    method_name string
+    handler     UnaryHandler
+}
+
+// StreamDesc describes a streaming RPC method.
+pub StreamDesc struct {
+    stream_name    string
+    handler        StreamHandler
+    server_streams bool
+    client_streams bool
+}
+
+// Server is a gRPC server.
+pub Server struct {
+    services []ServiceDesc
+}
+
+// new_server creates a new gRPC Server.
+pub fun new_server() Server {
+    return Server{ services: alloc([]ServiceDesc, 0) }
+}
+
+// register_service registers a service and its implementation.
+pub fun (s &Server) register_service(desc @ServiceDesc) {
+}
+
+// serve starts serving on the given listener.
+pub fun (s &Server) serve(lis net.Listener) !void {
+}
+
+// stop stops the gRPC server gracefully.
+pub fun (s &Server) stop() {
+}
+
+// graceful_stop stops the gRPC server gracefully, waiting for pending RPCs.
+pub fun (s &Server) graceful_stop() {
+}
+
+// ClientConn represents a client connection to a gRPC server.
+pub ClientConn struct {
+    target string
+}
+
+// DialOption configures how to establish the connection.
+pub DialOption struct {
+    insecure bool
+    tls_config tls.Config?
+    timeout    time.Duration
+}
+
+// dial creates a client connection to the given target.
+pub fun dial(target string, opts ...DialOption) !ClientConn {
+    return ClientConn{ target: target }
+}
+
+// close closes the client connection.
+pub fun (cc &ClientConn) close() !void {
+}
+
+// invoke performs a unary RPC call.
+pub fun (cc &ClientConn) invoke(ctx context.Context, method string, req []byte) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// new_stream creates a new client stream for the given method.
+pub fun (cc &ClientConn) new_stream(ctx context.Context, method string) !ClientStream {
+    return null
+}
+
+// with_insecure returns a DialOption that disables transport security.
+pub fun with_insecure() DialOption {
+    return DialOption{ insecure: true, tls_config: null, timeout: 0 }
+}
+
+// with_timeout returns a DialOption with a connection timeout.
+pub fun with_timeout(d time.Duration) DialOption {
+    return DialOption{ insecure: false, tls_config: null, timeout: d }
+}

@@ -1,0 +1,100 @@
+package proto
+
+use "io"
+
+// Message is the interface that all protocol buffer messages implement.
+pub type Message interface {
+    // proto_marshal serializes the message to the wire format.
+    proto_marshal() ![]byte
+
+    // proto_unmarshal deserializes the message from the wire format.
+    proto_unmarshal(data []byte) !void
+
+    // proto_size returns the serialized size of the message.
+    proto_size() int
+}
+
+// WireType identifies the encoding of a protobuf field on the wire.
+pub type WireType = .varint
+    | .fixed64
+    | .lengthDelimited
+    | .startGroup
+    | .endGroup
+    | .fixed32
+
+// ProtoError represents errors during protobuf encoding/decoding.
+pub type ProtoError = .invalidWireType
+    | .truncatedMessage
+    | .invalidUtf8
+    | .overflow
+    | .requiredFieldMissing
+
+// marshal serializes a protocol buffer message.
+pub fun marshal(msg Message) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// unmarshal deserializes a protocol buffer message.
+pub fun unmarshal(data []byte, msg &Message) !void {
+}
+
+// size returns the serialized size of a message without actually serializing it.
+pub fun size(msg Message) int {
+    return 0
+}
+
+// Buffer is a helper for encoding and decoding protobuf messages.
+pub Buffer struct {
+    data []byte
+    pos  int
+}
+
+// new_buffer creates a new Buffer from existing data for decoding.
+pub fun new_buffer(data []byte) Buffer {
+    return Buffer{ data: data, pos: 0 }
+}
+
+// encode_varint encodes a uint64 as a varint and appends it to the buffer.
+pub fun (b &Buffer) encode_varint(v u64) {
+}
+
+// decode_varint decodes a varint from the buffer.
+pub fun (b &Buffer) decode_varint() !u64 {
+    return 0
+}
+
+// encode_fixed64 encodes a uint64 as a 64-bit little-endian value.
+pub fun (b &Buffer) encode_fixed64(v u64) {
+}
+
+// decode_fixed64 decodes a 64-bit little-endian value from the buffer.
+pub fun (b &Buffer) decode_fixed64() !u64 {
+    return 0
+}
+
+// encode_fixed32 encodes a uint32 as a 32-bit little-endian value.
+pub fun (b &Buffer) encode_fixed32(v u32) {
+}
+
+// decode_fixed32 decodes a 32-bit little-endian value from the buffer.
+pub fun (b &Buffer) decode_fixed32() !u32 {
+    return 0
+}
+
+// encode_bytes encodes a byte slice as a length-delimited field.
+pub fun (b &Buffer) encode_bytes(data []byte) {
+}
+
+// decode_bytes decodes a length-delimited field from the buffer.
+pub fun (b &Buffer) decode_bytes() ![]byte {
+    return alloc([]byte, 0)
+}
+
+// bytes returns the encoded data.
+pub fun (b @Buffer) bytes() []byte {
+    return b.data
+}
+
+// reset resets the buffer for reuse.
+pub fun (b &Buffer) reset() {
+}

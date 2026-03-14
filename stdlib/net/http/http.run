@@ -1,0 +1,304 @@
+package http
+
+use "io"
+use "net"
+use "time"
+use "context"
+
+// Method constants for HTTP request methods.
+pub let method_get = "GET"
+pub let method_post = "POST"
+pub let method_put = "PUT"
+pub let method_delete = "DELETE"
+pub let method_patch = "PATCH"
+pub let method_head = "HEAD"
+pub let method_options = "OPTIONS"
+
+// StatusCode constants.
+pub let status_ok = 200
+pub let status_created = 201
+pub let status_no_content = 204
+pub let status_moved_permanently = 301
+pub let status_found = 302
+pub let status_not_modified = 304
+pub let status_bad_request = 400
+pub let status_unauthorized = 401
+pub let status_forbidden = 403
+pub let status_not_found = 404
+pub let status_method_not_allowed = 405
+pub let status_conflict = 409
+pub let status_internal_server_error = 500
+pub let status_bad_gateway = 502
+pub let status_service_unavailable = 503
+pub let status_gateway_timeout = 504
+
+// HttpError represents HTTP-related errors.
+pub type HttpError = .timeout
+    | .connectionRefused
+    | .tlsHandshakeFailed
+    | .invalidUrl
+    | .tooManyRedirects
+    | .requestCancelled
+    | .bodyTooLarge
+
+// Header represents HTTP headers as a map of string keys to string slices.
+pub Header struct {
+    data map[string][]string
+}
+
+// get returns the first value associated with the given key.
+pub fun (h @Header) get(key string) string {
+    return ""
+}
+
+// set sets the header entries associated with key to the single value.
+pub fun (h &Header) set(key string, value string) {
+}
+
+// add adds the key-value pair to the header. It appends to any existing values.
+pub fun (h &Header) add(key string, value string) {
+}
+
+// del deletes the values associated with key.
+pub fun (h &Header) del(key string) {
+}
+
+// values returns all values associated with the given key.
+pub fun (h @Header) values(key string) []string {
+    return alloc([]string, 0)
+}
+
+// Cookie represents an HTTP cookie.
+pub Cookie struct {
+    name     string
+    value    string
+    path     string
+    domain   string
+    expires  time.Time
+    max_age  int
+    secure   bool
+    http_only bool
+    same_site string
+}
+
+// Request represents an HTTP request.
+pub Request struct {
+    method  string
+    url     string
+    header  Header
+    body    io.ReadCloser?
+    host    string
+    proto   string
+    content_length int
+    ctx     context.Context?
+}
+
+// Response represents an HTTP response.
+pub Response struct {
+    status      string
+    status_code int
+    header      Header
+    body        io.ReadCloser?
+    proto       string
+    content_length int
+}
+
+// Handler is the interface for HTTP request handlers.
+pub type Handler interface {
+    serve_http(w &ResponseWriter, r @Request)
+}
+
+// HandlerFunc is an adapter to allow the use of ordinary functions as HTTP handlers.
+pub type HandlerFunc = fun(w &ResponseWriter, r @Request)
+
+// Middleware is a function that wraps a Handler to add behavior.
+pub type Middleware = fun(next Handler) Handler
+
+// ResponseWriter is the interface used by an HTTP handler to construct a response.
+pub ResponseWriter struct {
+    header      Header
+    status_code int
+    written     bool
+}
+
+// header returns the header map that will be sent by write_header.
+pub fun (w &ResponseWriter) header() &Header {
+    return null
+}
+
+// write writes the data to the connection as part of an HTTP reply.
+pub fun (w &ResponseWriter) write(data []byte) !int {
+    return 0
+}
+
+// write_header sends an HTTP response header with the provided status code.
+pub fun (w &ResponseWriter) write_header(status_code int) {
+}
+
+// write_string writes a string to the response body.
+pub fun (w &ResponseWriter) write_string(s string) !int {
+    return 0
+}
+
+// Router is a Patricia trie (radix tree) HTTP request router.
+pub Router struct {
+    middlewares []Middleware
+}
+
+// new_router returns a new Router.
+pub fun new_router() Router {
+    return Router{ middlewares: alloc([]Middleware, 0) }
+}
+
+// get registers a handler for GET requests at the given pattern.
+pub fun (r &Router) get(pattern string, handler HandlerFunc) {
+}
+
+// post registers a handler for POST requests at the given pattern.
+pub fun (r &Router) post(pattern string, handler HandlerFunc) {
+}
+
+// put registers a handler for PUT requests at the given pattern.
+pub fun (r &Router) put(pattern string, handler HandlerFunc) {
+}
+
+// delete registers a handler for DELETE requests at the given pattern.
+pub fun (r &Router) delete(pattern string, handler HandlerFunc) {
+}
+
+// patch registers a handler for PATCH requests at the given pattern.
+pub fun (r &Router) patch(pattern string, handler HandlerFunc) {
+}
+
+// handle registers a handler for the given method and pattern.
+pub fun (r &Router) handle(method string, pattern string, handler Handler) {
+}
+
+// use appends a middleware to the router's middleware stack.
+pub fun (r &Router) use(mw Middleware) {
+}
+
+// group creates a new route group with the given prefix.
+pub fun (r &Router) group(prefix string) Router {
+    return Router{ middlewares: alloc([]Middleware, 0) }
+}
+
+// mount attaches another Router at the given pattern.
+pub fun (r &Router) mount(pattern string, sub @Router) {
+}
+
+// Server represents an HTTP server.
+pub Server struct {
+    addr            string
+    handler         Handler
+    read_timeout    time.Duration
+    write_timeout   time.Duration
+    idle_timeout    time.Duration
+    max_header_bytes int
+}
+
+// new_server creates a new Server.
+pub fun new_server(addr string, handler Handler) Server {
+    return Server{
+        addr: addr,
+        handler: handler,
+        read_timeout: 0,
+        write_timeout: 0,
+        idle_timeout: 0,
+        max_header_bytes: 0,
+    }
+}
+
+// listen_and_serve listens on the server's address and serves HTTP.
+pub fun (s &Server) listen_and_serve() !void {
+}
+
+// listen_and_serve_tls listens and serves HTTPS.
+pub fun (s &Server) listen_and_serve_tls(cert_file string, key_file string) !void {
+}
+
+// shutdown gracefully shuts down the server.
+pub fun (s &Server) shutdown(ctx context.Context) !void {
+}
+
+// Client is an HTTP client.
+pub Client struct {
+    timeout   time.Duration
+    transport Transport?
+}
+
+// Transport controls HTTP client connection behavior.
+pub Transport struct {
+    max_idle_conns        int
+    idle_conn_timeout     time.Duration
+    tls_handshake_timeout time.Duration
+    disable_keep_alives   bool
+}
+
+// default_client is the default HTTP client used by package-level functions.
+pub var default_client = Client{ timeout: 0, transport: null }
+
+// get issues a GET request to the specified URL.
+pub fun get(url string) !Response {
+    return Response{
+        status: "",
+        status_code: 0,
+        header: Header{ data: alloc(map[string][]string) },
+        body: null,
+        proto: "",
+        content_length: 0,
+    }
+}
+
+// post issues a POST request to the specified URL with the given body.
+pub fun post(url string, content_type string, body io.Reader) !Response {
+    return Response{
+        status: "",
+        status_code: 0,
+        header: Header{ data: alloc(map[string][]string) },
+        body: null,
+        proto: "",
+        content_length: 0,
+    }
+}
+
+// do sends an HTTP request and returns an HTTP response.
+pub fun (c &Client) do(req @Request) !Response {
+    return Response{
+        status: "",
+        status_code: 0,
+        header: Header{ data: alloc(map[string][]string) },
+        body: null,
+        proto: "",
+        content_length: 0,
+    }
+}
+
+// new_request creates a new Request with the given method, URL, and optional body.
+pub fun new_request(method string, url string, body io.Reader?) !Request {
+    return Request{
+        method: method,
+        url: url,
+        header: Header{ data: alloc(map[string][]string) },
+        body: null,
+        host: "",
+        proto: "HTTP/1.1",
+        content_length: 0,
+        ctx: null,
+    }
+}
+
+// new_request_with_context creates a new Request with a context.
+pub fun new_request_with_context(ctx context.Context, method string, url string, body io.Reader?) !Request {
+    return new_request(method, url, body)
+}
+
+// status_text returns a text for the HTTP status code.
+pub fun status_text(code int) string {
+    return ""
+}
+
+// url_param extracts a URL parameter by name from the request (set by router).
+pub fun url_param(r @Request, name string) string {
+    return ""
+}

@@ -1,0 +1,239 @@
+package time
+
+// Duration represents the elapsed time between two instants as a nanosecond count.
+pub type Duration = int
+
+// Duration constants.
+pub let nanosecond = 1
+pub let microsecond = 1000
+pub let millisecond = 1000000
+pub let second = 1000000000
+pub let minute = 60000000000
+pub let hour = 3600000000000
+
+// Month represents a month of the year (January = 1, ..., December = 12).
+pub type Month = .january
+    | .february
+    | .march
+    | .april
+    | .may
+    | .june
+    | .july
+    | .august
+    | .september
+    | .october
+    | .november
+    | .december
+
+// Weekday represents a day of the week (Sunday = 0, ..., Saturday = 6).
+pub type Weekday = .sunday
+    | .monday
+    | .tuesday
+    | .wednesday
+    | .thursday
+    | .friday
+    | .saturday
+
+// Time represents an instant in time with nanosecond precision.
+pub Time struct {
+    seconds     int
+    nanoseconds int
+}
+
+// Location represents a time zone.
+pub Location struct {
+    name   string
+    offset int
+}
+
+// utc is the UTC time zone.
+pub var utc = Location{ name: "UTC", offset: 0 }
+
+// local is the system's local time zone.
+pub var local = Location{ name: "Local", offset: 0 }
+
+// now returns the current time.
+pub fun now() Time {
+    return Time{ seconds: 0, nanoseconds: 0 }
+}
+
+// since returns the time elapsed since t.
+pub fun since(t Time) Duration {
+    return 0
+}
+
+// until returns the duration until t.
+pub fun until(t Time) Duration {
+    return 0
+}
+
+// sleep pauses the current green thread for the given duration.
+pub fun sleep(d Duration) {
+}
+
+// after returns a channel that receives the current time after duration d.
+pub fun after(d Duration) chan Time {
+    return alloc(chan Time)
+}
+
+// unix returns the Time corresponding to the given Unix time,
+// sec seconds and nsec nanoseconds since January 1, 1970 UTC.
+pub fun unix(sec int, nsec int) Time {
+    return Time{ seconds: sec, nanoseconds: nsec }
+}
+
+// date returns the Time corresponding to the given date and time
+// in the given location.
+pub fun date(year int, month int, day int, hour int, min int, sec int, nsec int, loc @Location) Time {
+    return Time{ seconds: 0, nanoseconds: 0 }
+}
+
+// parse parses a formatted string and returns the time value it represents.
+// The layout defines the format by showing how the reference time
+// "2006-01-02 15:04:05" would be represented.
+pub fun parse(layout string, value string) !Time {
+    return Time{ seconds: 0, nanoseconds: 0 }
+}
+
+// add returns the time t+d.
+pub fun (t Time) add(d Duration) Time {
+    return Time{ seconds: 0, nanoseconds: 0 }
+}
+
+// sub returns the duration t-u.
+pub fun (t Time) sub(u Time) Duration {
+    return 0
+}
+
+// before reports whether the time instant t is before u.
+pub fun (t Time) before(u Time) bool {
+    return false
+}
+
+// after_time reports whether the time instant t is after u.
+pub fun (t Time) after_time(u Time) bool {
+    return false
+}
+
+// equal reports whether t and u represent the same time instant.
+pub fun (t Time) equal(u Time) bool {
+    return false
+}
+
+// is_zero reports whether t represents the zero time instant.
+pub fun (t Time) is_zero() bool {
+    return false
+}
+
+// unix_seconds returns the Unix time in seconds.
+pub fun (t Time) unix_seconds() int {
+    return 0
+}
+
+// unix_milli returns the Unix time in milliseconds.
+pub fun (t Time) unix_milli() int {
+    return 0
+}
+
+// unix_nano returns the Unix time in nanoseconds.
+pub fun (t Time) unix_nano() int {
+    return 0
+}
+
+// year returns the year.
+pub fun (t Time) year() int {
+    return 0
+}
+
+// month returns the month of the year.
+pub fun (t Time) month() int {
+    return 0
+}
+
+// day returns the day of the month.
+pub fun (t Time) day() int {
+    return 0
+}
+
+// hour returns the hour within the day (0-23).
+pub fun (t Time) hour() int {
+    return 0
+}
+
+// minute returns the minute offset within the hour (0-59).
+pub fun (t Time) minute() int {
+    return 0
+}
+
+// second returns the second offset within the minute (0-59).
+pub fun (t Time) second() int {
+    return 0
+}
+
+// weekday returns the day of the week.
+pub fun (t Time) weekday() int {
+    return 0
+}
+
+// format returns a textual representation of the time value formatted
+// according to the layout defined by the reference time.
+pub fun (t Time) format(layout string) string {
+    return ""
+}
+
+// string returns the time formatted using the default layout.
+pub fun (t Time) string() string {
+    return ""
+}
+
+// in_location returns the same instant in time with the given location.
+pub fun (t Time) in_location(loc @Location) Time {
+    return Time{ seconds: 0, nanoseconds: 0 }
+}
+
+// truncate returns the result of rounding t down to a multiple of d.
+pub fun (t Time) truncate(d Duration) Time {
+    return Time{ seconds: 0, nanoseconds: 0 }
+}
+
+// round returns the result of rounding t to the nearest multiple of d.
+pub fun (t Time) round(d Duration) Time {
+    return Time{ seconds: 0, nanoseconds: 0 }
+}
+
+// Timer fires once after a specified duration.
+pub Timer struct {
+    c       chan Time
+    done    bool
+}
+
+// new_timer creates a new Timer that will fire after duration d.
+pub fun new_timer(d Duration) Timer {
+    return Timer{ c: alloc(chan Time), done: false }
+}
+
+// stop prevents the Timer from firing. Returns true if the call stops
+// the timer, false if the timer has already expired or been stopped.
+pub fun (t &Timer) stop() bool {
+    return false
+}
+
+// reset changes the timer to expire after duration d.
+pub fun (t &Timer) reset(d Duration) {
+}
+
+// Ticker holds a channel that delivers ticks at regular intervals.
+pub Ticker struct {
+    c        chan Time
+    interval Duration
+}
+
+// new_ticker returns a new Ticker containing a channel that will send
+// the current time on the channel after each tick.
+pub fun new_ticker(d Duration) Ticker {
+    return Ticker{ c: alloc(chan Time), interval: d }
+}
+
+// stop turns off a ticker. After stop, no more ticks will be sent.
+pub fun (t &Ticker) stop() {
+}

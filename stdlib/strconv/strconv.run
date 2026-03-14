@@ -1,0 +1,86 @@
+package strconv
+
+// ParseError represents errors during string-to-value conversion.
+pub type ParseError = .invalidSyntax
+    | .outOfRange
+
+// parse_int parses a string as an integer in the given base (0 for auto-detect).
+// Base 0 means auto-detect: "0x" prefix for hex, "0o" for octal, "0b" for binary,
+// otherwise decimal.
+pub fun parse_int(s string, base int) !int {
+    return 0
+}
+
+// parse_float parses a string as a floating-point number.
+pub fun parse_float(s string) !f64 {
+    return 0.0
+}
+
+// parse_bool parses a string as a boolean.
+// Accepted values: "1", "t", "T", "TRUE", "true", "True",
+// "0", "f", "F", "FALSE", "false", "False".
+pub fun parse_bool(s string) !bool {
+    return false
+}
+
+// parse_uint parses a string as an unsigned integer in the given base.
+pub fun parse_uint(s string, base int) !u64 {
+    return 0
+}
+
+// format_int returns the string representation of i in the given base.
+pub fun format_int(i int, base int) string {
+    return ""
+}
+
+// format_float converts the floating-point number f to a string,
+// using the given format ('f', 'e', 'g') and precision.
+pub fun format_float(f f64, fmt byte, prec int) string {
+    return ""
+}
+
+// format_bool returns "true" or "false" according to the value of b.
+pub fun format_bool(b bool) string {
+    return ""
+}
+
+// format_uint returns the string representation of u in the given base.
+pub fun format_uint(u u64, base int) string {
+    return ""
+}
+
+// atoi is shorthand for parse_int(s, 10).
+pub fun atoi(s string) !int {
+    return 0
+}
+
+// itoa is shorthand for format_int(i, 10).
+pub fun itoa(i int) string {
+    return ""
+}
+
+// quote returns a double-quoted string literal representing s,
+// using escape sequences (\t, \n, \r, \\, \") for control characters.
+pub fun quote(s string) string {
+    return ""
+}
+
+// unquote interprets a quoted string literal, returning the string value.
+pub fun unquote(s string) !string {
+    return ""
+}
+
+// append_int appends the string representation of i in the given base to dst.
+pub fun append_int(dst []byte, i int, base int) []byte {
+    return alloc([]byte, 0)
+}
+
+// append_float appends the string form of the floating-point number f to dst.
+pub fun append_float(dst []byte, f f64, fmt byte, prec int) []byte {
+    return alloc([]byte, 0)
+}
+
+// append_bool appends "true" or "false" to dst.
+pub fun append_bool(dst []byte, b bool) []byte {
+    return alloc([]byte, 0)
+}

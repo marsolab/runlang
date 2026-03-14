@@ -1,0 +1,91 @@
+package zip
+
+use "io"
+use "time"
+
+// ZipError represents errors during zip operations.
+pub type ZipError = .invalidFormat
+    | .unsupportedCompression
+    | .checksum
+    | .fileTooLarge
+
+// CompressionMethod identifies the compression algorithm used.
+pub type CompressionMethod = .store
+    | .deflate
+
+// File represents a file within a zip archive.
+pub File struct {
+    name               string
+    comment            string
+    compressed_size    int
+    uncompressed_size  int
+    modification_time  time.Time
+    compression_method CompressionMethod
+    crc32              u32
+    is_dir             bool
+}
+
+// Reader reads a zip archive.
+pub Reader struct {
+    files   []File
+    comment string
+}
+
+// open_reader opens a zip file at the given path for reading.
+pub fun open_reader(path string) !Reader {
+    return Reader{
+        files: alloc([]File, 0),
+        comment: "",
+    }
+}
+
+// new_reader creates a Reader from an io.Reader and the archive size.
+pub fun new_reader(r io.Reader, size int) !Reader {
+    return Reader{
+        files: alloc([]File, 0),
+        comment: "",
+    }
+}
+
+// files returns the list of files in the archive.
+pub fun (r @Reader) files() []File {
+    return r.files
+}
+
+// open opens a specific file in the archive for reading.
+pub fun (r @Reader) open(name string) !io.ReadCloser {
+    return null
+}
+
+// Writer writes a zip archive.
+pub Writer struct {
+    implements {
+        io.Closer
+    }
+
+    writer io.Writer
+}
+
+// new_writer returns a new Writer writing a zip archive to w.
+pub fun new_writer(w io.Writer) Writer {
+    return Writer{ writer: w }
+}
+
+// create adds a file to the zip archive using the provided name.
+// It returns a Writer to which the file contents should be written.
+pub fun (w &Writer) create(name string) !io.Writer {
+    return null
+}
+
+// create_header adds a file to the zip archive using the provided File header.
+pub fun (w &Writer) create_header(fh @File) !io.Writer {
+    return null
+}
+
+// set_comment sets the end-of-central-directory comment field.
+pub fun (w &Writer) set_comment(comment string) {
+}
+
+// close finishes writing the zip archive.
+pub fun (w &Writer) close() !void {
+}

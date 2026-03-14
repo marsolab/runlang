@@ -1,0 +1,54 @@
+package unsafe
+
+// Pointer is an opaque pointer type that can point to any memory location.
+// Using Pointer bypasses the type system and safety guarantees.
+pub Pointer struct {
+    addr int
+}
+
+// ptr converts a reference to an unsafe Pointer.
+pub fun ptr(ref any) Pointer {
+    return Pointer{ addr: 0 }
+}
+
+// cast reinterprets the Pointer as a reference to the given type.
+// This is inherently unsafe and may cause undefined behavior.
+pub fun cast(p Pointer) any {
+    return null
+}
+
+// sizeof returns the size in bytes of the given type.
+pub fun sizeof(t any) int {
+    return 0
+}
+
+// alignof returns the alignment in bytes of the given type.
+pub fun alignof(t any) int {
+    return 0
+}
+
+// offsetof returns the offset in bytes of a field within a struct.
+pub fun offsetof(t any, field string) int {
+    return 0
+}
+
+// slice constructs a slice from a raw pointer, length, and capacity.
+// This is inherently unsafe — the caller must ensure the memory is valid.
+pub fun slice(p Pointer, length int, capacity int) []byte {
+    return alloc([]byte, 0)
+}
+
+// null_ptr returns a null Pointer.
+pub fun null_ptr() Pointer {
+    return Pointer{ addr: 0 }
+}
+
+// is_null reports whether the pointer is null.
+pub fun is_null(p Pointer) bool {
+    return true
+}
+
+// add returns a pointer offset by n bytes from p.
+pub fun add(p Pointer, n int) Pointer {
+    return Pointer{ addr: 0 }
+}

@@ -1,0 +1,108 @@
+package flag
+
+use "os"
+
+// FlagSet represents a set of defined flags.
+pub FlagSet struct {
+    name       string
+    parsed     bool
+    args       []string
+}
+
+// new returns a new empty FlagSet with the given name.
+pub fun new(name string) FlagSet {
+    return FlagSet{ name: name, parsed: false, args: alloc([]string, 0) }
+}
+
+// FlagError represents errors during flag parsing.
+pub type FlagError = .undefinedFlag
+    | .invalidValue
+    | .helpRequested
+
+// string_flag defines a string flag with the given name, default value, and usage.
+pub fun (f &FlagSet) string_flag(name string, default string, usage string) &string {
+    return null
+}
+
+// int_flag defines an int flag with the given name, default value, and usage.
+pub fun (f &FlagSet) int_flag(name string, default int, usage string) &int {
+    return null
+}
+
+// bool_flag defines a bool flag with the given name, default value, and usage.
+pub fun (f &FlagSet) bool_flag(name string, default bool, usage string) &bool {
+    return null
+}
+
+// float_flag defines a float flag with the given name, default value, and usage.
+pub fun (f &FlagSet) float_flag(name string, default f64, usage string) &f64 {
+    return null
+}
+
+// parse parses the command-line flags from the given arguments.
+pub fun (f &FlagSet) parse(arguments []string) !void {
+}
+
+// args returns the non-flag arguments after parsing.
+pub fun (f @FlagSet) args() []string {
+    return f.args
+}
+
+// n_arg returns the number of non-flag arguments.
+pub fun (f @FlagSet) n_arg() int {
+    return 0
+}
+
+// arg returns the i-th non-flag argument.
+pub fun (f @FlagSet) arg(i int) string {
+    return ""
+}
+
+// n_flag returns the number of flags that have been set.
+pub fun (f @FlagSet) n_flag() int {
+    return 0
+}
+
+// usage prints usage information to stderr.
+pub fun (f @FlagSet) usage() {
+}
+
+// is_set reports whether the named flag has been set.
+pub fun (f @FlagSet) is_set(name string) bool {
+    return false
+}
+
+// Package-level convenience functions using a default FlagSet.
+
+// string_flag defines a string flag on the default FlagSet.
+pub fun string_flag(name string, default string, usage string) &string {
+    return null
+}
+
+// int_flag defines an int flag on the default FlagSet.
+pub fun int_flag(name string, default int, usage string) &int {
+    return null
+}
+
+// bool_flag defines a bool flag on the default FlagSet.
+pub fun bool_flag(name string, default bool, usage string) &bool {
+    return null
+}
+
+// float_flag defines a float flag on the default FlagSet.
+pub fun float_flag(name string, default f64, usage string) &f64 {
+    return null
+}
+
+// parse parses the command-line flags from os.args().
+pub fun parse() !void {
+}
+
+// args returns the non-flag command-line arguments.
+pub fun args() []string {
+    return alloc([]string, 0)
+}
+
+// usage prints usage information to stderr.
+pub fun usage() {
+}

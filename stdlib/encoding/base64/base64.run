@@ -1,0 +1,68 @@
+package base64
+
+// Encoding defines the encoding/decoding scheme using a 64-character alphabet.
+pub Encoding struct {
+    alphabet string
+    padding  byte
+}
+
+// std_encoding is the standard base64 encoding per RFC 4648.
+pub var std_encoding = Encoding{
+    alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+    padding: 61,
+}
+
+// url_encoding is the URL-safe base64 encoding per RFC 4648.
+pub var url_encoding = Encoding{
+    alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+    padding: 61,
+}
+
+// raw_std_encoding is the standard raw, unpadded base64 encoding.
+pub var raw_std_encoding = Encoding{
+    alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+    padding: 0,
+}
+
+// raw_url_encoding is the URL-safe raw, unpadded base64 encoding.
+pub var raw_url_encoding = Encoding{
+    alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+    padding: 0,
+}
+
+// Base64Error represents errors during base64 decoding.
+pub type Base64Error = .invalidCharacter
+    | .invalidPadding
+    | .invalidLength
+
+// encode returns the base64 encoding of src using the given encoding.
+pub fun (enc @Encoding) encode(src []byte) string {
+    return ""
+}
+
+// decode decodes the base64 encoded string src using the given encoding.
+pub fun (enc @Encoding) decode(src string) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// encode_to_bytes encodes src and returns the result as a byte slice.
+pub fun (enc @Encoding) encode_to_bytes(src []byte) []byte {
+    return alloc([]byte, 0)
+}
+
+// decode_bytes decodes the base64 encoded byte slice src.
+pub fun (enc @Encoding) decode_bytes(src []byte) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// encoded_len returns the length in bytes of the base64 encoding of
+// an input buffer of length n.
+pub fun (enc @Encoding) encoded_len(n int) int {
+    return 0
+}
+
+// decoded_len returns the maximum length in bytes of the decoded data
+// corresponding to n bytes of base64-encoded data.
+pub fun (enc @Encoding) decoded_len(n int) int {
+    return 0
+}
