@@ -12,6 +12,7 @@ const ir = @import("ir.zig");
 const dce = @import("dce.zig");
 const const_fold = @import("const_fold.zig");
 const codegen_c = @import("codegen_c.zig");
+const rasm = @import("rasm.zig");
 const diag_mod = @import("diagnostics.zig");
 
 const File = std.fs.File;
@@ -80,6 +81,8 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
                 .expected_string_literal => "expected string literal",
                 .invalid_token => "invalid token",
                 .invalid_alloc_type => "invalid alloc type",
+                .expected_asm_register => "expected register name in assembly input binding",
+                .expected_arrow_right => "expected '->' in assembly input binding",
                 .unexpected_eof => "unexpected end of file",
             };
             const d = diag_mod.Diagnostic{
@@ -236,13 +239,57 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     // Find runtime directory (relative to current working dir)
     const runtime_dir = "src/runtime";
 
-    invokeZigCC(allocator, tmp_path, out_path, runtime_dir) catch {
+    // 9b. Discover and compile .rasm files alongside the source
+    const source_dir = std.fs.path.dirname(options.input_path) orelse ".";
+    const arch = rasm.Arch.fromBuiltin();
+    var rasm_asm_files: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (rasm_asm_files.items) |path| {
+            allocator.free(path);
+        }
+        rasm_asm_files.deinit(allocator);
+    }
+
+    var rasm_files: std.ArrayList([]const u8) = rasm.discoverRasmFiles(allocator, source_dir, arch) catch .empty;
+    defer {
+        for (rasm_files.items) |path| {
+            allocator.free(path);
+        }
+        rasm_files.deinit(allocator);
+    }
+
+    for (rasm_files.items) |rasm_path| {
+        const rasm_source = readFile(allocator, rasm_path) catch continue;
+        defer allocator.free(rasm_source);
+
+        var parsed = rasm.parseRasmFile(allocator, rasm_source) catch continue;
+        defer parsed.deinit(allocator);
+
+        const gas_source = rasm.generateGasFile(allocator, &parsed, arch) catch continue;
+        defer allocator.free(gas_source);
+
+        // Write .S file
+        const asm_path = std.fmt.allocPrint(allocator, "/tmp/run_rasm_{s}.S", .{
+            std.fs.path.stem(rasm_path),
+        }) catch continue;
+
+        const asm_file = std.fs.cwd().createFile(asm_path, .{}) catch continue;
+        defer asm_file.close();
+        asm_file.writeAll(gas_source) catch continue;
+
+        rasm_asm_files.append(allocator, asm_path) catch continue;
+    }
+
+    invokeZigCC(allocator, tmp_path, out_path, runtime_dir, rasm_asm_files.items) catch {
         stderr.writeAll("error: C compilation failed\n") catch {};
         return CompileError.CCompileFailed;
     };
 
-    // Clean up temp file
+    // Clean up temp files
     std.fs.cwd().deleteFile(tmp_path) catch {};
+    for (rasm_asm_files.items) |asm_path| {
+        std.fs.cwd().deleteFile(asm_path) catch {};
+    }
 
     if (options.command == .run) {
         // Ensure binary path has ./ prefix for execution
@@ -326,6 +373,7 @@ pub fn invokeZigCC(
     c_source_path: []const u8,
     output_path: []const u8,
     runtime_dir: []const u8,
+    extra_asm_files: []const []const u8,
 ) !void {
     const runtime_sources = [_][]const u8{
         "run_main.c",
@@ -366,6 +414,11 @@ pub fn invokeZigCC(
     if (asm_source) |asm_name| {
         const asm_path = try std.fs.path.join(allocator, &.{ runtime_dir, asm_name });
         try args.append(allocator, asm_path);
+    }
+
+    // Add extra .rasm-generated assembly files
+    for (extra_asm_files) |extra_asm| {
+        try args.append(allocator, extra_asm);
     }
 
     // Include path for runtime headers

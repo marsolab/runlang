@@ -185,6 +185,13 @@ pub const CCodegen = struct {
             .try_unwrap => "int64_t",
             .closure_create => "void*",
             .cast => "int64_t",
+            .inline_asm => blk: {
+                const ai = inst.arg1;
+                if (ai < self.module.asm_infos.items.len) {
+                    break :blk self.module.asm_infos.items[ai].return_type;
+                }
+                break :blk "int64_t";
+            },
             .phi => "int64_t",
             else => "int64_t",
         };
@@ -444,7 +451,99 @@ pub const CCodegen = struct {
                 try self.emitIndent();
                 try self.writer().print("/* phi _t{d} */\n", .{inst.result});
             },
+            .inline_asm => {
+                try self.emitInlineAsm(inst);
+            },
             .nop => {},
+        }
+    }
+
+    /// Emit a GCC-style inline assembly statement from AsmInfo.
+    fn emitInlineAsm(self: *CCodegen, inst: ir.Inst) !void {
+        const asm_idx = inst.arg1;
+        if (asm_idx >= self.module.asm_infos.items.len) {
+            try self.emitIndent();
+            try self.writer().print("/* invalid asm_info index */\n", .{});
+            return;
+        }
+        const info = self.module.asm_infos.items[asm_idx];
+
+        try self.emitIndent();
+
+        // Determine if we have an output (result != 0 and return type isn't void)
+        const has_output = inst.result != 0 and !std.mem.eql(u8, info.return_type, "void");
+
+        // Start the __asm__ block
+        try self.writer().print("__asm__ __volatile__(\n", .{});
+
+        // Emit template — handle platform sections
+        try self.emitIndent();
+        try self.writer().print("    \"", .{});
+        if (info.platform_sections.items.len > 0) {
+            // Use platform-specific template based on target
+            const target_arch = @import("builtin").cpu.arch;
+            var found = false;
+            for (info.platform_sections.items) |section| {
+                const matches = (target_arch == .x86_64 and std.mem.eql(u8, section.platform, "x86_64")) or
+                    (target_arch == .aarch64 and std.mem.eql(u8, section.platform, "arm64"));
+                if (matches) {
+                    try self.emitAsmTemplate(section.template);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found and info.template.len > 0) {
+                try self.emitAsmTemplate(info.template);
+            }
+        } else {
+            try self.emitAsmTemplate(info.template);
+        }
+        try self.writer().print("\"\n", .{});
+
+        // Output operands
+        try self.emitIndent();
+        if (has_output) {
+            try self.writer().print("    : \"=r\"(_t{d})\n", .{inst.result});
+        } else {
+            try self.writer().print("    : /* no outputs */\n", .{});
+        }
+
+        // Input operands
+        try self.emitIndent();
+        try self.writer().print("    : ", .{});
+        for (info.inputs.items, 0..) |input, i| {
+            if (i > 0) try self.writer().print(", ", .{});
+            const constraint = mapRegisterConstraint(input.register);
+            try self.writer().print("\"{s}\"(_t{d})", .{ constraint, input.ref });
+        }
+        try self.writer().print("\n", .{});
+
+        // Clobbers
+        try self.emitIndent();
+        try self.writer().print("    : ", .{});
+        for (info.clobbers.items, 0..) |clobber, i| {
+            if (i > 0) try self.writer().print(", ", .{});
+            try self.writer().print("\"{s}\"", .{clobber});
+        }
+        try self.writer().print("\n", .{});
+
+        try self.emitIndent();
+        try self.writer().print(");\n", .{});
+    }
+
+    /// Emit assembly template text, converting newlines to \\n for GCC inline asm.
+    fn emitAsmTemplate(self: *CCodegen, template: []const u8) !void {
+        const trimmed = std.mem.trim(u8, template, " \t\n\r");
+        var iter = std.mem.splitScalar(u8, trimmed, '\n');
+        var first = true;
+        while (iter.next()) |line| {
+            const tline = std.mem.trim(u8, line, " \t\r");
+            if (tline.len == 0) continue;
+            if (!first) {
+                try self.writer().print("\\n", .{});
+            }
+            try self.writer().print("{s}", .{tline});
+            first = false;
         }
     }
 
@@ -566,6 +665,29 @@ pub const CCodegen = struct {
         return self.output.writer(self.allocator);
     }
 };
+
+/// Map abstract register names to GCC/Clang register constraints.
+/// Uses target-appropriate constraints for the current compilation platform.
+fn mapRegisterConstraint(register: []const u8) []const u8 {
+    const arch = @import("builtin").cpu.arch;
+    if (arch == .x86_64) {
+        // x86-64 System V ABI register mapping
+        if (std.mem.eql(u8, register, "r0")) return "a"; // rax
+        if (std.mem.eql(u8, register, "r1")) return "b"; // rbx
+        if (std.mem.eql(u8, register, "r2")) return "c"; // rcx
+        if (std.mem.eql(u8, register, "r3")) return "d"; // rdx
+        if (std.mem.eql(u8, register, "r4")) return "S"; // rsi
+        if (std.mem.eql(u8, register, "r5")) return "D"; // rdi
+        if (std.mem.eql(u8, register, "sp")) return "{rsp}";
+        if (std.mem.eql(u8, register, "fp")) return "{rbp}";
+    } else if (arch == .aarch64) {
+        // ARM64 AAPCS register mapping — all are general purpose "r" constraint
+        if (std.mem.eql(u8, register, "sp")) return "{sp}";
+        if (std.mem.eql(u8, register, "fp")) return "{x29}";
+    }
+    // Default: use general-purpose register constraint
+    return "r";
+}
 
 // Tests
 

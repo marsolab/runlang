@@ -665,8 +665,133 @@ const LoweringContext = struct {
                 return r;
             },
             .if_expr => return try self.lowerIfExpr(node_idx),
+            .asm_expr => return try self.lowerAsmExpr(node_idx),
             else => return ir.null_ref,
         }
+    }
+
+    fn lowerAsmExpr(self: *LoweringContext, node_idx: NodeIndex) LowerError!ir.Ref {
+        const node = self.tree.nodes.items[node_idx];
+        const extra = self.tree.extra_data.items;
+        const extra_start = node.data.lhs;
+        const body_node_idx = node.data.rhs;
+
+        // Parse extra_data layout: [input_count, input1..N, clobber_count, clobber1..M, ret_type_node]
+        const input_count = extra[extra_start];
+
+        // Lower input expressions and collect register bindings
+        var inputs: std.ArrayList(ir.AsmOperand) = .empty;
+        defer inputs.deinit(self.allocator);
+
+        var i: u32 = 0;
+        while (i < input_count) : (i += 1) {
+            const input_node_idx = extra[extra_start + 1 + i];
+            const input_node = self.tree.nodes.items[input_node_idx];
+            // input_node.tag == .asm_input: lhs = expression, main_token = register name
+            const expr_ref = try self.lowerExpr(input_node.data.lhs);
+            const reg_name = self.tokenSlice(input_node.main_token);
+            try inputs.append(self.allocator, .{ .register = reg_name, .ref = expr_ref });
+        }
+
+        // Clobbers
+        const clobber_offset = extra_start + 1 + input_count;
+        const clobber_count = extra[clobber_offset];
+        var clobbers: std.ArrayList([]const u8) = .empty;
+        defer clobbers.deinit(self.allocator);
+
+        var j: u32 = 0;
+        while (j < clobber_count) : (j += 1) {
+            const clobber_node_idx = extra[clobber_offset + 1 + j];
+            const clobber_node = self.tree.nodes.items[clobber_node_idx];
+            const clobber_name = self.tokenSlice(clobber_node.main_token);
+            try clobbers.append(self.allocator, clobber_name);
+        }
+
+        // Return type
+        const ret_type_offset = clobber_offset + 1 + clobber_count;
+        const ret_type_node = extra[ret_type_offset];
+        const return_type: []const u8 = if (ret_type_node != null_node) blk: {
+            const rt_node = self.tree.nodes.items[ret_type_node];
+            const type_name = self.tokenSlice(rt_node.main_token);
+            // Map Run types to C types
+            break :blk if (std.mem.eql(u8, type_name, "u64") or std.mem.eql(u8, type_name, "i64") or std.mem.eql(u8, type_name, "int"))
+                "int64_t"
+            else if (std.mem.eql(u8, type_name, "u32") or std.mem.eql(u8, type_name, "i32"))
+                "int32_t"
+            else if (std.mem.eql(u8, type_name, "f32"))
+                "float"
+            else if (std.mem.eql(u8, type_name, "f64") or std.mem.eql(u8, type_name, "float"))
+                "double"
+            else if (std.mem.eql(u8, type_name, "bool"))
+                "bool"
+            else
+                "int64_t";
+        } else "void";
+
+        // Extract assembly body text from body node
+        var template: []const u8 = "";
+        var platform_sections: std.ArrayList(ir.AsmInfo.PlatformSection) = .empty;
+        defer platform_sections.deinit(self.allocator);
+
+        if (body_node_idx != null_node) {
+            const body_node = self.tree.nodes.items[body_node_idx];
+            if (body_node.tag == .asm_body) {
+                const body_start = body_node.data.lhs;
+                const body_count = body_node.data.rhs;
+                var k: u32 = 0;
+                while (k < body_count) : (k += 1) {
+                    const item_idx = extra[body_start + k];
+                    const item = self.tree.nodes.items[item_idx];
+                    if (item.tag == .asm_simple_body) {
+                        const src_start = item.data.lhs;
+                        const src_end = item.data.rhs;
+                        if (src_start < src_end and src_end <= self.tree.source.len) {
+                            template = self.tree.source[src_start..src_end];
+                        }
+                    } else if (item.tag == .asm_platform) {
+                        // Platform conditional: main_token = hash, main_token+1 = platform name
+                        const plat_name = self.tokenSlice(item.main_token + 1);
+                        const src_start = item.data.lhs;
+                        const src_end = item.data.rhs;
+                        var plat_template: []const u8 = "";
+                        if (src_start < src_end and src_end <= self.tree.source.len) {
+                            plat_template = self.tree.source[src_start..src_end];
+                        }
+                        try platform_sections.append(self.allocator, .{
+                            .platform = plat_name,
+                            .template = plat_template,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Clone lists for AsmInfo (it needs to own the data)
+        var info_inputs: std.ArrayList(ir.AsmOperand) = .empty;
+        for (inputs.items) |inp| {
+            try info_inputs.append(self.allocator, inp);
+        }
+        var info_clobbers: std.ArrayList([]const u8) = .empty;
+        for (clobbers.items) |c| {
+            try info_clobbers.append(self.allocator, c);
+        }
+        var info_platforms: std.ArrayList(ir.AsmInfo.PlatformSection) = .empty;
+        for (platform_sections.items) |p| {
+            try info_platforms.append(self.allocator, p);
+        }
+
+        const asm_info = ir.AsmInfo{
+            .template = template,
+            .inputs = info_inputs,
+            .clobbers = info_clobbers,
+            .return_type = return_type,
+            .platform_sections = info_platforms,
+        };
+        const asm_idx = try self.module.addAsmInfo(self.allocator, asm_info);
+
+        const r = self.allocRef();
+        try self.emit(ir.makeInst(.inline_asm, r, asm_idx, 0));
+        return r;
     }
 
     fn lowerIfExpr(self: *LoweringContext, node_idx: NodeIndex) LowerError!ir.Ref {

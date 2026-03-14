@@ -567,6 +567,23 @@ pub const Resolver = struct {
             // Variants
             .variant => try self.resolveNode(self.nodeData(node).lhs),
 
+            // Assembly expressions — resolve input expressions
+            .asm_expr => {
+                const data = self.nodeData(node);
+                const extra = self.tree.extra_data.items;
+                const input_count = extra[data.lhs];
+                var i: u32 = 0;
+                while (i < input_count) : (i += 1) {
+                    const input_node = extra[data.lhs + 1 + i];
+                    // Resolve the expression in the asm_input
+                    const input_data = self.nodeData(input_node);
+                    try self.resolveNode(input_data.lhs);
+                }
+            },
+
+            // These are handled by their parent or contain no resolvable names
+            .asm_input, .asm_body, .asm_simple_body, .asm_platform => {},
+
             // These are handled by their parent
             .fn_decl, .pub_decl, .struct_decl, .interface_decl,
             .type_alias, .type_decl, .package_decl, .import_decl,

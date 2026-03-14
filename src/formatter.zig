@@ -114,6 +114,11 @@ pub const Formatter = struct {
             .variadic_param => try self.formatVariadicParam(node),
             .receiver => try self.formatReceiver(node),
             .method_sig => try self.formatMethodSig(node),
+            .asm_expr => try self.formatAsmExpr(node),
+            .asm_input => try self.formatAsmInput(node),
+            .asm_body => try self.formatAsmBody(node),
+            .asm_simple_body => try self.formatAsmSimpleBody(node),
+            .asm_platform => try self.formatAsmPlatform(node),
         }
     }
 
@@ -857,6 +862,98 @@ pub const Formatter = struct {
             }
             try self.write(" ");
         }
+        try self.write("}");
+    }
+
+    // --- Assembly ---
+
+    fn formatAsmExpr(self: *Formatter, node: Node) !void {
+        try self.write("asm(");
+        const extra = self.tree.extra_data.items;
+        const start = node.data.lhs;
+        const input_count = extra[start];
+
+        // Format inputs
+        var i: u32 = 0;
+        while (i < input_count) : (i += 1) {
+            if (i > 0) try self.write(", ");
+            try self.formatNode(extra[start + 1 + i]);
+        }
+
+        // Format clobbers
+        const clobber_offset = start + 1 + input_count;
+        const clobber_count = extra[clobber_offset];
+        if (clobber_count > 0) {
+            try self.write("; clobber: ");
+            var j: u32 = 0;
+            while (j < clobber_count) : (j += 1) {
+                if (j > 0) try self.write(", ");
+                try self.formatNode(extra[clobber_offset + 1 + j]);
+            }
+        }
+
+        try self.write(")");
+
+        // Format return type
+        const ret_type_idx = extra[clobber_offset + 1 + clobber_count];
+        if (ret_type_idx != null_node) {
+            try self.write(" ");
+            try self.formatNode(ret_type_idx);
+        }
+
+        try self.write(" ");
+        try self.formatNode(node.data.rhs);
+    }
+
+    fn formatAsmInput(self: *Formatter, node: Node) !void {
+        try self.formatNode(node.data.lhs);
+        try self.write(" -> ");
+        try self.writeToken(node.main_token);
+    }
+
+    fn formatAsmBody(self: *Formatter, node: Node) !void {
+        try self.write("{\n");
+        self.indent_level += 1;
+        const extra = self.tree.extra_data.items;
+        const start = node.data.lhs;
+        const count = node.data.rhs;
+        var i: u32 = 0;
+        while (i < count) : (i += 1) {
+            try self.writeIndent();
+            try self.formatNode(extra[start + i]);
+            try self.newline();
+        }
+        self.indent_level -= 1;
+        try self.writeIndent();
+        try self.write("}");
+    }
+
+    fn formatAsmSimpleBody(self: *Formatter, node: Node) !void {
+        // Emit raw source text for assembly instructions
+        const src_start = node.data.lhs;
+        const src_end = node.data.rhs;
+        if (src_start < src_end and src_end <= self.source.len) {
+            const text = std.mem.trim(u8, self.source[src_start..src_end], " \t\n\r");
+            try self.write(text);
+        }
+    }
+
+    fn formatAsmPlatform(self: *Formatter, node: Node) !void {
+        try self.write("#");
+        // Platform name is the token after hash
+        try self.writeToken(node.main_token + 1);
+        try self.write(" {\n");
+        self.indent_level += 1;
+        const src_start = node.data.lhs;
+        const src_end = node.data.rhs;
+        if (src_start < src_end and src_end <= self.source.len) {
+            const text = std.mem.trim(u8, self.source[src_start..src_end], " \t\n\r");
+            try self.writeIndent();
+            try self.write(text);
+            try self.newline();
+        }
+        self.indent_level -= 1;
+        try self.writeIndent();
         try self.write("}");
     }
 

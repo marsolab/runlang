@@ -390,9 +390,11 @@ fun fast_add(a u64, b u64) u64 {
 ```
 
 - `asm(inputs) return_type { instructions }` — inline assembly expression
-- **Inputs**: `expr -> register` binds a Run expression to an abstract register
-- **Return type**: the type of the value produced (read from `r0` by convention)
-- **Clobber list**: `asm(inputs; clobber: r2, r3, memory) { ... }` declares side effects
+- **Inputs**: `expr -> register` binds a Run expression to an abstract register using the `->` (arrow right) operator
+- **Return type**: the type of the value produced (read from `r0` by convention); optional for void assembly
+- **Clobber list**: `asm(inputs; clobber: r2, r3, memory) { ... }` declares side effects — the `;` separates inputs from the clobber clause
+- **No-input form**: `asm() { instructions }` for assembly with no inputs or outputs
+- **Platform conditionals**: Inside the assembly body, `#platform_name { ... }` selects instructions for a specific target (e.g., `#x86_64`, `#arm64`). The `#` token introduces the platform selector
 
 ### Abstract Register Model
 
