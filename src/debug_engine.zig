@@ -63,9 +63,9 @@ pub const DebugEngine = union(enum) {
         }
     }
 
-    pub fn setBreakpoint(self: *DebugEngine, file: []const u8, line: u32) !Breakpoint {
+    pub fn setBreakpoint(self: *DebugEngine, file: []const u8, line: u32, condition: ?[]const u8, hit_condition: ?[]const u8) !Breakpoint {
         switch (self.*) {
-            .gdb => |*e| return e.setBreakpoint(file, line),
+            .gdb => |*e| return e.setBreakpoint(file, line, condition, hit_condition),
         }
     }
 
@@ -130,7 +130,8 @@ pub const DebugEngine = union(enum) {
     }
 };
 
-/// GDB-backed debug engine implementation.
+/// GDB/LLDB-backed debug engine implementation.
+/// Supports both GDB and LLDB via the shared MI protocol.
 pub const GdbEngine = struct {
     gdb: gdb_mi.GdbMi,
     allocator: std.mem.Allocator,
@@ -147,6 +148,19 @@ pub const GdbEngine = struct {
         };
     }
 
+    /// Initialize with auto-detection of the best available debugger.
+    /// Tries GDB first, falls back to LLDB MI.
+    pub fn initAutoDetect(allocator: std.mem.Allocator, binary_path: []const u8, func_debug_infos: []const ir.FunctionDebugInfo) !GdbEngine {
+        const backend = gdb_mi.GdbMi.detectBackend(allocator) catch
+            return error.NoDebuggerFound;
+        return .{
+            .gdb = try gdb_mi.GdbMi.initWithBackend(allocator, binary_path, backend),
+            .allocator = allocator,
+            .next_bp_id = 1,
+            .func_debug_infos = func_debug_infos,
+        };
+    }
+
     pub fn launch(self: *GdbEngine) !void {
         // Wait for GDB to be ready
         _ = try self.gdb.sendCommand("-gdb-set mi-async on");
@@ -154,7 +168,7 @@ pub const GdbEngine = struct {
         _ = try self.gdb.sendCommand("-gdb-set confirm off");
     }
 
-    pub fn setBreakpoint(self: *GdbEngine, file: []const u8, line: u32) !Breakpoint {
+    pub fn setBreakpoint(self: *GdbEngine, file: []const u8, line: u32, condition: ?[]const u8, hit_condition: ?[]const u8) !Breakpoint {
         var cmd_buf: [512]u8 = undefined;
         const cmd = std.fmt.bufPrint(&cmd_buf, "-break-insert {s}:{d}", .{ file, line }) catch
             return error.CommandTooLong;
@@ -164,6 +178,27 @@ pub const GdbEngine = struct {
         self.next_bp_id += 1;
 
         const verified = response.result_class == .done;
+
+        // Extract GDB breakpoint number from response for condition/hit-count commands
+        const gdb_bp_num = gdb_mi.extractValue(response.content, "number") orelse "1";
+
+        // Apply conditional expression if provided
+        if (condition) |cond| {
+            var cond_buf: [512]u8 = undefined;
+            const cond_cmd = std.fmt.bufPrint(&cond_buf, "-break-condition {s} {s}", .{ gdb_bp_num, cond }) catch
+                return error.CommandTooLong;
+            _ = try self.gdb.sendCommand(cond_cmd);
+        }
+
+        // Apply hit count if provided
+        if (hit_condition) |hit_cond| {
+            const count = std.fmt.parseInt(u32, hit_cond, 10) catch 1;
+            var hit_buf: [256]u8 = undefined;
+            const hit_cmd = std.fmt.bufPrint(&hit_buf, "-break-after {s} {d}", .{ gdb_bp_num, count }) catch
+                return error.CommandTooLong;
+            _ = try self.gdb.sendCommand(hit_cmd);
+        }
+
         return .{
             .id = bp_id,
             .verified = verified,

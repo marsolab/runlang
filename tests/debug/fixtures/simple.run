@@ -1,0 +1,5 @@
+fn main() {
+    x := 42
+    y := x + 8
+    fmt.println(y)
+}

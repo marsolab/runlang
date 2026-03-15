@@ -1,0 +1,93 @@
+{
+  "name": "run-debug",
+  "displayName": "Run Language Debugger",
+  "description": "Debug adapter for the Run programming language",
+  "version": "0.1.0",
+  "publisher": "marsolab",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/marsolab/runlang"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Debuggers"
+  ],
+  "activationEvents": [
+    "onDebugResolve:run",
+    "onLanguage:run"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "run",
+        "extensions": [".run"],
+        "aliases": ["Run", "run"]
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "run",
+        "label": "Run Debug",
+        "program": "./out/extension.js",
+        "runtime": "node",
+        "languages": ["run"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to the .run file to debug",
+                "default": "${file}"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Stop on the first line of the program",
+                "default": false
+              },
+              "args": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Command-line arguments for the program",
+                "default": []
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "run",
+            "request": "launch",
+            "name": "Debug Run Program",
+            "program": "${file}"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Run: Launch",
+            "description": "Launch and debug a Run program",
+            "body": {
+              "type": "run",
+              "request": "launch",
+              "name": "Debug Run Program",
+              "program": "^\"\\${file}\""
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.0"
+  }
+}

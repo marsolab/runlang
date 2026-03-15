@@ -1,0 +1,11 @@
+fn add(a int, b int) int {
+    result := a + b
+    return result
+}
+
+fn main() {
+    x := 10
+    y := 20
+    z := add(x, y)
+    fmt.println(z)
+}
