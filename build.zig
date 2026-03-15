@@ -198,4 +198,32 @@ pub fn build(b: *std.Build) void {
     run_runtime_tests.step.dependOn(&runtime_test_exe.step);
     const runtime_test_step = b.step("test-runtime", "Run runtime C tests");
     runtime_test_step.dependOn(&run_runtime_tests.step);
+
+    // WASM build for the web playground
+    const wasm = b.addExecutable(.{
+        .name = "run-playground",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/wasm.zig"),
+            .target = b.resolveTargetQuery(.{
+                .cpu_arch = .wasm32,
+                .os_tag = .freestanding,
+            }),
+            .optimize = .ReleaseSmall,
+        }),
+    });
+    wasm.entry = .disabled;
+    wasm.root_module.export_symbol_names = &.{
+        "alloc",
+        "dealloc",
+        "getResultPtr",
+        "getResultLen",
+        "check",
+        "tokenize",
+        "parse",
+        "format",
+    };
+    const install_wasm = b.addInstallArtifact(wasm, .{});
+
+    const wasm_step = b.step("wasm", "Build WASM module for the web playground");
+    wasm_step.dependOn(&install_wasm.step);
 }

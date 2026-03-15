@@ -1,0 +1,12 @@
+---
+import Landing from "../layouts/Landing.astro";
+import Nav from "../components/landing/Nav.astro";
+import Playground from "../components/playground/Playground";
+---
+
+<Landing title="Playground — Run" description="Try the Run programming language in your browser.">
+  <Nav />
+  <main class="flex h-screen flex-col pt-[65px]">
+    <Playground client:only="react" />
+  </main>
+</Landing>
