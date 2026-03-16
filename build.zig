@@ -221,6 +221,7 @@ pub fn build(b: *std.Build) void {
         "tokenize",
         "parse",
         "format",
+        "run",
     };
     const install_wasm = b.addInstallArtifact(wasm, .{});
 
