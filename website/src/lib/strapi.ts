@@ -39,6 +39,8 @@ interface StrapiResponse<T> {
   };
 }
 
+const EMPTY_RESPONSE = { data: [] as never[], meta: {} };
+
 async function fetchStrapi<T>(
   endpoint: string,
   params: Record<string, string> = {},
@@ -55,11 +57,17 @@ async function fetchStrapi<T>(
     headers.Authorization = `Bearer ${STRAPI_TOKEN}`;
   }
 
-  const res = await fetch(url.toString(), { headers });
-  if (!res.ok) {
-    throw new Error(`Strapi error ${res.status}: ${res.statusText}`);
+  try {
+    const res = await fetch(url.toString(), { headers });
+    if (!res.ok) {
+      console.warn(`Strapi error ${res.status}: ${res.statusText}`);
+      return EMPTY_RESPONSE as StrapiResponse<T>;
+    }
+    return res.json();
+  } catch (err) {
+    console.warn(`Strapi unreachable (${STRAPI_URL}): ${err}`);
+    return EMPTY_RESPONSE as StrapiResponse<T>;
   }
-  return res.json();
 }
 
 export async function getPosts(
