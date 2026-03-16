@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+*,
+*::before,
+*::after {
+  min-width: 0;
+}
+
 @theme {
   --color-run-primary: #2563eb;
   --color-run-secondary: #7c3aed;
