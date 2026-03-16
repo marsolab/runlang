@@ -63,7 +63,7 @@ pub fun open(path string) !File {
 }
 
 // Struct with interface
-pub File struct {
+pub type File struct {
     implements {
         io.Reader
         io.Writer
@@ -141,7 +141,7 @@ pub interface ReadWriter {
 }
 
 // Buffered wrapper
-pub BufferedReader struct {
+pub type BufferedReader struct {
     implements { Reader }
     // ...
 }
@@ -164,7 +164,7 @@ pub fun args() []string
 
 ### testing Module
 ```run
-pub Testing struct {
+pub type Testing struct {
     // test context
 }
 

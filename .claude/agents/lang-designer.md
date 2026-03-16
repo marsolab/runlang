@@ -24,7 +24,7 @@ You design and verify the semantic rules of Run. You specify how name resolution
 - String: `string` (UTF-8 byte slice)
 
 ### Composite Types
-- **Structs**: `Name struct { fields }` — name before keyword, data only (no methods inside)
+- **Structs**: `type Name struct { fields }` — name before keyword, data only (no methods inside)
 - **Interfaces**: `interface Name { method_sigs }` — explicit, with `implements` block in structs
 - **Sum types**: `type State = .loading | .ready(Data) | .error(string)` — tagged unions with pattern matching
 - **Nullable**: `T?` — must handle null explicitly via switch

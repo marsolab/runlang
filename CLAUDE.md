@@ -49,8 +49,8 @@ These differ from older Zig versions and are critical to get right:
 - No generics by design
 - `&T` (read/write pointer), `@T` (read-only pointer)
 - `!T` error unions with `try` and `switch`
-- Structs use `Name struct { }` syntax (name before keyword); interfaces with `implements` block inside struct
-- Go-style methods: `fn (recv &Type) name(params) ret { body }` — receiver in parens between `fn` and method name
+- Structs use `type Name struct { }` syntax (name before keyword); interfaces with `implements` block inside struct
+- Go-style methods: `fun (recv &Type) name(params) ret { body }` — receiver in parens between `fun` and method name
 - Newlines are significant tokens
 
 ## Current Status
