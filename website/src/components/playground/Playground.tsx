@@ -282,8 +282,8 @@ export default function Playground() {
 	return (
 		<div className="flex h-full flex-col">
 			{/* Toolbar */}
-			<div className="flex items-center justify-between border-b border-white/10 bg-run-code-bg px-4 py-2">
-				<div className="flex gap-1">
+			<div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-run-code-bg px-4 py-2">
+				<div className="flex gap-1 overflow-x-auto">
 					<TabButton label="Run" active={activeTab === "run"} onClick={() => handleTabChange("run")} />
 					<TabButton label="Check" active={activeTab === "check"} onClick={() => handleTabChange("check")} />
 					<TabButton label="Tokens" active={activeTab === "tokens"} onClick={() => handleTabChange("tokens")} />
@@ -298,10 +298,10 @@ export default function Playground() {
 						type="button"
 						onClick={handleRun}
 						disabled={!ready}
-						className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
+						className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50 md:px-4"
 					>
 						Run
-						<span className="ml-1.5 text-xs text-blue-200">{isMac ? "\u2318" : "Ctrl"}+\u23CE</span>
+						<span className="ml-1.5 hidden text-xs text-blue-200 sm:inline">{isMac ? "\u2318" : "Ctrl"}+\u23CE</span>
 					</button>
 				</div>
 			</div>
@@ -309,7 +309,7 @@ export default function Playground() {
 			{/* Editor + Output */}
 			<div className="grid flex-1 grid-cols-1 md:grid-cols-2">
 				{/* Editor pane */}
-				<div className="relative border-r border-white/10">
+				<div className="relative min-h-[200px] border-r border-white/10">
 					<div className="absolute left-0 top-0 px-4 py-2 text-xs text-gray-500">
 						source.run
 					</div>
@@ -325,7 +325,7 @@ export default function Playground() {
 				</div>
 
 				{/* Output pane */}
-				<div className="relative overflow-auto bg-run-dark">
+				<div className="relative min-h-[200px] overflow-auto bg-run-dark">
 					<div className="absolute left-0 top-0 px-4 py-2 text-xs text-gray-500">
 						output
 					</div>

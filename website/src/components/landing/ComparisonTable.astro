@@ -45,24 +45,24 @@ const rows = [
       <p class="text-lg text-gray-400">The sweet spot between simplicity and control.</p>
     </div>
     <div class="overflow-x-auto rounded-xl border border-white/10">
-      <table class="w-full text-left text-sm">
+      <table class="min-w-[640px] w-full text-left text-sm">
         <thead>
           <tr class="border-b border-white/10 bg-white/5">
-            <th class="px-6 py-4 font-medium text-gray-400"></th>
-            <th class="px-6 py-4 font-bold text-run-primary">Run</th>
-            <th class="px-6 py-4 font-medium text-gray-400">Go</th>
-            <th class="px-6 py-4 font-medium text-gray-400">Rust</th>
-            <th class="px-6 py-4 font-medium text-gray-400">Zig</th>
+            <th class="px-3 py-3 font-medium text-gray-400 md:px-6 md:py-4"></th>
+            <th class="px-3 py-3 font-bold text-run-primary md:px-6 md:py-4">Run</th>
+            <th class="px-3 py-3 font-medium text-gray-400 md:px-6 md:py-4">Go</th>
+            <th class="px-3 py-3 font-medium text-gray-400 md:px-6 md:py-4">Rust</th>
+            <th class="px-3 py-3 font-medium text-gray-400 md:px-6 md:py-4">Zig</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row, i) => (
             <tr class:list={["border-b border-white/5", i % 2 === 0 ? "bg-transparent" : "bg-white/[0.02]"]}>
-              <td class="px-6 py-4 font-medium text-white">{row.feature}</td>
-              <td class="px-6 py-4 text-run-accent">{row.run}</td>
-              <td class="px-6 py-4 text-gray-400">{row.go}</td>
-              <td class="px-6 py-4 text-gray-400">{row.rust}</td>
-              <td class="px-6 py-4 text-gray-400">{row.zig}</td>
+              <td class="px-3 py-3 font-medium text-white md:px-6 md:py-4">{row.feature}</td>
+              <td class="px-3 py-3 text-run-accent md:px-6 md:py-4">{row.run}</td>
+              <td class="px-3 py-3 text-gray-400 md:px-6 md:py-4">{row.go}</td>
+              <td class="px-3 py-3 text-gray-400 md:px-6 md:py-4">{row.rust}</td>
+              <td class="px-3 py-3 text-gray-400 md:px-6 md:py-4">{row.zig}</td>
             </tr>
           ))}
         </tbody>
