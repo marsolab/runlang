@@ -7,7 +7,7 @@ Run targets developers who want memory safety, performance, and straightforward 
 ## A Quick Look
 
 ```run
-pub Point struct {
+pub type Point struct {
     x f64
     y f64
 }

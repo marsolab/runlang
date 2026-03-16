@@ -130,7 +130,7 @@ type FileError = .notFound
     | .notDirectory
     | .diskFull
 
-pub File struct {
+pub type File struct {
     implements {
         io.Reader
         io.Writer
