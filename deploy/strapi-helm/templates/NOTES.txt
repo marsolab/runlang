@@ -1,0 +1,22 @@
+Strapi CMS for Run Language Blog has been deployed!
+
+1. Get the application URL:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  https://{{ $host.host }}
+{{- end }}
+{{- else }}
+  kubectl port-forward svc/{{ include "strapi.fullname" . }} 1337:{{ .Values.service.port }}
+  Then open: http://localhost:1337/admin
+{{- end }}
+
+2. Create your first admin user at the /admin URL.
+
+3. Configure the Astro website with the Strapi URL:
+   STRAPI_URL={{ .Values.strapi.url }}
+   STRAPI_TOKEN=<your-api-token>
+
+4. Content types to create in Strapi admin:
+   - Article (title, slug, description, content, cover, author, category)
+   - Category (name, slug)
+   - Author (name, avatar)

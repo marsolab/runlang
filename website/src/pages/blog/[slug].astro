@@ -1,0 +1,92 @@
+---
+import Landing from "../../layouts/Landing.astro";
+import Nav from "../../components/landing/Nav.astro";
+import Footer from "../../components/landing/Footer.astro";
+import { getPosts, getPostBySlug, strapiImageUrl } from "../../lib/strapi";
+
+export async function getStaticPaths() {
+  const { data: posts } = await getPosts(1, 100);
+  return posts.map((post) => ({ params: { slug: post.slug } }));
+}
+
+const { slug } = Astro.params;
+const post = await getPostBySlug(slug!);
+
+if (!post) {
+  return Astro.redirect("/blog/");
+}
+
+const cover = strapiImageUrl(post.cover);
+---
+
+<Landing title={`${post.title} — Run Blog`} description={post.description}>
+  <Nav />
+
+  <main class="mx-auto max-w-3xl px-6 pt-28 pb-16">
+    <a href="/blog/" class="mb-8 inline-flex items-center gap-2 text-sm text-gray-400 transition hover:text-white">
+      <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+      </svg>
+      Back to blog
+    </a>
+
+    <article>
+      {post.category && (
+        <span class="mb-4 inline-block rounded-full bg-run-primary/20 px-3 py-1 text-xs font-medium text-run-primary">
+          {post.category.name}
+        </span>
+      )}
+
+      <h1 class="mb-4 text-4xl font-bold tracking-tight text-white sm:text-5xl">
+        {post.title}
+      </h1>
+
+      <div class="mb-8 flex items-center gap-4">
+        {post.author && (
+          <div class="flex items-center gap-2">
+            {post.author.avatar && (
+              <img
+                src={strapiImageUrl(post.author.avatar)!}
+                alt={post.author.name}
+                class="h-8 w-8 rounded-full"
+              />
+            )}
+            <span class="text-sm text-gray-300">{post.author.name}</span>
+          </div>
+        )}
+        <time class="text-sm text-gray-500" datetime={post.publishedAt}>
+          {new Date(post.publishedAt).toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          })}
+        </time>
+      </div>
+
+      {cover && (
+        <img
+          src={cover}
+          alt={post.cover?.alternativeText || post.title}
+          class="mb-8 w-full rounded-xl object-cover"
+        />
+      )}
+
+      <div
+        class="prose prose-invert prose-lg max-w-none
+          prose-headings:text-white prose-headings:font-bold
+          prose-a:text-run-primary prose-a:no-underline hover:prose-a:underline
+          prose-code:rounded prose-code:bg-white/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:text-run-accent
+          prose-pre:rounded-xl prose-pre:bg-run-code-bg prose-pre:border prose-pre:border-white/10"
+        set:html={post.content}
+      />
+    </article>
+
+    <div class="mt-12 border-t border-white/10 pt-8">
+      <a href="/blog/" class="text-sm text-run-primary transition hover:text-white">
+        &larr; Back to all posts
+      </a>
+    </div>
+  </main>
+
+  <Footer />
+</Landing>
