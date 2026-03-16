@@ -44,25 +44,54 @@ const rows = [
       <h2 class="mb-4 text-3xl font-bold text-white">How Run compares</h2>
       <p class="text-lg text-gray-400">The sweet spot between simplicity and control.</p>
     </div>
-    <div class="overflow-x-auto rounded-xl border border-white/10">
-      <table class="min-w-[640px] w-full text-left text-sm">
+
+    <!-- Mobile: card layout -->
+    <div class="space-y-4 md:hidden">
+      {rows.map((row) => (
+        <div class="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <h3 class="mb-3 text-sm font-semibold text-white">{row.feature}</h3>
+          <div class="grid grid-cols-2 gap-2 text-sm">
+            <div>
+              <span class="text-xs text-gray-500">Run</span>
+              <p class="text-run-accent">{row.run}</p>
+            </div>
+            <div>
+              <span class="text-xs text-gray-500">Go</span>
+              <p class="text-gray-400">{row.go}</p>
+            </div>
+            <div>
+              <span class="text-xs text-gray-500">Rust</span>
+              <p class="text-gray-400">{row.rust}</p>
+            </div>
+            <div>
+              <span class="text-xs text-gray-500">Zig</span>
+              <p class="text-gray-400">{row.zig}</p>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <!-- Desktop: table layout -->
+    <div class="hidden rounded-xl border border-white/10 md:block">
+      <table class="w-full text-left text-sm">
         <thead>
           <tr class="border-b border-white/10 bg-white/5">
-            <th class="px-3 py-3 font-medium text-gray-400 md:px-6 md:py-4"></th>
-            <th class="px-3 py-3 font-bold text-run-primary md:px-6 md:py-4">Run</th>
-            <th class="px-3 py-3 font-medium text-gray-400 md:px-6 md:py-4">Go</th>
-            <th class="px-3 py-3 font-medium text-gray-400 md:px-6 md:py-4">Rust</th>
-            <th class="px-3 py-3 font-medium text-gray-400 md:px-6 md:py-4">Zig</th>
+            <th class="px-6 py-4 font-medium text-gray-400"></th>
+            <th class="px-6 py-4 font-bold text-run-primary">Run</th>
+            <th class="px-6 py-4 font-medium text-gray-400">Go</th>
+            <th class="px-6 py-4 font-medium text-gray-400">Rust</th>
+            <th class="px-6 py-4 font-medium text-gray-400">Zig</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row, i) => (
             <tr class:list={["border-b border-white/5", i % 2 === 0 ? "bg-transparent" : "bg-white/[0.02]"]}>
-              <td class="px-3 py-3 font-medium text-white md:px-6 md:py-4">{row.feature}</td>
-              <td class="px-3 py-3 text-run-accent md:px-6 md:py-4">{row.run}</td>
-              <td class="px-3 py-3 text-gray-400 md:px-6 md:py-4">{row.go}</td>
-              <td class="px-3 py-3 text-gray-400 md:px-6 md:py-4">{row.rust}</td>
-              <td class="px-3 py-3 text-gray-400 md:px-6 md:py-4">{row.zig}</td>
+              <td class="px-6 py-4 font-medium text-white">{row.feature}</td>
+              <td class="px-6 py-4 text-run-accent">{row.run}</td>
+              <td class="px-6 py-4 text-gray-400">{row.go}</td>
+              <td class="px-6 py-4 text-gray-400">{row.rust}</td>
+              <td class="px-6 py-4 text-gray-400">{row.zig}</td>
             </tr>
           ))}
         </tbody>
