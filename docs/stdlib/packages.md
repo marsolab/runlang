@@ -544,7 +544,7 @@ cors_middleware(opts CorsOptions) Middleware
 metrics_middleware(opts MetricsOptions) Middleware  — Prometheus metrics per route
 
 // MetricsOptions for metrics middleware
-MetricsOptions    struct {
+type MetricsOptions struct {
     set               &metrics.Set?   — custom Set, nil = default set
     request_counter   string          — counter name (default: "http_requests_total")
     duration_histogram string         — histogram name (default: "http_request_duration_seconds")
@@ -666,13 +666,13 @@ invoke(cc &ClientConn, method string, req any, reply &any, opts ...CallOption) !
 new_stream(cc &ClientConn, desc @StreamDesc, method string, opts ...CallOption) !ClientStream
 
 // Streaming interfaces
-ServerStream      interface {
+type ServerStream interface {
     send(msg any) !void
     recv(msg &any) !void
     send_header(Metadata) !void
     set_trailer(Metadata)
 }
-ClientStream      interface {
+type ClientStream interface {
     send(msg any) !void
     recv(msg &any) !void
     close_send() !void
@@ -709,14 +709,14 @@ UnaryClientInterceptor    type — fun(ctx Context, method string, req any, repl
 StreamClientInterceptor   type — fun(ctx Context, desc @StreamDesc, cc &ClientConn, method string, streamer Streamer, opts ...CallOption) !ClientStream
 
 // Credentials
-Credentials       interface {
+type Credentials interface {
     require_transport_security() bool
 }
 insecure_credentials() Credentials
 tls_credentials(config @tls.Config) Credentials
 
 // Keepalive
-KeepaliveParams   struct {
+type KeepaliveParams struct {
     time              Duration   — ping interval when idle
     timeout           Duration   — wait for ping ack
     permit_without_stream bool   — ping even with no active RPCs
@@ -757,7 +757,7 @@ size(msg @Message) int                 — encoded size in bytes
 WireType          sum type     — .varint | .fixed64 | .length_delimited | .fixed32
 
 // Field descriptors (for reflection / dynamic messages)
-FieldDescriptor   struct {
+type FieldDescriptor struct {
     number    int
     name      string
     wire_type WireType
@@ -1422,7 +1422,7 @@ write_process_metrics(w io.Writer) !void    — memory, CPU, FDs, green thread c
 
 // ─── Push gateway support ────────────────────────────────────────
 
-PushOptions       struct {
+type PushOptions struct {
     extra_labels  string         — "key=value,key2=value2" appended to all metrics
     headers       map[string]string  — custom HTTP headers
     disable_compression bool
