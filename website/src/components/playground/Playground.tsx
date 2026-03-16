@@ -12,7 +12,13 @@ pub fun main() {
 }
 `;
 
-type Tab = "check" | "tokens" | "ast" | "format";
+type Tab = "run" | "check" | "tokens" | "ast" | "format";
+
+interface RunResult {
+	ok: boolean;
+	output: string;
+	error?: string;
+}
 
 interface CheckResult {
 	ok: boolean;
@@ -50,6 +56,7 @@ interface WasmExports {
 	tokenize: (ptr: number, len: number) => void;
 	parse: (ptr: number, len: number) => void;
 	format: (ptr: number, len: number) => void;
+	run: (ptr: number, len: number) => void;
 }
 
 function useCompiler() {
@@ -80,7 +87,7 @@ function useCompiler() {
 	}, []);
 
 	const callWasm = useCallback(
-		(fn: keyof Pick<WasmExports, "check" | "tokenize" | "parse" | "format">, source: string): string | null => {
+		(fn: keyof Pick<WasmExports, "check" | "tokenize" | "parse" | "format" | "run">, source: string): string | null => {
 			const wasm = wasmRef.current;
 			if (!wasm) return null;
 
@@ -154,7 +161,12 @@ function formatAst(data: AstNode[]): string {
 
 export default function Playground() {
 	const [code, setCode] = useState(DEFAULT_CODE);
-	const [activeTab, setActiveTab] = useState<Tab>("check");
+	const [activeTab, setActiveTab] = useState<Tab>("run");
+	const [isMac, setIsMac] = useState(false);
+
+	useEffect(() => {
+		setIsMac(/Mac|iPhone|iPad/.test(navigator.userAgent));
+	}, []);
 	const [output, setOutput] = useState<string>("");
 	const [isError, setIsError] = useState(false);
 	const { ready, error: wasmError, callWasm } = useCompiler();
@@ -164,7 +176,8 @@ export default function Playground() {
 		(tab: Tab, source: string) => {
 			if (!ready) return;
 
-			const raw = callWasm(tab === "check" ? "check" : tab === "tokens" ? "tokenize" : tab === "ast" ? "parse" : "format", source);
+			const wasmFn = tab === "run" ? "run" : tab === "check" ? "check" : tab === "tokens" ? "tokenize" : tab === "ast" ? "parse" : "format";
+			const raw = callWasm(wasmFn, source);
 
 			if (!raw) {
 				setOutput("Error: WASM call failed");
@@ -173,7 +186,17 @@ export default function Playground() {
 			}
 
 			try {
-				if (tab === "check") {
+				if (tab === "run") {
+					const result: RunResult = JSON.parse(raw);
+					if (result.ok) {
+						setOutput(result.output || "(no output)");
+						setIsError(false);
+					} else {
+						const out = result.output ? result.output + "\n" : "";
+						setOutput(`${out}Error: ${result.error}`);
+						setIsError(true);
+					}
+				} else if (tab === "check") {
 					const result: CheckResult = JSON.parse(raw);
 					if (result.ok) {
 						setOutput(`OK — ${result.nodeCount} AST nodes, no errors.`);
@@ -261,6 +284,7 @@ export default function Playground() {
 			{/* Toolbar */}
 			<div className="flex items-center justify-between border-b border-white/10 bg-run-code-bg px-4 py-2">
 				<div className="flex gap-1">
+					<TabButton label="Run" active={activeTab === "run"} onClick={() => handleTabChange("run")} />
 					<TabButton label="Check" active={activeTab === "check"} onClick={() => handleTabChange("check")} />
 					<TabButton label="Tokens" active={activeTab === "tokens"} onClick={() => handleTabChange("tokens")} />
 					<TabButton label="AST" active={activeTab === "ast"} onClick={() => handleTabChange("ast")} />
@@ -277,7 +301,7 @@ export default function Playground() {
 						className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
 					>
 						Run
-						<span className="ml-1.5 text-xs text-blue-200">{navigator.platform?.includes("Mac") ? "\u2318" : "Ctrl"}+\u23CE</span>
+						<span className="ml-1.5 text-xs text-blue-200">{isMac ? "\u2318" : "Ctrl"}+\u23CE</span>
 					</button>
 				</div>
 			</div>
