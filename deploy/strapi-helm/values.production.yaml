@@ -1,0 +1,60 @@
+# Production overrides — use with:
+#   helm install runlang-strapi ./deploy/strapi-helm -f ./deploy/strapi-helm/values.production.yaml
+#
+# IMPORTANT: Set secrets via --set or external secret management (e.g. sealed-secrets, vault).
+# Never commit real secrets to version control.
+
+replicaCount: 2
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+persistence:
+  enabled: true
+  storageClass: "gp3"
+  size: 50Gi
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/rate-limit: "20"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+  hosts:
+    - host: cms.runlang.dev
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: strapi-tls
+      hosts:
+        - cms.runlang.dev
+
+postgresql:
+  enabled: true
+  auth:
+    username: strapi
+    database: strapi
+    # Set via --set postgresql.auth.password=<secret>
+  primary:
+    persistence:
+      enabled: true
+      storageClass: "gp3"
+      size: 50Gi
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+autoscaling:
+  enabled: false

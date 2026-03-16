@@ -1,0 +1,94 @@
+---
+import Landing from "../../layouts/Landing.astro";
+import Nav from "../../components/landing/Nav.astro";
+import Footer from "../../components/landing/Footer.astro";
+import { getPosts, strapiImageUrl } from "../../lib/strapi";
+
+const page = Number(Astro.url.searchParams.get("page") || "1");
+const { data: posts, meta } = await getPosts(page, 12);
+const pagination = meta.pagination;
+---
+
+<Landing title="Blog — Run Language" description="News, tutorials, and updates from the Run programming language team.">
+  <Nav />
+
+  <main class="mx-auto max-w-7xl px-6 pt-28 pb-16">
+    <header class="mb-12 text-center">
+      <h1 class="text-4xl font-bold tracking-tight text-white sm:text-5xl">Blog</h1>
+      <p class="mt-4 text-lg text-gray-400">
+        News, tutorials, and updates from the Run team.
+      </p>
+    </header>
+
+    {posts.length === 0 ? (
+      <p class="text-center text-gray-500">No posts yet. Check back soon!</p>
+    ) : (
+      <div class="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+        {posts.map((post) => {
+          const cover = strapiImageUrl(post.cover);
+          return (
+            <a
+              href={`/blog/${post.slug}/`}
+              class="group rounded-xl border border-white/10 bg-white/5 transition hover:border-run-primary/50 hover:bg-white/10"
+            >
+              {cover && (
+                <img
+                  src={cover}
+                  alt={post.cover?.alternativeText || post.title}
+                  class="h-48 w-full rounded-t-xl object-cover"
+                  loading="lazy"
+                />
+              )}
+              <div class="p-6">
+                {post.category && (
+                  <span class="mb-2 inline-block rounded-full bg-run-primary/20 px-3 py-1 text-xs font-medium text-run-primary">
+                    {post.category.name}
+                  </span>
+                )}
+                <h2 class="mb-2 text-xl font-semibold text-white group-hover:text-run-primary transition">
+                  {post.title}
+                </h2>
+                <p class="mb-4 text-sm leading-relaxed text-gray-400 line-clamp-3">
+                  {post.description}
+                </p>
+                <time class="text-xs text-gray-500" datetime={post.publishedAt}>
+                  {new Date(post.publishedAt).toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  })}
+                </time>
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    )}
+
+    {pagination && pagination.pageCount > 1 && (
+      <nav class="mt-12 flex items-center justify-center gap-4">
+        {page > 1 && (
+          <a
+            href={`/blog/?page=${page - 1}`}
+            class="rounded-lg border border-white/10 px-4 py-2 text-sm text-gray-300 transition hover:border-run-primary/50 hover:text-white"
+          >
+            Previous
+          </a>
+        )}
+        <span class="text-sm text-gray-500">
+          Page {page} of {pagination.pageCount}
+        </span>
+        {page < pagination.pageCount && (
+          <a
+            href={`/blog/?page=${page + 1}`}
+            class="rounded-lg border border-white/10 px-4 py-2 text-sm text-gray-300 transition hover:border-run-primary/50 hover:text-white"
+          >
+            Next
+          </a>
+        )}
+      </nav>
+    )}
+  </main>
+
+  <Footer />
+</Landing>

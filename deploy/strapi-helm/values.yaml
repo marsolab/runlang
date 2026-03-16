@@ -1,0 +1,131 @@
+# -- Strapi application settings
+replicaCount: 1
+
+image:
+  repository: runlang/strapi
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Strapi environment configuration
+strapi:
+  # Public URL where Strapi is accessible
+  url: "https://cms.runlang.dev"
+  # Admin JWT secret (override in production!)
+  adminJwtSecret: ""
+  # API token salt (override in production!)
+  apiTokenSalt: ""
+  # App keys (override in production!)
+  appKeys: ""
+  # Transfer token salt
+  transferTokenSalt: ""
+  # JWT secret
+  jwtSecret: ""
+  # Node environment
+  nodeEnv: production
+
+# -- Service configuration
+service:
+  type: ClusterIP
+  port: 1337
+
+# -- Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+  hosts:
+    - host: cms.runlang.dev
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: strapi-tls
+      hosts:
+        - cms.runlang.dev
+
+# -- Resource limits
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# -- Liveness and readiness probes
+livenessProbe:
+  httpGet:
+    path: /_health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /_health
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 5
+
+# -- Persistent storage for uploads
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+
+# -- Pod annotations
+podAnnotations: {}
+
+# -- Node selector
+nodeSelector: {}
+
+# -- Tolerations
+tolerations: []
+
+# -- Affinity rules
+affinity: {}
+
+# -- Autoscaling (disabled by default since Strapi needs shared uploads volume)
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+
+# -- PostgreSQL subchart configuration
+postgresql:
+  enabled: true
+  auth:
+    username: strapi
+    password: ""
+    database: strapi
+    postgresPassword: ""
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# -- Use an external database instead of the subchart
+externalDatabase:
+  enabled: false
+  host: ""
+  port: 5432
+  username: strapi
+  password: ""
+  database: strapi
+  ssl: false

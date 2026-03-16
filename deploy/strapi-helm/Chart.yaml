@@ -1,0 +1,12 @@
+apiVersion: v2
+name: runlang-strapi
+description: Strapi CMS Helm chart for the Run language blog
+type: application
+version: 0.1.0
+appVersion: "5.12.0"
+
+dependencies:
+  - name: postgresql
+    version: "16.4.1"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
