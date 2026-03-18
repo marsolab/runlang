@@ -15,9 +15,9 @@
 #include <immintrin.h>
 #endif
 
-#define RUN_SIMD_DEFINE_TYPE(NAME, ELEM, LANES, ALIGNMENT) \
-    typedef struct __attribute__((aligned(ALIGNMENT))) {   \
-        ELEM lanes[LANES];                                 \
+#define RUN_SIMD_DEFINE_TYPE(NAME, ELEM, LANES, ALIGNMENT)                                         \
+    typedef struct __attribute__((aligned(ALIGNMENT))) {                                           \
+        ELEM lanes[LANES];                                                                         \
     } run_simd_##NAME##_t
 
 RUN_SIMD_DEFINE_TYPE(v2bool, bool, 2, 16);
@@ -40,205 +40,236 @@ RUN_SIMD_DEFINE_TYPE(v32i8, int8_t, 32, 32);
 
 #undef RUN_SIMD_DEFINE_TYPE
 
-#define RUN_SIMD_DEFINE_MAKE_2(NAME, ELEM)                                           \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_make(ELEM a0, ELEM a1) {     \
-        return (run_simd_##NAME##_t){ .lanes = { a0, a1 } };                         \
+#define RUN_SIMD_DEFINE_MAKE_2(NAME, ELEM)                                                         \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_make(ELEM a0, ELEM a1) {                   \
+        return (run_simd_##NAME##_t){.lanes = {a0, a1}};                                           \
     }
 
-#define RUN_SIMD_DEFINE_MAKE_4(NAME, ELEM)                                                       \
+#define RUN_SIMD_DEFINE_MAKE_4(NAME, ELEM)                                                         \
     static inline run_simd_##NAME##_t run_simd_##NAME##_make(ELEM a0, ELEM a1, ELEM a2, ELEM a3) { \
-        return (run_simd_##NAME##_t){ .lanes = { a0, a1, a2, a3 } };                            \
+        return (run_simd_##NAME##_t){.lanes = {a0, a1, a2, a3}};                                   \
     }
 
-#define RUN_SIMD_DEFINE_MAKE_8(NAME, ELEM)                                                                             \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_make(                                                         \
-        ELEM a0, ELEM a1, ELEM a2, ELEM a3, ELEM a4, ELEM a5, ELEM a6, ELEM a7) {                                   \
-        return (run_simd_##NAME##_t){ .lanes = { a0, a1, a2, a3, a4, a5, a6, a7 } };                                \
+#define RUN_SIMD_DEFINE_MAKE_8(NAME, ELEM)                                                         \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_make(ELEM a0, ELEM a1, ELEM a2, ELEM a3,   \
+                                                             ELEM a4, ELEM a5, ELEM a6, ELEM a7) { \
+        return (run_simd_##NAME##_t){.lanes = {a0, a1, a2, a3, a4, a5, a6, a7}};                   \
     }
 
-#define RUN_SIMD_DEFINE_MAKE_16(NAME, ELEM)                                                                            \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_make(                                                         \
-        ELEM a0, ELEM a1, ELEM a2, ELEM a3, ELEM a4, ELEM a5, ELEM a6, ELEM a7,                                      \
-        ELEM a8, ELEM a9, ELEM a10, ELEM a11, ELEM a12, ELEM a13, ELEM a14, ELEM a15) {                             \
-        return (run_simd_##NAME##_t){ .lanes = {                                                                      \
-            a0, a1, a2, a3, a4, a5, a6, a7,                                                                           \
-            a8, a9, a10, a11, a12, a13, a14, a15                                                                      \
-        } };                                                                                                          \
+#define RUN_SIMD_DEFINE_MAKE_16(NAME, ELEM)                                                        \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_make(                                      \
+        ELEM a0, ELEM a1, ELEM a2, ELEM a3, ELEM a4, ELEM a5, ELEM a6, ELEM a7, ELEM a8, ELEM a9,  \
+        ELEM a10, ELEM a11, ELEM a12, ELEM a13, ELEM a14, ELEM a15) {                              \
+        return (run_simd_##NAME##_t){                                                              \
+            .lanes = {a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15}};      \
     }
 
-#define RUN_SIMD_DEFINE_MAKE_32(NAME, ELEM)                                                                            \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_make(                                                         \
-        ELEM a0, ELEM a1, ELEM a2, ELEM a3, ELEM a4, ELEM a5, ELEM a6, ELEM a7,                                      \
-        ELEM a8, ELEM a9, ELEM a10, ELEM a11, ELEM a12, ELEM a13, ELEM a14, ELEM a15,                               \
-        ELEM a16, ELEM a17, ELEM a18, ELEM a19, ELEM a20, ELEM a21, ELEM a22, ELEM a23,                             \
-        ELEM a24, ELEM a25, ELEM a26, ELEM a27, ELEM a28, ELEM a29, ELEM a30, ELEM a31) {                           \
-        return (run_simd_##NAME##_t){ .lanes = {                                                                      \
-            a0, a1, a2, a3, a4, a5, a6, a7,                                                                           \
-            a8, a9, a10, a11, a12, a13, a14, a15,                                                                     \
-            a16, a17, a18, a19, a20, a21, a22, a23,                                                                   \
-            a24, a25, a26, a27, a28, a29, a30, a31                                                                    \
-        } };                                                                                                          \
+#define RUN_SIMD_DEFINE_MAKE_32(NAME, ELEM)                                                        \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_make(                                      \
+        ELEM a0, ELEM a1, ELEM a2, ELEM a3, ELEM a4, ELEM a5, ELEM a6, ELEM a7, ELEM a8, ELEM a9,  \
+        ELEM a10, ELEM a11, ELEM a12, ELEM a13, ELEM a14, ELEM a15, ELEM a16, ELEM a17, ELEM a18,  \
+        ELEM a19, ELEM a20, ELEM a21, ELEM a22, ELEM a23, ELEM a24, ELEM a25, ELEM a26, ELEM a27,  \
+        ELEM a28, ELEM a29, ELEM a30, ELEM a31) {                                                  \
+        return (run_simd_##NAME##_t){.lanes = {a0,  a1,  a2,  a3,  a4,  a5,  a6,  a7,              \
+                                               a8,  a9,  a10, a11, a12, a13, a14, a15,             \
+                                               a16, a17, a18, a19, a20, a21, a22, a23,             \
+                                               a24, a25, a26, a27, a28, a29, a30, a31}};           \
     }
 
-#define RUN_SIMD_DEFINE_ACCESSORS(NAME, ELEM)                                                       \
+#define RUN_SIMD_DEFINE_ACCESSORS(NAME, ELEM)                                                      \
     static inline ELEM run_simd_##NAME##_get_lane(run_simd_##NAME##_t value, int64_t index) {      \
-        return value.lanes[(size_t)index];                                                          \
-    }                                                                                                \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_set_lane(                                   \
-        run_simd_##NAME##_t value, int64_t index, ELEM lane) {                                      \
-        value.lanes[(size_t)index] = lane;                                                          \
-        return value;                                                                                \
+        return value.lanes[(size_t)index];                                                         \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_set_lane(run_simd_##NAME##_t value,        \
+                                                                 int64_t index, ELEM lane) {       \
+        value.lanes[(size_t)index] = lane;                                                         \
+        return value;                                                                              \
     }
 
-#define RUN_SIMD_DEFINE_COMPARE_SELECT(NAME, ELEM, LANES, MASK_NAME)                                         \
-    static inline run_simd_##MASK_NAME##_t run_simd_##NAME##_eq(run_simd_##NAME##_t a, run_simd_##NAME##_t b) { \
-        run_simd_##MASK_NAME##_t out;                                                                       \
-        for (size_t i = 0; i < (LANES); ++i) out.lanes[i] = a.lanes[i] == b.lanes[i];                     \
-        return out;                                                                                         \
-    }                                                                                                       \
-    static inline run_simd_##MASK_NAME##_t run_simd_##NAME##_ne(run_simd_##NAME##_t a, run_simd_##NAME##_t b) { \
-        run_simd_##MASK_NAME##_t out;                                                                       \
-        for (size_t i = 0; i < (LANES); ++i) out.lanes[i] = a.lanes[i] != b.lanes[i];                     \
-        return out;                                                                                         \
-    }                                                                                                       \
-    static inline run_simd_##MASK_NAME##_t run_simd_##NAME##_lt(run_simd_##NAME##_t a, run_simd_##NAME##_t b) { \
-        run_simd_##MASK_NAME##_t out;                                                                       \
-        for (size_t i = 0; i < (LANES); ++i) out.lanes[i] = a.lanes[i] < b.lanes[i];                      \
-        return out;                                                                                         \
-    }                                                                                                       \
-    static inline run_simd_##MASK_NAME##_t run_simd_##NAME##_le(run_simd_##NAME##_t a, run_simd_##NAME##_t b) { \
-        run_simd_##MASK_NAME##_t out;                                                                       \
-        for (size_t i = 0; i < (LANES); ++i) out.lanes[i] = a.lanes[i] <= b.lanes[i];                     \
-        return out;                                                                                         \
-    }                                                                                                       \
-    static inline run_simd_##MASK_NAME##_t run_simd_##NAME##_gt(run_simd_##NAME##_t a, run_simd_##NAME##_t b) { \
-        run_simd_##MASK_NAME##_t out;                                                                       \
-        for (size_t i = 0; i < (LANES); ++i) out.lanes[i] = a.lanes[i] > b.lanes[i];                      \
-        return out;                                                                                         \
-    }                                                                                                       \
-    static inline run_simd_##MASK_NAME##_t run_simd_##NAME##_ge(run_simd_##NAME##_t a, run_simd_##NAME##_t b) { \
-        run_simd_##MASK_NAME##_t out;                                                                       \
-        for (size_t i = 0; i < (LANES); ++i) out.lanes[i] = a.lanes[i] >= b.lanes[i];                     \
-        return out;                                                                                         \
-    }                                                                                                       \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_select(                                             \
-        run_simd_##MASK_NAME##_t mask, run_simd_##NAME##_t if_true, run_simd_##NAME##_t if_false) {       \
-        run_simd_##NAME##_t out;                                                                            \
-        for (size_t i = 0; i < (LANES); ++i) out.lanes[i] = mask.lanes[i] ? if_true.lanes[i] : if_false.lanes[i]; \
-        return out;                                                                                         \
+#define RUN_SIMD_DEFINE_COMPARE_SELECT(NAME, ELEM, LANES, MASK_NAME)                               \
+    static inline run_simd_##MASK_NAME##_t run_simd_##NAME##_eq(run_simd_##NAME##_t a,             \
+                                                                run_simd_##NAME##_t b) {           \
+        run_simd_##MASK_NAME##_t out;                                                              \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = a.lanes[i] == b.lanes[i];                                               \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##MASK_NAME##_t run_simd_##NAME##_ne(run_simd_##NAME##_t a,             \
+                                                                run_simd_##NAME##_t b) {           \
+        run_simd_##MASK_NAME##_t out;                                                              \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = a.lanes[i] != b.lanes[i];                                               \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##MASK_NAME##_t run_simd_##NAME##_lt(run_simd_##NAME##_t a,             \
+                                                                run_simd_##NAME##_t b) {           \
+        run_simd_##MASK_NAME##_t out;                                                              \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = a.lanes[i] < b.lanes[i];                                                \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##MASK_NAME##_t run_simd_##NAME##_le(run_simd_##NAME##_t a,             \
+                                                                run_simd_##NAME##_t b) {           \
+        run_simd_##MASK_NAME##_t out;                                                              \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = a.lanes[i] <= b.lanes[i];                                               \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##MASK_NAME##_t run_simd_##NAME##_gt(run_simd_##NAME##_t a,             \
+                                                                run_simd_##NAME##_t b) {           \
+        run_simd_##MASK_NAME##_t out;                                                              \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = a.lanes[i] > b.lanes[i];                                                \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##MASK_NAME##_t run_simd_##NAME##_ge(run_simd_##NAME##_t a,             \
+                                                                run_simd_##NAME##_t b) {           \
+        run_simd_##MASK_NAME##_t out;                                                              \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = a.lanes[i] >= b.lanes[i];                                               \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_select(run_simd_##MASK_NAME##_t mask,      \
+                                                               run_simd_##NAME##_t if_true,        \
+                                                               run_simd_##NAME##_t if_false) {     \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = mask.lanes[i] ? if_true.lanes[i] : if_false.lanes[i];                   \
+        return out;                                                                                \
     }
 
-#define RUN_SIMD_DEFINE_ARITH_REDUCE_GENERIC(NAME, ELEM, LANES)                                      \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_add(run_simd_##NAME##_t a, run_simd_##NAME##_t b) { \
-        run_simd_##NAME##_t out;                                                                    \
-        for (size_t i = 0; i < (LANES); ++i) out.lanes[i] = a.lanes[i] + b.lanes[i];              \
-        return out;                                                                                 \
-    }                                                                                               \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_sub(run_simd_##NAME##_t a, run_simd_##NAME##_t b) { \
-        run_simd_##NAME##_t out;                                                                    \
-        for (size_t i = 0; i < (LANES); ++i) out.lanes[i] = a.lanes[i] - b.lanes[i];              \
-        return out;                                                                                 \
-    }                                                                                               \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_mul(run_simd_##NAME##_t a, run_simd_##NAME##_t b) { \
-        run_simd_##NAME##_t out;                                                                    \
-        for (size_t i = 0; i < (LANES); ++i) out.lanes[i] = a.lanes[i] * b.lanes[i];              \
-        return out;                                                                                 \
-    }                                                                                               \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_div(run_simd_##NAME##_t a, run_simd_##NAME##_t b) { \
-        run_simd_##NAME##_t out;                                                                    \
-        for (size_t i = 0; i < (LANES); ++i) out.lanes[i] = a.lanes[i] / b.lanes[i];              \
-        return out;                                                                                 \
-    }                                                                                               \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_min(run_simd_##NAME##_t a, run_simd_##NAME##_t b) { \
-        run_simd_##NAME##_t out;                                                                    \
-        for (size_t i = 0; i < (LANES); ++i) out.lanes[i] = a.lanes[i] < b.lanes[i] ? a.lanes[i] : b.lanes[i]; \
-        return out;                                                                                 \
-    }                                                                                               \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_max(run_simd_##NAME##_t a, run_simd_##NAME##_t b) { \
-        run_simd_##NAME##_t out;                                                                    \
-        for (size_t i = 0; i < (LANES); ++i) out.lanes[i] = a.lanes[i] > b.lanes[i] ? a.lanes[i] : b.lanes[i]; \
-        return out;                                                                                 \
-    }                                                                                               \
+#define RUN_SIMD_DEFINE_ARITH_REDUCE_GENERIC(NAME, ELEM, LANES)                                    \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_add(run_simd_##NAME##_t a,                 \
+                                                            run_simd_##NAME##_t b) {               \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = a.lanes[i] + b.lanes[i];                                                \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_sub(run_simd_##NAME##_t a,                 \
+                                                            run_simd_##NAME##_t b) {               \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = a.lanes[i] - b.lanes[i];                                                \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_mul(run_simd_##NAME##_t a,                 \
+                                                            run_simd_##NAME##_t b) {               \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = a.lanes[i] * b.lanes[i];                                                \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_div(run_simd_##NAME##_t a,                 \
+                                                            run_simd_##NAME##_t b) {               \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = a.lanes[i] / b.lanes[i];                                                \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_min(run_simd_##NAME##_t a,                 \
+                                                            run_simd_##NAME##_t b) {               \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = a.lanes[i] < b.lanes[i] ? a.lanes[i] : b.lanes[i];                      \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_max(run_simd_##NAME##_t a,                 \
+                                                            run_simd_##NAME##_t b) {               \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = a.lanes[i] > b.lanes[i] ? a.lanes[i] : b.lanes[i];                      \
+        return out;                                                                                \
+    }                                                                                              \
     static inline ELEM run_simd_##NAME##_hadd(run_simd_##NAME##_t value) {                         \
-        ELEM out = (ELEM)0;                                                                         \
-        for (size_t i = 0; i < (LANES); ++i) out += value.lanes[i];                                \
-        return out;                                                                                 \
-    }                                                                                               \
-    static inline ELEM run_simd_##NAME##_dot(run_simd_##NAME##_t a, run_simd_##NAME##_t b) {      \
-        ELEM out = (ELEM)0;                                                                         \
-        for (size_t i = 0; i < (LANES); ++i) out += a.lanes[i] * b.lanes[i];                       \
-        return out;                                                                                 \
-    }
-
-#define RUN_SIMD_DEFINE_LOAD_STORE_GENERIC(NAME)                                                \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_load(run_gen_ref_t ptr) {              \
-        run_simd_##NAME##_t out;                                                                \
-        const void *raw = run_gen_ref_deref(ptr);                                               \
-        memcpy(&out, raw, sizeof(out));                                                         \
-        return out;                                                                             \
-    }                                                                                           \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_load_unaligned(run_gen_ref_t ptr) {    \
-        run_simd_##NAME##_t out;                                                                \
-        const void *raw = run_gen_ref_deref(ptr);                                               \
-        memcpy(&out, raw, sizeof(out));                                                         \
-        return out;                                                                             \
-    }                                                                                           \
-    static inline void run_simd_##NAME##_store(run_gen_ref_t ptr, run_simd_##NAME##_t value) { \
-        void *raw = run_gen_ref_deref(ptr);                                                     \
-        memcpy(raw, &value, sizeof(value));                                                     \
-    }
-
-#define RUN_SIMD_DEFINE_SHUFFLE_2(NAME)                                                           \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_shuffle(run_simd_##NAME##_t value, int64_t i0, int64_t i1) { \
-        run_simd_##NAME##_t out;                                                                  \
-        const int64_t idxs[2] = { i0, i1 };                                                       \
-        for (size_t i = 0; i < 2; ++i) out.lanes[i] = value.lanes[(size_t)idxs[i]];              \
+        ELEM out = (ELEM)0;                                                                        \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out += value.lanes[i];                                                                 \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline ELEM run_simd_##NAME##_dot(run_simd_##NAME##_t a, run_simd_##NAME##_t b) {       \
+        ELEM out = (ELEM)0;                                                                        \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out += a.lanes[i] * b.lanes[i];                                                        \
         return out;                                                                                \
     }
 
-#define RUN_SIMD_DEFINE_SHUFFLE_4(NAME)                                                           \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_shuffle(run_simd_##NAME##_t value, int64_t i0, int64_t i1, int64_t i2, int64_t i3) { \
-        run_simd_##NAME##_t out;                                                                  \
-        const int64_t idxs[4] = { i0, i1, i2, i3 };                                               \
-        for (size_t i = 0; i < 4; ++i) out.lanes[i] = value.lanes[(size_t)idxs[i]];              \
+#define RUN_SIMD_DEFINE_LOAD_STORE_GENERIC(NAME)                                                   \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_load(run_gen_ref_t ptr) {                  \
+        run_simd_##NAME##_t out;                                                                   \
+        const void *raw = run_gen_ref_deref(ptr);                                                  \
+        memcpy(&out, raw, sizeof(out));                                                            \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_load_unaligned(run_gen_ref_t ptr) {        \
+        run_simd_##NAME##_t out;                                                                   \
+        const void *raw = run_gen_ref_deref(ptr);                                                  \
+        memcpy(&out, raw, sizeof(out));                                                            \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline void run_simd_##NAME##_store(run_gen_ref_t ptr, run_simd_##NAME##_t value) {     \
+        void *raw = run_gen_ref_deref(ptr);                                                        \
+        memcpy(raw, &value, sizeof(value));                                                        \
+    }
+
+#define RUN_SIMD_DEFINE_SHUFFLE_2(NAME)                                                            \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_shuffle(run_simd_##NAME##_t value,         \
+                                                                int64_t i0, int64_t i1) {          \
+        run_simd_##NAME##_t out;                                                                   \
+        const int64_t idxs[2] = {i0, i1};                                                          \
+        for (size_t i = 0; i < 2; ++i)                                                             \
+            out.lanes[i] = value.lanes[(size_t)idxs[i]];                                           \
         return out;                                                                                \
     }
 
-#define RUN_SIMD_DEFINE_SHUFFLE_8(NAME)                                                           \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_shuffle(                                  \
-        run_simd_##NAME##_t value,                                                                 \
-        int64_t i0, int64_t i1, int64_t i2, int64_t i3, int64_t i4, int64_t i5, int64_t i6, int64_t i7) { \
+#define RUN_SIMD_DEFINE_SHUFFLE_4(NAME)                                                            \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_shuffle(                                   \
+        run_simd_##NAME##_t value, int64_t i0, int64_t i1, int64_t i2, int64_t i3) {               \
         run_simd_##NAME##_t out;                                                                   \
-        const int64_t idxs[8] = { i0, i1, i2, i3, i4, i5, i6, i7 };                               \
-        for (size_t i = 0; i < 8; ++i) out.lanes[i] = value.lanes[(size_t)idxs[i]];               \
-        return out;                                                                                 \
+        const int64_t idxs[4] = {i0, i1, i2, i3};                                                  \
+        for (size_t i = 0; i < 4; ++i)                                                             \
+            out.lanes[i] = value.lanes[(size_t)idxs[i]];                                           \
+        return out;                                                                                \
     }
 
-#define RUN_SIMD_DEFINE_SHUFFLE_16(NAME)                                                          \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_shuffle(                                  \
-        run_simd_##NAME##_t value,                                                                 \
-        int64_t i0, int64_t i1, int64_t i2, int64_t i3, int64_t i4, int64_t i5, int64_t i6, int64_t i7, \
-        int64_t i8, int64_t i9, int64_t i10, int64_t i11, int64_t i12, int64_t i13, int64_t i14, int64_t i15) { \
+#define RUN_SIMD_DEFINE_SHUFFLE_8(NAME)                                                            \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_shuffle(                                   \
+        run_simd_##NAME##_t value, int64_t i0, int64_t i1, int64_t i2, int64_t i3, int64_t i4,     \
+        int64_t i5, int64_t i6, int64_t i7) {                                                      \
         run_simd_##NAME##_t out;                                                                   \
-        const int64_t idxs[16] = { i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15 }; \
-        for (size_t i = 0; i < 16; ++i) out.lanes[i] = value.lanes[(size_t)idxs[i]];              \
-        return out;                                                                                 \
+        const int64_t idxs[8] = {i0, i1, i2, i3, i4, i5, i6, i7};                                  \
+        for (size_t i = 0; i < 8; ++i)                                                             \
+            out.lanes[i] = value.lanes[(size_t)idxs[i]];                                           \
+        return out;                                                                                \
     }
 
-#define RUN_SIMD_DEFINE_SHUFFLE_32(NAME)                                                          \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_shuffle(                                  \
-        run_simd_##NAME##_t value,                                                                 \
-        int64_t i0, int64_t i1, int64_t i2, int64_t i3, int64_t i4, int64_t i5, int64_t i6, int64_t i7, \
-        int64_t i8, int64_t i9, int64_t i10, int64_t i11, int64_t i12, int64_t i13, int64_t i14, int64_t i15, \
-        int64_t i16, int64_t i17, int64_t i18, int64_t i19, int64_t i20, int64_t i21, int64_t i22, int64_t i23, \
-        int64_t i24, int64_t i25, int64_t i26, int64_t i27, int64_t i28, int64_t i29, int64_t i30, int64_t i31) { \
+#define RUN_SIMD_DEFINE_SHUFFLE_16(NAME)                                                           \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_shuffle(                                   \
+        run_simd_##NAME##_t value, int64_t i0, int64_t i1, int64_t i2, int64_t i3, int64_t i4,     \
+        int64_t i5, int64_t i6, int64_t i7, int64_t i8, int64_t i9, int64_t i10, int64_t i11,      \
+        int64_t i12, int64_t i13, int64_t i14, int64_t i15) {                                      \
         run_simd_##NAME##_t out;                                                                   \
-        const int64_t idxs[32] = {                                                                 \
-            i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, i12, i13, i14, i15,                \
-            i16, i17, i18, i19, i20, i21, i22, i23, i24, i25, i26, i27, i28, i29, i30, i31       \
-        };                                                                                         \
-        for (size_t i = 0; i < 32; ++i) out.lanes[i] = value.lanes[(size_t)idxs[i]];              \
-        return out;                                                                                 \
+        const int64_t idxs[16] = {i0, i1, i2,  i3,  i4,  i5,  i6,  i7,                             \
+                                  i8, i9, i10, i11, i12, i13, i14, i15};                           \
+        for (size_t i = 0; i < 16; ++i)                                                            \
+            out.lanes[i] = value.lanes[(size_t)idxs[i]];                                           \
+        return out;                                                                                \
+    }
+
+#define RUN_SIMD_DEFINE_SHUFFLE_32(NAME)                                                           \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_shuffle(                                   \
+        run_simd_##NAME##_t value, int64_t i0, int64_t i1, int64_t i2, int64_t i3, int64_t i4,     \
+        int64_t i5, int64_t i6, int64_t i7, int64_t i8, int64_t i9, int64_t i10, int64_t i11,      \
+        int64_t i12, int64_t i13, int64_t i14, int64_t i15, int64_t i16, int64_t i17, int64_t i18, \
+        int64_t i19, int64_t i20, int64_t i21, int64_t i22, int64_t i23, int64_t i24, int64_t i25, \
+        int64_t i26, int64_t i27, int64_t i28, int64_t i29, int64_t i30, int64_t i31) {            \
+        run_simd_##NAME##_t out;                                                                   \
+        const int64_t idxs[32] = {i0,  i1,  i2,  i3,  i4,  i5,  i6,  i7,  i8,  i9,  i10,           \
+                                  i11, i12, i13, i14, i15, i16, i17, i18, i19, i20, i21,           \
+                                  i22, i23, i24, i25, i26, i27, i28, i29, i30, i31};               \
+        for (size_t i = 0; i < 32; ++i)                                                            \
+            out.lanes[i] = value.lanes[(size_t)idxs[i]];                                           \
+        return out;                                                                                \
     }
 
 RUN_SIMD_DEFINE_MAKE_2(v2bool, bool);
@@ -292,7 +323,8 @@ static inline run_simd_v4f32_t run_simd_v4f32_add(run_simd_v4f32_t a, run_simd_v
 #elif defined(__SSE__)
     _mm_storeu_ps(out.lanes, _mm_add_ps(_mm_loadu_ps(a.lanes), _mm_loadu_ps(b.lanes)));
 #else
-    for (size_t i = 0; i < 4; ++i) out.lanes[i] = a.lanes[i] + b.lanes[i];
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = a.lanes[i] + b.lanes[i];
 #endif
     return out;
 }
@@ -303,7 +335,8 @@ static inline run_simd_v4f32_t run_simd_v4f32_sub(run_simd_v4f32_t a, run_simd_v
 #elif defined(__SSE__)
     _mm_storeu_ps(out.lanes, _mm_sub_ps(_mm_loadu_ps(a.lanes), _mm_loadu_ps(b.lanes)));
 #else
-    for (size_t i = 0; i < 4; ++i) out.lanes[i] = a.lanes[i] - b.lanes[i];
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = a.lanes[i] - b.lanes[i];
 #endif
     return out;
 }
@@ -314,7 +347,8 @@ static inline run_simd_v4f32_t run_simd_v4f32_mul(run_simd_v4f32_t a, run_simd_v
 #elif defined(__SSE__)
     _mm_storeu_ps(out.lanes, _mm_mul_ps(_mm_loadu_ps(a.lanes), _mm_loadu_ps(b.lanes)));
 #else
-    for (size_t i = 0; i < 4; ++i) out.lanes[i] = a.lanes[i] * b.lanes[i];
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = a.lanes[i] * b.lanes[i];
 #endif
     return out;
 }
@@ -325,7 +359,8 @@ static inline run_simd_v4f32_t run_simd_v4f32_div(run_simd_v4f32_t a, run_simd_v
 #elif defined(__SSE__)
     _mm_storeu_ps(out.lanes, _mm_div_ps(_mm_loadu_ps(a.lanes), _mm_loadu_ps(b.lanes)));
 #else
-    for (size_t i = 0; i < 4; ++i) out.lanes[i] = a.lanes[i] / b.lanes[i];
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = a.lanes[i] / b.lanes[i];
 #endif
     return out;
 }
@@ -336,7 +371,8 @@ static inline run_simd_v4f32_t run_simd_v4f32_min(run_simd_v4f32_t a, run_simd_v
 #elif defined(__SSE__)
     _mm_storeu_ps(out.lanes, _mm_min_ps(_mm_loadu_ps(a.lanes), _mm_loadu_ps(b.lanes)));
 #else
-    for (size_t i = 0; i < 4; ++i) out.lanes[i] = a.lanes[i] < b.lanes[i] ? a.lanes[i] : b.lanes[i];
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = a.lanes[i] < b.lanes[i] ? a.lanes[i] : b.lanes[i];
 #endif
     return out;
 }
@@ -347,7 +383,8 @@ static inline run_simd_v4f32_t run_simd_v4f32_max(run_simd_v4f32_t a, run_simd_v
 #elif defined(__SSE__)
     _mm_storeu_ps(out.lanes, _mm_max_ps(_mm_loadu_ps(a.lanes), _mm_loadu_ps(b.lanes)));
 #else
-    for (size_t i = 0; i < 4; ++i) out.lanes[i] = a.lanes[i] > b.lanes[i] ? a.lanes[i] : b.lanes[i];
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = a.lanes[i] > b.lanes[i] ? a.lanes[i] : b.lanes[i];
 #endif
     return out;
 }
@@ -369,7 +406,8 @@ static inline float run_simd_v4f32_dot(run_simd_v4f32_t a, run_simd_v4f32_t b) {
 #elif defined(__SSE__)
     _mm_storeu_ps(tmp, _mm_mul_ps(_mm_loadu_ps(a.lanes), _mm_loadu_ps(b.lanes)));
 #else
-    for (size_t i = 0; i < 4; ++i) tmp[i] = a.lanes[i] * b.lanes[i];
+    for (size_t i = 0; i < 4; ++i)
+        tmp[i] = a.lanes[i] * b.lanes[i];
 #endif
     return tmp[0] + tmp[1] + tmp[2] + tmp[3];
 }
@@ -422,7 +460,8 @@ static inline run_simd_v8f32_t run_simd_v8f32_add(run_simd_v8f32_t a, run_simd_v
 #if defined(__AVX__)
     _mm256_storeu_ps(out.lanes, _mm256_add_ps(_mm256_loadu_ps(a.lanes), _mm256_loadu_ps(b.lanes)));
 #else
-    for (size_t i = 0; i < 8; ++i) out.lanes[i] = a.lanes[i] + b.lanes[i];
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = a.lanes[i] + b.lanes[i];
 #endif
     return out;
 }
@@ -431,7 +470,8 @@ static inline run_simd_v8f32_t run_simd_v8f32_sub(run_simd_v8f32_t a, run_simd_v
 #if defined(__AVX__)
     _mm256_storeu_ps(out.lanes, _mm256_sub_ps(_mm256_loadu_ps(a.lanes), _mm256_loadu_ps(b.lanes)));
 #else
-    for (size_t i = 0; i < 8; ++i) out.lanes[i] = a.lanes[i] - b.lanes[i];
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = a.lanes[i] - b.lanes[i];
 #endif
     return out;
 }
@@ -440,7 +480,8 @@ static inline run_simd_v8f32_t run_simd_v8f32_mul(run_simd_v8f32_t a, run_simd_v
 #if defined(__AVX__)
     _mm256_storeu_ps(out.lanes, _mm256_mul_ps(_mm256_loadu_ps(a.lanes), _mm256_loadu_ps(b.lanes)));
 #else
-    for (size_t i = 0; i < 8; ++i) out.lanes[i] = a.lanes[i] * b.lanes[i];
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = a.lanes[i] * b.lanes[i];
 #endif
     return out;
 }
@@ -449,7 +490,8 @@ static inline run_simd_v8f32_t run_simd_v8f32_div(run_simd_v8f32_t a, run_simd_v
 #if defined(__AVX__)
     _mm256_storeu_ps(out.lanes, _mm256_div_ps(_mm256_loadu_ps(a.lanes), _mm256_loadu_ps(b.lanes)));
 #else
-    for (size_t i = 0; i < 8; ++i) out.lanes[i] = a.lanes[i] / b.lanes[i];
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = a.lanes[i] / b.lanes[i];
 #endif
     return out;
 }
@@ -458,7 +500,8 @@ static inline run_simd_v8f32_t run_simd_v8f32_min(run_simd_v8f32_t a, run_simd_v
 #if defined(__AVX__)
     _mm256_storeu_ps(out.lanes, _mm256_min_ps(_mm256_loadu_ps(a.lanes), _mm256_loadu_ps(b.lanes)));
 #else
-    for (size_t i = 0; i < 8; ++i) out.lanes[i] = a.lanes[i] < b.lanes[i] ? a.lanes[i] : b.lanes[i];
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = a.lanes[i] < b.lanes[i] ? a.lanes[i] : b.lanes[i];
 #endif
     return out;
 }
@@ -467,7 +510,8 @@ static inline run_simd_v8f32_t run_simd_v8f32_max(run_simd_v8f32_t a, run_simd_v
 #if defined(__AVX__)
     _mm256_storeu_ps(out.lanes, _mm256_max_ps(_mm256_loadu_ps(a.lanes), _mm256_loadu_ps(b.lanes)));
 #else
-    for (size_t i = 0; i < 8; ++i) out.lanes[i] = a.lanes[i] > b.lanes[i] ? a.lanes[i] : b.lanes[i];
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = a.lanes[i] > b.lanes[i] ? a.lanes[i] : b.lanes[i];
 #endif
     return out;
 }
@@ -485,7 +529,8 @@ static inline float run_simd_v8f32_dot(run_simd_v8f32_t a, run_simd_v8f32_t b) {
 #if defined(__AVX__)
     _mm256_storeu_ps(tmp, _mm256_mul_ps(_mm256_loadu_ps(a.lanes), _mm256_loadu_ps(b.lanes)));
 #else
-    for (size_t i = 0; i < 8; ++i) tmp[i] = a.lanes[i] * b.lanes[i];
+    for (size_t i = 0; i < 8; ++i)
+        tmp[i] = a.lanes[i] * b.lanes[i];
 #endif
     return tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4] + tmp[5] + tmp[6] + tmp[7];
 }
