@@ -216,6 +216,9 @@ pub const Node = struct {
         /// Struct literal: `Type{ field: val, ... }` or `Type{ .field = val, ... }`
         /// lhs = type name node, rhs = extra_data start for field inits
         struct_literal,
+        /// SIMD literal: `v4f32{ 1.0, 2.0, 3.0, 4.0 }`
+        /// lhs = type name node, rhs = extra_data start for lane expressions
+        simd_literal,
         /// A struct literal field init: `name: expr` or `name = expr`
         /// lhs = value expr
         struct_field_init,

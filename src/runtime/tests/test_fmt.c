@@ -6,7 +6,7 @@
 static void test_sprintf_basic_types(void) {
     run_string_t out = run_fmt_sprintf("int=%d float=%.2f bool=%s char=%c str=%s", 42, 3.14159, "true", 'x', "ok");
     RUN_ASSERT(out.ptr != NULL);
-    RUN_ASSERT_EQ(out.len, 39);
+    RUN_ASSERT_EQ(out.len, 41);
     RUN_ASSERT_STR_EQ(out.ptr, "int=42 float=3.14 bool=true char=x str=ok");
     free((void *)out.ptr);
 }

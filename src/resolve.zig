@@ -550,6 +550,7 @@ pub const Resolver = struct {
                 try self.resolveNode(self.nodeData(node).rhs);
             },
             .struct_literal => try self.resolveStructLiteral(node),
+            .simd_literal => try self.resolveSimdLiteral(node),
             .anon_struct_literal => try self.resolveAnonStructLiteral(node),
             .struct_field_init => try self.resolveNode(self.nodeData(node).lhs),
             .closure => try self.resolveClosure(node),
@@ -673,6 +674,8 @@ pub const Resolver = struct {
 
         // Skip if it's a primitive type name used as ident (e.g., in type position).
         if (types.TypePool.lookupPrimitive(name) != null) return;
+        // Compiler-recognized pseudo-packages.
+        if (std.mem.eql(u8, name, "simd") or std.mem.eql(u8, name, "unsafe") or std.mem.eql(u8, name, "close")) return;
 
         if (self.symbols.lookup(name)) |sym_id| {
             self.resolution_map.items[node] = sym_id;
@@ -696,6 +699,16 @@ pub const Resolver = struct {
         const arg_nodes = extra[args_start .. args_start + arg_count];
         for (arg_nodes) |arg| {
             try self.resolveNode(arg);
+        }
+    }
+
+    fn resolveSimdLiteral(self: *Resolver, node: NodeIndex) ResolveError!void {
+        const data = self.nodeData(node);
+        const extra = self.tree.extra_data.items;
+        const lane_count = self.findTrailingCount(data.rhs, extra);
+        const lane_nodes = extra[data.rhs .. data.rhs + lane_count];
+        for (lane_nodes) |lane_node| {
+            try self.resolveNode(lane_node);
         }
     }
 

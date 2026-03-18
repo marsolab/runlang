@@ -61,6 +61,7 @@ pub const Inst = struct {
         alloc_local,
         load,
         store,
+        local_addr,
         field_ptr,
         index_ptr,
 
@@ -89,11 +90,11 @@ pub const Inst = struct {
         chan_close,
 
         // Map operations
-        map_new,     // result = run_map_new(key_size=arg1, val_size=arg2, ...)
-        map_set,     // arg1 = map, arg2 = call_info idx (key_ref, val_ref)
-        map_get,     // result = found, arg1 = map, arg2 = call_info idx (key_ref, val_out_ref)
-        map_delete,  // result = found, arg1 = map, arg2 = key_ref
-        map_len,     // result = count, arg1 = map
+        map_new, // result = run_map_new(key_size=arg1, val_size=arg2, ...)
+        map_set, // arg1 = map, arg2 = call_info idx (key_ref, val_ref)
+        map_get, // result = found, arg1 = map, arg2 = call_info idx (key_ref, val_out_ref)
+        map_delete, // result = found, arg1 = map, arg2 = key_ref
+        map_len, // result = count, arg1 = map
 
         // Error handling
         try_unwrap,
@@ -218,6 +219,7 @@ pub const StringConstant = struct {
 pub const CallInfo = struct {
     target_name: []const u8,
     args: std.ArrayList(Ref),
+    return_type_name: []const u8 = "int64_t",
     is_variadic: bool = false,
 
     pub fn deinit(self: *CallInfo, allocator: std.mem.Allocator) void {
@@ -229,6 +231,7 @@ pub const CallInfo = struct {
 pub const LocalInfo = struct {
     name: []const u8,
     c_type: []const u8,
+    alignment: u32 = 0,
 };
 
 /// Metadata for an inline assembly expression.
@@ -323,6 +326,16 @@ pub const Module = struct {
     /// Add call info and return its index. The call instruction's arg1 should
     /// be set to this index so codegen can look up the target name and args.
     pub fn addCallInfo(self: *Module, allocator: std.mem.Allocator, target_name: []const u8, args: []const Ref) !u32 {
+        return self.addTypedCallInfo(allocator, target_name, args, "int64_t");
+    }
+
+    pub fn addTypedCallInfo(
+        self: *Module,
+        allocator: std.mem.Allocator,
+        target_name: []const u8,
+        args: []const Ref,
+        return_type_name: []const u8,
+    ) !u32 {
         const index: u32 = @intCast(self.call_infos.items.len);
         var arg_list: std.ArrayList(Ref) = .empty;
         for (args) |a| {
@@ -331,12 +344,23 @@ pub const Module = struct {
         try self.call_infos.append(allocator, .{
             .target_name = target_name,
             .args = arg_list,
+            .return_type_name = return_type_name,
         });
         return index;
     }
 
     /// Like addCallInfo but marks the call as variadic for codegen.
     pub fn addVariadicCallInfo(self: *Module, allocator: std.mem.Allocator, target_name: []const u8, args: []const Ref) !u32 {
+        return self.addTypedVariadicCallInfo(allocator, target_name, args, "int64_t");
+    }
+
+    pub fn addTypedVariadicCallInfo(
+        self: *Module,
+        allocator: std.mem.Allocator,
+        target_name: []const u8,
+        args: []const Ref,
+        return_type_name: []const u8,
+    ) !u32 {
         const index: u32 = @intCast(self.call_infos.items.len);
         var arg_list: std.ArrayList(Ref) = .empty;
         for (args) |a| {
@@ -345,12 +369,23 @@ pub const Module = struct {
         try self.call_infos.append(allocator, .{
             .target_name = target_name,
             .args = arg_list,
+            .return_type_name = return_type_name,
             .is_variadic = true,
         });
         return index;
     }
 
     pub fn addLocalInfo(self: *Module, allocator: std.mem.Allocator, name: []const u8, c_type: []const u8) !u32 {
+        return self.addLocalInfoAligned(allocator, name, c_type, 0);
+    }
+
+    pub fn addLocalInfoAligned(
+        self: *Module,
+        allocator: std.mem.Allocator,
+        name: []const u8,
+        c_type: []const u8,
+        alignment: u32,
+    ) !u32 {
         // Deduplicate by name
         for (self.local_infos.items, 0..) |li, i| {
             if (std.mem.eql(u8, li.name, name)) {
@@ -358,7 +393,7 @@ pub const Module = struct {
             }
         }
         const index: u32 = @intCast(self.local_infos.items.len);
-        try self.local_infos.append(allocator, .{ .name = name, .c_type = c_type });
+        try self.local_infos.append(allocator, .{ .name = name, .c_type = c_type, .alignment = alignment });
         return index;
     }
 

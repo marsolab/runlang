@@ -21,9 +21,26 @@ pub const primitives = struct {
     pub const f64_id: TypeId = 10;
     pub const string_id: TypeId = 11;
     pub const any_id: TypeId = 12;
+    pub const i8_id: TypeId = 13;
+    pub const i16_id: TypeId = 14;
+    pub const v2bool_id: TypeId = 15;
+    pub const v4bool_id: TypeId = 16;
+    pub const v8bool_id: TypeId = 17;
+    pub const v16bool_id: TypeId = 18;
+    pub const v32bool_id: TypeId = 19;
+    pub const v4f32_id: TypeId = 20;
+    pub const v2f64_id: TypeId = 21;
+    pub const v4i32_id: TypeId = 22;
+    pub const v8i16_id: TypeId = 23;
+    pub const v16i8_id: TypeId = 24;
+    pub const v8f32_id: TypeId = 25;
+    pub const v4f64_id: TypeId = 26;
+    pub const v8i32_id: TypeId = 27;
+    pub const v16i16_id: TypeId = 28;
+    pub const v32i8_id: TypeId = 29;
 
     /// Number of pre-registered primitives.
-    pub const count: u32 = 13;
+    pub const count: u32 = 30;
 };
 
 /// Represents every type in the Run language.
@@ -34,6 +51,7 @@ pub const Type = union(enum) {
     int_type: IntType,
     float_type: FloatType,
     string_type,
+    simd_type: SimdType,
     struct_type: StructType,
     interface_type: InterfaceType,
     sum_type: SumType,
@@ -59,6 +77,10 @@ pub const Type = union(enum) {
                 return ia.bits == ib.bits and ia.signed == ib.signed;
             },
             .float_type => |fa| fa.bits == b.float_type.bits,
+            .simd_type => |sa| {
+                const sb = b.simd_type;
+                return sa.lanes == sb.lanes and sa.elem_kind == sb.elem_kind and sa.elem_bits == sb.elem_bits;
+            },
             .ptr_type => |pa| pa.pointee == b.ptr_type.pointee and pa.is_const == b.ptr_type.is_const,
             .nullable_type => |na| na.inner == b.nullable_type.inner,
             .error_union_type => |ea| ea.payload == b.error_union_type.payload,
@@ -99,6 +121,18 @@ pub const IntType = struct {
 
 pub const FloatType = struct {
     bits: u8,
+};
+
+pub const SimdElementKind = enum {
+    bool,
+    int,
+    float,
+};
+
+pub const SimdType = struct {
+    lanes: u8,
+    elem_kind: SimdElementKind,
+    elem_bits: u8,
 };
 
 pub const StructField = struct {
@@ -213,6 +247,23 @@ pub const TypePool = struct {
         pool.types.append(allocator, .{ .float_type = .{ .bits = 64 } }) catch unreachable; // 10: f64
         pool.types.append(allocator, .string_type) catch unreachable; // 11: string
         pool.types.append(allocator, .any_type) catch unreachable; // 12: any
+        pool.types.append(allocator, .{ .int_type = .{ .bits = 8, .signed = true } }) catch unreachable; // 13: i8
+        pool.types.append(allocator, .{ .int_type = .{ .bits = 16, .signed = true } }) catch unreachable; // 14: i16
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 2, .elem_kind = .bool, .elem_bits = 1 } }) catch unreachable; // 15: v2bool
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 4, .elem_kind = .bool, .elem_bits = 1 } }) catch unreachable; // 16: v4bool
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 8, .elem_kind = .bool, .elem_bits = 1 } }) catch unreachable; // 17: v8bool
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 16, .elem_kind = .bool, .elem_bits = 1 } }) catch unreachable; // 18: v16bool
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 32, .elem_kind = .bool, .elem_bits = 1 } }) catch unreachable; // 19: v32bool
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 4, .elem_kind = .float, .elem_bits = 32 } }) catch unreachable; // 20: v4f32
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 2, .elem_kind = .float, .elem_bits = 64 } }) catch unreachable; // 21: v2f64
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 4, .elem_kind = .int, .elem_bits = 32 } }) catch unreachable; // 22: v4i32
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 8, .elem_kind = .int, .elem_bits = 16 } }) catch unreachable; // 23: v8i16
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 16, .elem_kind = .int, .elem_bits = 8 } }) catch unreachable; // 24: v16i8
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 8, .elem_kind = .float, .elem_bits = 32 } }) catch unreachable; // 25: v8f32
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 4, .elem_kind = .float, .elem_bits = 64 } }) catch unreachable; // 26: v4f64
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 8, .elem_kind = .int, .elem_bits = 32 } }) catch unreachable; // 27: v8i32
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 16, .elem_kind = .int, .elem_bits = 16 } }) catch unreachable; // 28: v16i16
+        pool.types.append(allocator, .{ .simd_type = .{ .lanes = 32, .elem_kind = .int, .elem_bits = 8 } }) catch unreachable; // 29: v32i8
         return pool;
     }
 
@@ -237,6 +288,23 @@ pub const TypePool = struct {
             .{ "f64", primitives.f64_id },
             .{ "string", primitives.string_id },
             .{ "any", primitives.any_id },
+            .{ "i8", primitives.i8_id },
+            .{ "i16", primitives.i16_id },
+            .{ "v2bool", primitives.v2bool_id },
+            .{ "v4bool", primitives.v4bool_id },
+            .{ "v8bool", primitives.v8bool_id },
+            .{ "v16bool", primitives.v16bool_id },
+            .{ "v32bool", primitives.v32bool_id },
+            .{ "v4f32", primitives.v4f32_id },
+            .{ "v2f64", primitives.v2f64_id },
+            .{ "v4i32", primitives.v4i32_id },
+            .{ "v8i16", primitives.v8i16_id },
+            .{ "v16i8", primitives.v16i8_id },
+            .{ "v8f32", primitives.v8f32_id },
+            .{ "v4f64", primitives.v4f64_id },
+            .{ "v8i32", primitives.v8i32_id },
+            .{ "v16i16", primitives.v16i16_id },
+            .{ "v32i8", primitives.v32i8_id },
         });
         return map.get(name);
     }
@@ -347,6 +415,68 @@ pub const TypePool = struct {
             else => null,
         };
     }
+
+    pub fn isSimd(self: *const TypePool, id: TypeId) bool {
+        return switch (self.get(id)) {
+            .simd_type => true,
+            else => false,
+        };
+    }
+
+    pub fn isSimdMask(self: *const TypePool, id: TypeId) bool {
+        return switch (self.get(id)) {
+            .simd_type => |simd| simd.elem_kind == .bool,
+            else => false,
+        };
+    }
+
+    pub fn getSimd(self: *const TypePool, id: TypeId) ?SimdType {
+        return switch (self.get(id)) {
+            .simd_type => |simd| simd,
+            else => null,
+        };
+    }
+
+    pub fn simdMaskFor(self: *const TypePool, id: TypeId) ?TypeId {
+        const simd = self.getSimd(id) orelse return null;
+        return switch (simd.lanes) {
+            2 => primitives.v2bool_id,
+            4 => primitives.v4bool_id,
+            8 => primitives.v8bool_id,
+            16 => primitives.v16bool_id,
+            32 => primitives.v32bool_id,
+            else => null,
+        };
+    }
+
+    pub fn simdElementType(self: *const TypePool, id: TypeId) ?TypeId {
+        const simd = self.getSimd(id) orelse return null;
+        return switch (simd.elem_kind) {
+            .bool => primitives.bool_id,
+            .float => switch (simd.elem_bits) {
+                32 => primitives.f32_id,
+                64 => primitives.f64_id,
+                else => null,
+            },
+            .int => switch (simd.elem_bits) {
+                8 => primitives.i8_id,
+                16 => primitives.i16_id,
+                32 => primitives.i32_id,
+                64 => primitives.i64_id,
+                else => null,
+            },
+        };
+    }
+
+    pub fn simdAlignment(self: *const TypePool, id: TypeId) ?u32 {
+        const simd = self.getSimd(id) orelse return null;
+        const byte_width = (@as(u32, simd.lanes) * @as(u32, simd.elem_bits) + 7) / 8;
+        return switch (byte_width) {
+            16 => 16,
+            32 => 32,
+            else => null,
+        };
+    }
 };
 
 /// Maps a structural wrapper Type to its deduplication key, or null for nominal types.
@@ -393,6 +523,12 @@ test "primitive types are pre-registered" {
     // f64
     const f64_type = pool.get(primitives.f64_id);
     try std.testing.expectEqual(FloatType{ .bits = 64 }, f64_type.float_type);
+
+    const i8_type = pool.get(primitives.i8_id);
+    try std.testing.expectEqual(IntType{ .bits = 8, .signed = true }, i8_type.int_type);
+
+    const v4f32_type = pool.get(primitives.v4f32_id);
+    try std.testing.expectEqual(SimdType{ .lanes = 4, .elem_kind = .float, .elem_bits = 32 }, v4f32_type.simd_type);
 }
 
 test "lookupPrimitive" {
@@ -401,6 +537,8 @@ test "lookupPrimitive" {
     try std.testing.expectEqual(primitives.bool_id, TypePool.lookupPrimitive("bool").?);
     try std.testing.expectEqual(primitives.f64_id, TypePool.lookupPrimitive("f64").?);
     try std.testing.expectEqual(primitives.byte_id, TypePool.lookupPrimitive("byte").?);
+    try std.testing.expectEqual(primitives.v8f32_id, TypePool.lookupPrimitive("v8f32").?);
+    try std.testing.expectEqual(primitives.v4bool_id, TypePool.lookupPrimitive("v4bool").?);
     try std.testing.expect(TypePool.lookupPrimitive("MyStruct") == null);
     try std.testing.expect(TypePool.lookupPrimitive("unknown") == null);
 }
@@ -541,6 +679,22 @@ test "isNumeric / isInteger / isFloat" {
     try std.testing.expect(pool.isFloat(primitives.f32_id));
     try std.testing.expect(pool.isFloat(primitives.f64_id));
     try std.testing.expect(!pool.isFloat(primitives.int_id));
+}
+
+test "simd helpers" {
+    const allocator = std.testing.allocator;
+    var pool = TypePool.init(allocator);
+    defer pool.deinit(allocator);
+
+    try std.testing.expect(pool.isSimd(primitives.v4f32_id));
+    try std.testing.expect(!pool.isSimd(primitives.f32_id));
+    try std.testing.expect(pool.isSimdMask(primitives.v8bool_id));
+    try std.testing.expect(!pool.isSimdMask(primitives.v8f32_id));
+    try std.testing.expectEqual(primitives.v4bool_id, pool.simdMaskFor(primitives.v4f32_id).?);
+    try std.testing.expectEqual(primitives.f32_id, pool.simdElementType(primitives.v4f32_id).?);
+    try std.testing.expectEqual(primitives.i16_id, pool.simdElementType(primitives.v8i16_id).?);
+    try std.testing.expectEqual(@as(u32, 16), pool.simdAlignment(primitives.v4f32_id).?);
+    try std.testing.expectEqual(@as(u32, 32), pool.simdAlignment(primitives.v8f32_id).?);
 }
 
 test "unwrap helpers" {

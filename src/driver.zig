@@ -177,11 +177,11 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
 
     // 7. Lower AST to IR (with source path for debug info)
     var module = if (options.debug)
-        lower_mod.lowerWithSource(allocator, &parser.tree, tokens.items, options.input_path) catch {
+        lower_mod.lowerWithSource(allocator, &parser.tree, tokens.items, &tc_result, options.input_path) catch {
             return CompileError.OutOfMemory;
         }
     else
-        lower_mod.lower(allocator, &parser.tree, tokens.items) catch {
+        lower_mod.lower(allocator, &parser.tree, tokens.items, &tc_result) catch {
             return CompileError.OutOfMemory;
         };
     defer module.deinit(allocator);
@@ -398,6 +398,7 @@ pub fn invokeZigCC(
         "run_chan.c",
         "run_vmem.c",
         "run_map.c",
+        "run_simd.c",
     };
 
     // Platform-specific assembly for context switching

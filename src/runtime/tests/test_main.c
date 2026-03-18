@@ -13,6 +13,7 @@ extern void run_test_scheduler(void);
 extern void run_test_chan(void);
 extern void run_test_map(void);
 extern void run_test_fmt(void);
+extern void run_test_simd(void);
 
 int main(void) {
     printf("Run Runtime Test Suite\n");
@@ -28,6 +29,7 @@ int main(void) {
     run_test_vmem();
     run_test_map();
     run_test_fmt();
+    run_test_simd();
     run_test_scheduler();
     run_test_chan();
 

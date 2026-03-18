@@ -7,6 +7,7 @@
 typedef struct {
     uint64_t generation;
     size_t alloc_size;
+    void *base_ptr;
 } run_alloc_header_t;
 
 static run_alloc_header_t *get_header(void *ptr) {
@@ -14,14 +15,39 @@ static run_alloc_header_t *get_header(void *ptr) {
 }
 
 void *run_gen_alloc(size_t size) {
-    run_alloc_header_t *block = malloc(sizeof(run_alloc_header_t) + size);
-    if (!block) {
+    return run_gen_alloc_aligned(size, _Alignof(max_align_t));
+}
+
+void *run_gen_alloc_aligned(size_t size, size_t alignment) {
+    if (alignment < _Alignof(max_align_t)) {
+        alignment = _Alignof(max_align_t);
+    }
+
+    /* Round alignment up to the next power of two if needed. */
+    if ((alignment & (alignment - 1)) != 0) {
+        size_t rounded = _Alignof(max_align_t);
+        while (rounded < alignment) {
+            rounded <<= 1;
+        }
+        alignment = rounded;
+    }
+
+    const size_t extra = sizeof(run_alloc_header_t) + alignment - 1;
+    void *raw = malloc(extra + size);
+    if (!raw) {
         fprintf(stderr, "run: out of memory\n");
         abort();
     }
+
+    uintptr_t user_addr = (uintptr_t)raw + sizeof(run_alloc_header_t);
+    user_addr = (user_addr + alignment - 1) & ~(uintptr_t)(alignment - 1);
+
+    run_alloc_header_t *block = (run_alloc_header_t *)(user_addr - sizeof(run_alloc_header_t));
     block->generation = 0;
     block->alloc_size = size;
-    void *user_ptr = (char *)block + sizeof(run_alloc_header_t);
+    block->base_ptr = raw;
+
+    void *user_ptr = (void *)user_addr;
     memset(user_ptr, 0, size);
     return user_ptr;
 }
@@ -35,7 +61,7 @@ void run_gen_free(void *ptr) {
         abort();
     }
     header->generation = RUN_GEN_FREED;
-    free(header);
+    free(header->base_ptr);
 }
 
 void run_gen_check(void *ptr, uint64_t expected_gen) {

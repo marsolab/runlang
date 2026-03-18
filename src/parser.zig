@@ -1146,11 +1146,11 @@ pub const Parser = struct {
                     }
                 },
                 .l_brace => {
-                    // Struct literal: Type{ field: val, ... }
-                    // Only valid after an identifier (type name) or field access
+                    // Aggregate literal: struct literal or SIMD literal.
+                    // Only valid after an identifier (type name) or field access.
                     const node_tag = self.tree.nodes.items[node].tag;
                     if (self.allow_struct_literals and (node_tag == .ident or node_tag == .field_access)) {
-                        node = try self.parseStructLiteral(node);
+                        node = try self.parseAggregateLiteral(node);
                     } else {
                         break;
                     }
@@ -1207,6 +1207,23 @@ pub const Parser = struct {
         });
     }
 
+    fn parseAggregateLiteral(self: *Parser, type_node: NodeIndex) Error!NodeIndex {
+        if (self.aggregateLiteralStartsWithFieldInit()) {
+            return self.parseStructLiteral(type_node);
+        }
+        return self.parseSimdLiteral(type_node);
+    }
+
+    fn aggregateLiteralStartsWithFieldInit(self: *const Parser) bool {
+        var idx = self.pos + 1; // token after '{'
+        while (idx < self.tokens.len and self.tokens[idx].tag == .newline) : (idx += 1) {}
+        if (idx >= self.tokens.len) return false;
+        if (self.tokens[idx].tag != .identifier) return false;
+        idx += 1;
+        while (idx < self.tokens.len and self.tokens[idx].tag == .newline) : (idx += 1) {}
+        return idx < self.tokens.len and self.tokens[idx].tag == .colon;
+    }
+
     fn parseStructLiteral(self: *Parser, type_node: NodeIndex) Error!NodeIndex {
         const tok = self.pos;
         self.expectToken(.l_brace);
@@ -1254,6 +1271,43 @@ pub const Parser = struct {
 
         return self.tree.addNode(.{
             .tag = .struct_literal,
+            .main_token = tok,
+            .data = .{ .lhs = type_node, .rhs = start },
+        });
+    }
+
+    fn parseSimdLiteral(self: *Parser, type_node: NodeIndex) Error!NodeIndex {
+        const tok = self.pos;
+        self.expectToken(.l_brace);
+        self.skipNewlines();
+
+        var lanes: std.ArrayList(NodeIndex) = .empty;
+        defer lanes.deinit(self.tree.allocator);
+
+        while (self.peekTag() != .r_brace and !self.isAtEnd()) {
+            self.skipNewlines();
+            if (self.peekTag() == .r_brace) break;
+
+            if (lanes.items.len > 0) {
+                self.expectToken(.comma);
+                self.skipNewlines();
+            }
+
+            const lane_expr = try self.parseExpr();
+            try lanes.append(self.tree.allocator, lane_expr);
+            self.skipNewlines();
+        }
+
+        self.expectToken(.r_brace);
+
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        for (lanes.items) |lane_expr| {
+            _ = try self.tree.addExtra(lane_expr);
+        }
+        _ = try self.tree.addExtra(@as(NodeIndex, @intCast(lanes.items.len)));
+
+        return self.tree.addNode(.{
+            .tag = .simd_literal,
             .main_token = tok,
             .data = .{ .lhs = type_node, .rhs = start },
         });
@@ -2355,6 +2409,47 @@ test "parse anonymous struct literal" {
     }
     try std.testing.expect(found_anon_struct);
     try std.testing.expectEqual(@as(u32, 2), field_init_count);
+}
+
+test "parse SIMD literal" {
+    const source = "fn main() {\n    v := v4f32{ 1.0, 2.0, 3.0, 4.0 }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_simd = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .simd_literal) found_simd = true;
+    }
+    try std.testing.expect(found_simd);
+}
+
+test "parse struct literal still uses named fields" {
+    const source = "fn main() {\n    p := Point{ x: 1, y: 2 }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_struct_lit = false;
+    var found_simd = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .struct_literal) found_struct_lit = true;
+        if (node.tag == .simd_literal) found_simd = true;
+    }
+    try std.testing.expect(found_struct_lit);
+    try std.testing.expect(!found_simd);
 }
 
 test "parse anonymous struct type with field colons" {
