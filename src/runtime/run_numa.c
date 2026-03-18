@@ -1,5 +1,6 @@
 #include "run_numa.h"
 
+#include "run_scheduler.h"
 #include "run_vmem.h"
 
 #include <stdio.h>
@@ -184,6 +185,57 @@ void run_numa_free(void *ptr, size_t size) {
     run_vmem_free(ptr, size);
 }
 
+int run_numa_bind_thread(uint32_t node_id) {
+    uint32_t cpu_count;
+    const uint32_t *cpus = run_numa_cpus_on_node(node_id, &cpu_count);
+    if (!cpus || cpu_count == 0)
+        return -1;
+
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    for (uint32_t i = 0; i < cpu_count; i++) {
+        CPU_SET(cpus[i], &cpuset);
+    }
+    if (pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset) != 0)
+        return -1;
+    return 0;
+}
+
+int run_numa_set_memory_policy(uint32_t policy, uint32_t node_id) {
+    unsigned long nodemask = 0;
+    unsigned long maxnode = 0;
+    int linux_policy;
+
+    switch (policy) {
+    case RUN_NUMA_POLICY_LOCAL:
+        linux_policy = 0; /* MPOL_DEFAULT */
+        break;
+    case RUN_NUMA_POLICY_BIND:
+        linux_policy = 2; /* MPOL_BIND */
+        if (node_id < 64)
+            nodemask = 1UL << node_id;
+        maxnode = (unsigned long)node_id + 2;
+        break;
+    case RUN_NUMA_POLICY_INTERLEAVE:
+        linux_policy = 3; /* MPOL_INTERLEAVE */
+        for (uint32_t i = 0; i < topology.node_count && i < 64; i++)
+            nodemask |= (1UL << i);
+        maxnode = topology.node_count + 1;
+        break;
+    case RUN_NUMA_POLICY_PREFERRED:
+        linux_policy = 1; /* MPOL_PREFERRED */
+        if (node_id < 64)
+            nodemask = 1UL << node_id;
+        maxnode = (unsigned long)node_id + 2;
+        break;
+    default:
+        return -1;
+    }
+
+    long ret = syscall(__NR_set_mempolicy, linux_policy, nodemask ? &nodemask : NULL, maxnode);
+    return (ret == 0) ? 0 : -1;
+}
+
 /* ========================================================================
  * macOS Implementation (UMA)
  * ======================================================================== */
@@ -229,6 +281,17 @@ void *run_numa_alloc_on_node(size_t size, uint32_t node_id) {
 
 void run_numa_free(void *ptr, size_t size) {
     run_vmem_free(ptr, size);
+}
+
+int run_numa_bind_thread(uint32_t node_id) {
+    (void)node_id;
+    return 0; /* No per-thread CPU pinning API on macOS */
+}
+
+int run_numa_set_memory_policy(uint32_t policy, uint32_t node_id) {
+    (void)policy;
+    (void)node_id;
+    return 0; /* UMA — no memory policy on macOS */
 }
 
 /* ========================================================================
@@ -316,6 +379,27 @@ void run_numa_free(void *ptr, size_t size) {
     VirtualFree(ptr, 0, MEM_RELEASE);
 }
 
+int run_numa_bind_thread(uint32_t node_id) {
+    uint32_t cpu_count;
+    const uint32_t *cpus = run_numa_cpus_on_node(node_id, &cpu_count);
+    if (!cpus || cpu_count == 0)
+        return -1;
+
+    DWORD_PTR mask = 0;
+    for (uint32_t i = 0; i < cpu_count && i < 64; i++) {
+        mask |= ((DWORD_PTR)1 << cpus[i]);
+    }
+    if (SetThreadAffinityMask(GetCurrentThread(), mask) == 0)
+        return -1;
+    return 0;
+}
+
+int run_numa_set_memory_policy(uint32_t policy, uint32_t node_id) {
+    (void)policy;
+    (void)node_id;
+    return 0; /* Windows does not expose per-thread memory policy */
+}
+
 #endif
 
 /* ========================================================================
@@ -369,4 +453,40 @@ run_allocator_t run_numa_allocator(uint32_t node_id) {
         .free_fn = numa_free_fn,
         .ctx = (void *)(uintptr_t)node_id,
     };
+}
+
+/* ========================================================================
+ * Extended NUMA API (Platform-Independent)
+ * ======================================================================== */
+
+bool run_numa_available(void) {
+    return topology.node_count > 1;
+}
+
+int32_t run_numa_preferred_node(void) {
+    run_g_t *g = run_current_g();
+    if (!g)
+        return -1;
+    return g->preferred_node;
+}
+
+void *run_numa_local_alloc(size_t size) {
+    return run_numa_alloc_on_node(size, run_numa_current_node());
+}
+
+void *run_numa_node_alloc(uint32_t node_id, size_t size) {
+    return run_numa_alloc_on_node(size, node_id);
+}
+
+void *run_numa_interleave_alloc(size_t size) {
+    static _Thread_local uint32_t next_node = 0;
+    uint32_t node = next_node % topology.node_count;
+    next_node++;
+    return run_numa_alloc_on_node(size, node);
+}
+
+uint32_t run_numa_cpu_count(uint32_t node_id) {
+    uint32_t count = 0;
+    run_numa_cpus_on_node(node_id, &count);
+    return count;
 }

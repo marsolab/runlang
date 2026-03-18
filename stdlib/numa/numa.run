@@ -1,0 +1,100 @@
+package numa
+
+// Policy constants for set_memory_policy.
+pub let POLICY_LOCAL      = 0
+pub let POLICY_BIND       = 1
+pub let POLICY_INTERLEAVE = 2
+pub let POLICY_PREFERRED  = 3
+
+// Node represents a single NUMA node.
+pub Node struct {
+    id           int
+    cpus         []int
+    memory_total int
+    memory_free  int
+}
+
+// Topology represents the system NUMA topology.
+pub Topology struct {
+    nodes     []Node
+    distances [][]int
+}
+
+// available reports whether the system has more than one NUMA node.
+pub fun available() bool {
+    return false
+}
+
+// node_count returns the number of NUMA nodes (>= 1).
+pub fun node_count() int {
+    return 0
+}
+
+// current_node returns the NUMA node the calling thread is running on.
+pub fun current_node() int {
+    return 0
+}
+
+// preferred_node returns the preferred NUMA node of the current
+// green thread, or -1 if no preference is set.
+pub fun preferred_node() int {
+    return -1
+}
+
+// cpu_count returns the number of CPUs on the given NUMA node.
+pub fun cpu_count(node int) int {
+    return 0
+}
+
+// distance returns the relative distance between two NUMA nodes.
+// A distance of 10 indicates local access; higher values indicate
+// increasing latency.
+pub fun distance(node_a int, node_b int) int {
+    return 0
+}
+
+// memory_on_node returns the total memory in bytes on the given node.
+pub fun memory_on_node(node int) int {
+    return 0
+}
+
+// local_alloc allocates size bytes on the current thread's NUMA node.
+pub fun local_alloc(size int) &byte {
+    return null
+}
+
+// node_alloc allocates size bytes on the specified NUMA node.
+pub fun node_alloc(node int, size int) &byte {
+    return null
+}
+
+// interleave_alloc allocates size bytes interleaved round-robin
+// across all NUMA nodes.
+pub fun interleave_alloc(size int) &byte {
+    return null
+}
+
+// free releases memory previously allocated by local_alloc,
+// node_alloc, or interleave_alloc.
+pub fun free(ptr &byte, size int) {
+}
+
+// bind_thread binds the calling OS thread to CPUs on the given
+// NUMA node. Returns 0 on success, -1 on failure.
+pub fun bind_thread(node int) int {
+    return 0
+}
+
+// bind_green_thread sets the preferred NUMA node for the current
+// green thread. The scheduler will prefer running the thread on
+// a processor assigned to that node.
+pub fun bind_green_thread(node int) {
+}
+
+// set_memory_policy sets the memory placement policy for the
+// calling thread. Use POLICY_* constants for the policy parameter.
+// node is used by POLICY_BIND and POLICY_PREFERRED.
+// Returns 0 on success, -1 on failure.
+pub fun set_memory_policy(policy int, node int) int {
+    return 0
+}
