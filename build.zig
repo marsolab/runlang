@@ -64,6 +64,7 @@ pub fn build(b: *std.Build) void {
         "src/runtime/run_vmem.c",
         "src/runtime/run_map.c",
         "src/runtime/run_simd.c",
+        "src/runtime/run_numa.c",
     };
 
     // Build sanitizer flags
@@ -167,6 +168,7 @@ pub fn build(b: *std.Build) void {
         "src/runtime/tests/test_map.c",
         "src/runtime/tests/test_fmt.c",
         "src/runtime/tests/test_simd.c",
+        "src/runtime/tests/test_numa.c",
     };
     inline for (runtime_test_sources) |src| {
         runtime_test_exe.root_module.addCSourceFile(.{

@@ -1,5 +1,6 @@
 #include "run_scheduler.h"
 
+#include "run_numa.h"
 #include "run_vmem.h"
 
 #include <signal.h>
@@ -11,6 +12,10 @@
 
 #if defined(__linux__) || defined(__APPLE__)
 #include <sys/time.h>
+#endif
+
+#if defined(__linux__)
+#include <sched.h>
 #endif
 
 /* ========================================================================
@@ -147,6 +152,39 @@ bool run_g_queue_remove(run_g_queue_t *q, run_g_t *g) {
 }
 
 /* ========================================================================
+ * NUMA Thread Pinning
+ * ======================================================================== */
+
+static void pin_m_to_node(run_m_t *m, uint32_t node_id) {
+#if defined(__linux__)
+    uint32_t cpu_count;
+    const uint32_t *cpus = run_numa_cpus_on_node(node_id, &cpu_count);
+    if (cpu_count == 0)
+        return;
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    for (uint32_t i = 0; i < cpu_count; i++) {
+        CPU_SET((int)cpus[i], &cpuset);
+    }
+    pthread_setaffinity_np(m->thread, sizeof(cpuset), &cpuset);
+#elif defined(_WIN32)
+    uint32_t cpu_count;
+    const uint32_t *cpus = run_numa_cpus_on_node(node_id, &cpu_count);
+    if (cpu_count == 0)
+        return;
+    DWORD_PTR mask = 0;
+    for (uint32_t i = 0; i < cpu_count && i < 64; i++) {
+        mask |= (DWORD_PTR)1 << cpus[i];
+    }
+    SetThreadAffinityMask(GetCurrentThread(), mask);
+#else
+    /* macOS: no per-thread CPU pinning API */
+    (void)m;
+    (void)node_id;
+#endif
+}
+
+/* ========================================================================
  * Stack Allocation
  * ======================================================================== */
 
@@ -223,6 +261,7 @@ static run_g_t *g_alloc(void (*fn)(void *), void *arg) {
     g->status = G_IDLE;
     g->entry_fn = fn;
     g->entry_arg = arg;
+    g->preferred_node = -1;
 
     /* Allocate stack */
     g->stack_base = stack_alloc(&g->stack_size, &g->stack_committed);
@@ -351,42 +390,68 @@ static uint32_t steal_random(void) {
     return x;
 }
 
+/* Steal half of a victim P's local queue. Returns one G to run directly,
+ * pushes the rest to self_p's queue. Returns NULL if nothing to steal. */
+static run_g_t *steal_from_p(run_p_t *self_p, run_p_t *victim) {
+    if (victim->local_queue.len == 0)
+        return NULL;
+
+    /* Steal half the victim's queue. In a multi-threaded scenario
+     * this would need synchronization. For single-threaded Phase 1,
+     * this is safe since only one M runs at a time.
+     * For multi-threaded (#86), we use atomic ops on the queue. */
+    uint32_t steal_count = victim->local_queue.len / 2;
+    if (steal_count == 0)
+        steal_count = 1;
+
+    run_g_t *first = NULL;
+    for (uint32_t s = 0; s < steal_count; s++) {
+        run_g_t *g = run_g_queue_pop(&victim->local_queue);
+        if (!g)
+            break;
+        if (first == NULL) {
+            first = g;
+        } else {
+            run_g_queue_push(&self_p->local_queue, g);
+        }
+    }
+    return first;
+}
+
 static run_g_t *try_steal(run_p_t *self_p) {
     if (num_ps <= 1)
         return NULL;
 
+    uint32_t my_node = self_p->numa_node;
+
+    /* Phase 1: Try same-NUMA-node Ps first */
     uint32_t start = steal_random() % num_ps;
     for (uint32_t i = 0; i < num_ps; i++) {
         uint32_t idx = (start + i) % num_ps;
         if (idx == self_p->id)
             continue;
-
-        run_p_t *victim = &all_ps[idx];
-        if (victim->local_queue.len == 0)
+        if (all_ps[idx].numa_node != my_node)
             continue;
 
-        /* Steal half the victim's queue. In a multi-threaded scenario
-         * this would need synchronization. For single-threaded Phase 1,
-         * this is safe since only one M runs at a time.
-         * For multi-threaded (#86), we use atomic ops on the queue. */
-        uint32_t steal_count = victim->local_queue.len / 2;
-        if (steal_count == 0)
-            steal_count = 1;
-
-        run_g_t *first = NULL;
-        for (uint32_t s = 0; s < steal_count; s++) {
-            run_g_t *g = run_g_queue_pop(&victim->local_queue);
-            if (!g)
-                break;
-            if (first == NULL) {
-                first = g;
-            } else {
-                run_g_queue_push(&self_p->local_queue, g);
-            }
-        }
-        if (first)
-            return first;
+        run_g_t *g = steal_from_p(self_p, &all_ps[idx]);
+        if (g)
+            return g;
     }
+
+    /* Phase 2: Try cross-NUMA-node Ps */
+    start = steal_random() % num_ps;
+    for (uint32_t i = 0; i < num_ps; i++) {
+        uint32_t idx = (start + i) % num_ps;
+        if (idx == self_p->id)
+            continue;
+        if (all_ps[idx].numa_node == my_node)
+            continue; /* already tried */
+
+        run_g_t *g = steal_from_p(self_p, &all_ps[idx]);
+        if (g)
+            return g;
+    }
+
     return NULL;
 }
 
@@ -566,6 +631,12 @@ static void schedule_loop(run_m_t *m) {
 void *m_thread_entry(void *arg) {
     run_m_t *m = (run_m_t *)arg;
     tls_current_m = m;
+
+    /* Pin this M to CPUs on its P's NUMA node */
+    if (m->current_p) {
+        pin_m_to_node(m, m->current_p->numa_node);
+    }
+
     schedule_loop(m);
     return NULL;
 }
@@ -575,6 +646,9 @@ void *m_thread_entry(void *arg) {
  * ======================================================================== */
 
 void run_scheduler_init(void) {
+    /* Discover NUMA topology before creating Ps */
+    run_numa_init();
+
     /* Determine number of Ps */
     const char *maxprocs_env = getenv("RUN_MAXPROCS");
     if (maxprocs_env) {
@@ -591,12 +665,14 @@ void run_scheduler_init(void) {
             num_ps = RUN_MAX_P_COUNT;
     }
 
-    /* Initialize all Ps */
+    /* Initialize all Ps and assign NUMA nodes round-robin */
+    uint32_t numa_nodes = run_numa_node_count();
     for (uint32_t i = 0; i < num_ps; i++) {
         all_ps[i].id = i;
         all_ps[i].status = P_IDLE;
         run_g_queue_init(&all_ps[i].local_queue);
         all_ps[i].bound_m = NULL;
+        all_ps[i].numa_node = i % numa_nodes;
     }
 
     /* Initialize global run queue */
@@ -616,6 +692,9 @@ void run_scheduler_init(void) {
     all_ps[0].bound_m = m0;
 
     tls_current_m = m0;
+
+    /* Pin M0 to its P's NUMA node */
+    pin_m_to_node(m0, all_ps[0].numa_node);
 
     /* Check for growable stacks */
     const char *stack_env = getenv("RUN_STACK_MAX");
@@ -758,22 +837,99 @@ void run_g_exit(void) {
 void run_g_ready(run_g_t *g) {
     g->status = G_RUNNABLE;
 
-    /* Try to enqueue to g's last P (affinity), else current P, else global */
     run_m_t *m = tls_current_m;
+
+    /* Prefer last_p if it's on the right NUMA node */
     if (g->last_p && g->last_p->status == P_RUNNING) {
-        run_g_queue_push(&g->last_p->local_queue, g);
-    } else if (m && m->current_p) {
+        if (g->preferred_node < 0 || g->last_p->numa_node == (uint32_t)g->preferred_node) {
+            run_g_queue_push(&g->last_p->local_queue, g);
+            goto wake;
+        }
+    }
+
+    /* If NUMA preference set, find a P on that node */
+    if (g->preferred_node >= 0) {
+        for (uint32_t i = 0; i < num_ps; i++) {
+            if (all_ps[i].numa_node == (uint32_t)g->preferred_node &&
+                all_ps[i].status == P_RUNNING) {
+                run_g_queue_push(&all_ps[i].local_queue, g);
+                goto wake;
+            }
+        }
+    }
+
+    /* Fallback: current P or global */
+    if (m && m->current_p) {
         run_g_queue_push(&m->current_p->local_queue, g);
     } else {
         run_global_queue_push(g);
     }
 
+wake:
     /* Wake an M if there are idle Ps.
      * Only do this from the scheduler context (not from a green thread)
      * to avoid calling pthread_create from a green thread's small stack. */
     if (idle_p_count > 0 && m && m->current_g == NULL) {
         run_wake_m();
     }
+}
+
+/* ========================================================================
+ * NUMA-Aware Spawn and Pin
+ * ======================================================================== */
+
+void run_spawn_on_node(void (*fn)(void *), void *arg, int32_t node_id) {
+    run_g_t *g = g_alloc(fn, arg);
+    g->preferred_node = node_id;
+
+    pthread_mutex_lock(&live_g_lock);
+    live_g_count++;
+    pthread_mutex_unlock(&live_g_lock);
+
+    run_m_t *m = tls_current_m;
+
+    /* Place in a P on the preferred node if possible */
+    if (node_id >= 0) {
+        for (uint32_t i = 0; i < num_ps; i++) {
+            if (all_ps[i].numa_node == (uint32_t)node_id &&
+                all_ps[i].status == P_RUNNING) {
+                run_g_queue_push(&all_ps[i].local_queue, g);
+                goto wake;
+            }
+        }
+    }
+
+    /* Fallback: same logic as run_spawn */
+    if (m && m->current_p) {
+        run_g_queue_push(&m->current_p->local_queue, g);
+    } else if (m && m->current_g == NULL) {
+        /* Called from main thread (outside scheduler loop).
+         * Try to re-acquire an idle P so the G goes to the local queue. */
+        run_p_t *p = acquire_idle_p();
+        if (p) {
+            m->current_p = p;
+            p->bound_m = m;
+            run_g_queue_push(&p->local_queue, g);
+        } else {
+            run_global_queue_push(g);
+        }
+    } else {
+        run_global_queue_push(g);
+    }
+
+wake:
+    if (idle_p_count > 0 && m && m->current_g == NULL) {
+        run_wake_m();
+    }
+}
+
+void run_numa_pin(uint32_t node_id) {
+    run_g_t *g = run_current_g();
+    if (!g)
+        return;
+    g->preferred_node = (int32_t)node_id;
+    /* Yield so the scheduler can reschedule on the right NUMA node */
+    run_yield();
 }
 
 /* ========================================================================

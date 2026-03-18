@@ -84,6 +84,7 @@ pub const Inst = struct {
 
         // Concurrency
         spawn,
+        spawn_on_node,
         chan_send,
         chan_recv,
         chan_new,

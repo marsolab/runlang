@@ -55,6 +55,7 @@ struct run_g {
     /* Scheduling */
     struct run_g *sched_next; /* intrusive linked list for run queues */
     struct run_p *last_p;     /* last P this G ran on (affinity) */
+    int32_t preferred_node;   /* NUMA node preference: -1 = none, >= 0 = node */
 
     /* Preemption */
     volatile bool preempt; /* set by timer, checked at function entry */
@@ -112,6 +113,9 @@ struct run_p {
 
     /* Bound M */
     run_m_t *bound_m;
+
+    /* NUMA node this P is assigned to */
+    uint32_t numa_node;
 };
 
 /* ---------- Public API ---------- */
@@ -127,6 +131,14 @@ void run_scheduler_run(void);
 
 /* Spawn a new green thread that will execute fn(arg). */
 void run_spawn(void (*fn)(void *), void *arg);
+
+/* Spawn a new green thread with NUMA node affinity.
+ * node_id < 0 means no preference (same as run_spawn). */
+void run_spawn_on_node(void (*fn)(void *), void *arg, int32_t node_id);
+
+/* Pin the current green thread to a NUMA node.
+ * The thread will be rescheduled on a P assigned to that node. */
+void run_numa_pin(uint32_t node_id);
 
 /* Voluntarily yield the current green thread. */
 void run_yield(void);

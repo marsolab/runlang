@@ -686,11 +686,31 @@ pub const Parser = struct {
     fn parseRun(self: *Parser) Error!NodeIndex {
         const tok = self.pos;
         self.expect(.kw_run);
+
+        // Check for run(node: N) syntax for NUMA affinity
+        var node_expr: NodeIndex = null_node;
+        if (self.peekTag() == .l_paren) {
+            // Look ahead to see if this is run(node: ...) or run(func_call)
+            // Pattern: ( identifier : expr )
+            if (self.peekTagAt(1) == .identifier and self.peekTagAt(2) == .colon) {
+                const ident_tok = self.pos + 1;
+                const ident_loc = self.tokens[ident_tok].loc;
+                const ident_text = self.source[ident_loc.start..ident_loc.end];
+                if (std.mem.eql(u8, ident_text, "node")) {
+                    self.advance(); // consume (
+                    self.advance(); // consume 'node'
+                    self.advance(); // consume :
+                    node_expr = try self.parseExpr();
+                    self.expectToken(.r_paren);
+                }
+            }
+        }
+
         const expr = try self.parseExpr();
         return self.tree.addNode(.{
             .tag = .run_stmt,
             .main_token = tok,
-            .data = .{ .lhs = expr, .rhs = null_node },
+            .data = .{ .lhs = expr, .rhs = node_expr },
         });
     }
 

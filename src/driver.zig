@@ -472,6 +472,7 @@ pub fn invokeZigCC(
                 "run_vmem.c",
                 "run_map.c",
                 "run_simd.c",
+                "run_numa.c",
             };
 
             for (&runtime_sources) |name| {

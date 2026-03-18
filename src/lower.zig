@@ -1214,6 +1214,16 @@ const LoweringContext = struct {
         const member_name = self.tokenSlice(callee.main_token + 1);
 
         if (std.mem.eql(u8, package_name, "unsafe") and std.mem.eql(u8, member_name, "alignof")) return "unsafe.alignof";
+
+        if (std.mem.eql(u8, package_name, "numa")) {
+            if (std.mem.eql(u8, member_name, "node_count")) return "numa.node_count";
+            if (std.mem.eql(u8, member_name, "current_node")) return "numa.current_node";
+            if (std.mem.eql(u8, member_name, "distance")) return "numa.distance";
+            if (std.mem.eql(u8, member_name, "pin")) return "numa.pin";
+            if (std.mem.eql(u8, member_name, "memory_on_node")) return "numa.memory_on_node";
+            return null;
+        }
+
         if (!std.mem.eql(u8, package_name, "simd")) return null;
         if (std.mem.eql(u8, member_name, "hadd")) return "simd.hadd";
         if (std.mem.eql(u8, member_name, "dot")) return "simd.dot";
@@ -1336,6 +1346,22 @@ const LoweringContext = struct {
             return self.emitTypedCall("run_simd_width", &.{}, "int64_t", false);
         }
 
+        // NUMA builtins
+        if (std.mem.startsWith(u8, builtin_name, "numa.")) {
+            var numa_arg_refs: std.ArrayList(ir.Ref) = .empty;
+            defer numa_arg_refs.deinit(self.allocator);
+            for (arg_nodes) |arg_node| {
+                try numa_arg_refs.append(self.allocator, try self.lowerExpr(arg_node));
+            }
+            const target = mapBuiltinCall(builtin_name);
+            if (std.mem.eql(u8, builtin_name, "numa.pin")) {
+                return self.emitTypedCall(target, numa_arg_refs.items, "void", false);
+            }
+            // node_count, current_node return uint32_t; distance returns uint32_t; memory_on_node returns uint64_t
+            const ret_type = if (std.mem.eql(u8, builtin_name, "numa.memory_on_node")) "uint64_t" else "uint32_t";
+            return self.emitTypedCall(target, numa_arg_refs.items, ret_type, false);
+        }
+
         var arg_refs: std.ArrayList(ir.Ref) = .empty;
         defer arg_refs.deinit(self.allocator);
         for (arg_nodes) |arg_node| {
@@ -1399,7 +1425,15 @@ const LoweringContext = struct {
 
         // Store spawn info in call_info so codegen can emit the function name as a symbol
         const spawn_info = try self.module.addTypedCallInfo(self.allocator, target_name, arg_refs.items, "void");
-        try self.emit(ir.makeInst(.spawn, 0, spawn_info, 0));
+
+        // Check for NUMA node affinity (rhs != null_node means run(node: N) syntax)
+        const node_expr_idx = node.data.rhs;
+        if (node_expr_idx != null_node) {
+            const node_ref = try self.lowerExpr(node_expr_idx);
+            try self.emit(ir.makeInst(.spawn_on_node, 0, spawn_info, node_ref));
+        } else {
+            try self.emit(ir.makeInst(.spawn, 0, spawn_info, 0));
+        }
     }
 
     fn lowerCall(self: *LoweringContext, node_idx: NodeIndex) LowerError!ir.Ref {
@@ -1485,6 +1519,11 @@ const LoweringContext = struct {
         if (std.mem.eql(u8, name, "fmt.sprint")) return "run_fmt_sprint_args";
         if (std.mem.eql(u8, name, "fmt.sprintln")) return "run_fmt_sprintln_args";
         if (std.mem.eql(u8, name, "close")) return "run_chan_close";
+        if (std.mem.eql(u8, name, "numa.node_count")) return "run_numa_node_count";
+        if (std.mem.eql(u8, name, "numa.current_node")) return "run_numa_current_node";
+        if (std.mem.eql(u8, name, "numa.distance")) return "run_numa_distance";
+        if (std.mem.eql(u8, name, "numa.pin")) return "run_numa_pin";
+        if (std.mem.eql(u8, name, "numa.memory_on_node")) return "run_numa_memory_on_node";
         return name;
     }
 

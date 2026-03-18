@@ -7,6 +7,7 @@
 #include "run_error.h"
 #include "run_fmt.h"
 #include "run_map.h"
+#include "run_numa.h"
 #include "run_scheduler.h"
 #include "run_simd.h"
 #include "run_slice.h"
