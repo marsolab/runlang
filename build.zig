@@ -27,6 +27,13 @@ pub fn build(b: *std.Build) void {
     const tsan = b.option(bool, "tsan", "Enable ThreadSanitizer for runtime C code") orelse false;
     const no_gen_checks = b.option(bool, "no-gen-checks", "Disable generational reference checks at compile time") orelse false;
 
+    // Version from build.zig.zon
+    const version = "0.1.0-alpha.1";
+
+    // Build options module (passes version to compiler source)
+    const build_options = b.addOptions();
+    build_options.addOption([]const u8, "version", version);
+
     // Main compiler executable
     const exe = b.addExecutable(.{
         .name = "run",
@@ -36,6 +43,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    exe.root_module.addOptions("build_options", build_options);
     b.installArtifact(exe);
 
     // Runtime C library (static archive for use by the driver during compilation)
@@ -91,6 +99,12 @@ pub fn build(b: *std.Build) void {
             .flags = sanitizer_flags,
         });
     }
+    // run_main.c defines main() and is only included in the library,
+    // not in the test executable (which has its own test_main.c).
+    runtime_lib.root_module.addCSourceFile(.{
+        .file = b.path("src/runtime/run_main.c"),
+        .flags = sanitizer_flags,
+    });
 
     // Add platform-specific assembly for context switching
     const target_info = target.result;
@@ -107,11 +121,12 @@ pub fn build(b: *std.Build) void {
     // The consuming executable is responsible for linking them.
     b.installArtifact(runtime_lib);
 
-    // Install runtime headers alongside compiler
+    // Install runtime headers alongside compiler (headers only, not .c/.S/tests)
     b.installDirectory(.{
         .source_dir = b.path("src/runtime"),
         .install_dir = .header,
         .install_subdir = "run",
+        .include_extensions = &.{".h"},
     });
 
     // Run command: `zig build run -- <args>`

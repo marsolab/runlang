@@ -44,6 +44,47 @@ pub const CompileError = error{
     ReadFailed,
 };
 
+/// How to locate the C runtime for compilation.
+pub const RuntimeConfig = union(enum) {
+    /// Pre-built runtime library found at install prefix.
+    installed: struct {
+        lib_dir: []const u8,
+        include_dir: []const u8,
+    },
+    /// Source directory for development builds (compile .c files directly).
+    source: []const u8,
+};
+
+/// Try to locate a pre-built librunrt.a relative to the running binary.
+/// Expected layout: <prefix>/bin/run, <prefix>/lib/librunrt.a, <prefix>/include/run/*.h
+fn findInstalledRuntime(allocator: std.mem.Allocator) ?struct { lib_dir: []const u8, include_dir: []const u8 } {
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const self_exe_path = std.fs.selfExePath(&buf) catch return null;
+    const bin_dir = std.fs.path.dirname(self_exe_path) orelse return null;
+    const prefix = std.fs.path.dirname(bin_dir) orelse return null;
+
+    const lib_dir = std.fs.path.join(allocator, &.{ prefix, "lib" }) catch return null;
+    const lib_file = std.fs.path.join(allocator, &.{ lib_dir, "librunrt.a" }) catch {
+        allocator.free(lib_dir);
+        return null;
+    };
+    defer allocator.free(lib_file);
+
+    // Verify librunrt.a exists at the expected location
+    const f = std.fs.cwd().openFile(lib_file, .{}) catch {
+        allocator.free(lib_dir);
+        return null;
+    };
+    f.close();
+
+    const include_dir = std.fs.path.join(allocator, &.{ prefix, "include", "run" }) catch {
+        allocator.free(lib_dir);
+        return null;
+    };
+
+    return .{ .lib_dir = lib_dir, .include_dir = include_dir };
+}
+
 /// Run the full compilation pipeline for the given source file.
 pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileError!void {
     // 1. Read source file
@@ -246,8 +287,18 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
         break :blk basename;
     };
 
-    // Find runtime directory (relative to current working dir)
-    const runtime_dir = "src/runtime";
+    // Find runtime: prefer pre-built library at install prefix, fall back to source compilation.
+    const runtime_config: RuntimeConfig = if (findInstalledRuntime(allocator)) |installed|
+        .{ .installed = .{ .lib_dir = installed.lib_dir, .include_dir = installed.include_dir } }
+    else
+        .{ .source = "src/runtime" };
+    defer switch (runtime_config) {
+        .installed => |info| {
+            allocator.free(info.lib_dir);
+            allocator.free(info.include_dir);
+        },
+        .source => {},
+    };
 
     // 9b. Discover and compile .rasm files alongside the source
     const source_dir = std.fs.path.dirname(options.input_path) orelse ".";
@@ -290,7 +341,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
         rasm_asm_files.append(allocator, asm_path) catch continue;
     }
 
-    invokeZigCC(allocator, tmp_path, out_path, runtime_dir, rasm_asm_files.items, options.debug) catch {
+    invokeZigCC(allocator, tmp_path, out_path, runtime_config, rasm_asm_files.items, options.debug) catch {
         stderr.writeAll("error: C compilation failed\n") catch {};
         return CompileError.CCompileFailed;
     };
@@ -379,35 +430,15 @@ fn validateFileConventions(
 /// Invoke zig cc to compile generated C source with the runtime library.
 /// `c_source_path` is the path to the generated .c file.
 /// `output_path` is the desired binary output path.
-/// `runtime_dir` is the path to the runtime/ directory containing headers and .c files.
+/// `runtime` controls how the runtime is linked: pre-built library or source compilation.
 pub fn invokeZigCC(
     allocator: std.mem.Allocator,
     c_source_path: []const u8,
     output_path: []const u8,
-    runtime_dir: []const u8,
+    runtime: RuntimeConfig,
     extra_asm_files: []const []const u8,
     debug: bool,
 ) !void {
-    const runtime_sources = [_][]const u8{
-        "run_main.c",
-        "run_alloc.c",
-        "run_string.c",
-        "run_slice.c",
-        "run_fmt.c",
-        "run_scheduler.c",
-        "run_chan.c",
-        "run_vmem.c",
-        "run_map.c",
-        "run_simd.c",
-    };
-
-    // Platform-specific assembly for context switching
-    const asm_source: ?[]const u8 = switch (@import("builtin").cpu.arch) {
-        .x86_64 => "run_context_amd64.S",
-        .aarch64 => "run_context_arm64.S",
-        else => null,
-    };
-
     // Build argument list
     var args: std.ArrayList([]const u8) = .empty;
     defer args.deinit(allocator);
@@ -418,26 +449,57 @@ pub fn invokeZigCC(
     try args.append(allocator, output_path);
     try args.append(allocator, c_source_path);
 
-    // Add runtime .c files with full paths
-    for (&runtime_sources) |name| {
-        const full_path = try std.fs.path.join(allocator, &.{ runtime_dir, name });
-        try args.append(allocator, full_path);
-    }
+    switch (runtime) {
+        .installed => |info| {
+            // Link against pre-built static runtime library
+            const lib_path = try std.fs.path.join(allocator, &.{ info.lib_dir, "librunrt.a" });
+            try args.append(allocator, lib_path);
 
-    // Add assembly file
-    if (asm_source) |asm_name| {
-        const asm_path = try std.fs.path.join(allocator, &.{ runtime_dir, asm_name });
-        try args.append(allocator, asm_path);
+            // Include path for installed runtime headers
+            const include_flag = try std.fmt.allocPrint(allocator, "-I{s}", .{info.include_dir});
+            try args.append(allocator, include_flag);
+        },
+        .source => |runtime_dir| {
+            // Compile individual runtime source files (development mode)
+            const runtime_sources = [_][]const u8{
+                "run_main.c",
+                "run_alloc.c",
+                "run_string.c",
+                "run_slice.c",
+                "run_fmt.c",
+                "run_scheduler.c",
+                "run_chan.c",
+                "run_vmem.c",
+                "run_map.c",
+                "run_simd.c",
+            };
+
+            for (&runtime_sources) |name| {
+                const full_path = try std.fs.path.join(allocator, &.{ runtime_dir, name });
+                try args.append(allocator, full_path);
+            }
+
+            // Platform-specific assembly for context switching
+            const asm_source: ?[]const u8 = switch (@import("builtin").cpu.arch) {
+                .x86_64 => "run_context_amd64.S",
+                .aarch64 => "run_context_arm64.S",
+                else => null,
+            };
+            if (asm_source) |asm_name| {
+                const asm_path = try std.fs.path.join(allocator, &.{ runtime_dir, asm_name });
+                try args.append(allocator, asm_path);
+            }
+
+            // Include path for runtime headers
+            const include_flag = try std.fmt.allocPrint(allocator, "-I{s}", .{runtime_dir});
+            try args.append(allocator, include_flag);
+        },
     }
 
     // Add extra .rasm-generated assembly files
     for (extra_asm_files) |extra_asm| {
         try args.append(allocator, extra_asm);
     }
-
-    // Include path for runtime headers
-    const include_flag = try std.fmt.allocPrint(allocator, "-I{s}", .{runtime_dir});
-    try args.append(allocator, include_flag);
 
     // Disable stack protector — green thread context switching is
     // incompatible with stack canaries.

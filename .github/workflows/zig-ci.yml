@@ -8,7 +8,12 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Check out repository
@@ -26,7 +31,12 @@ jobs:
         run: zig build test
 
   zig-test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Check out repository
@@ -41,7 +51,12 @@ jobs:
         run: zig test src/root.zig
 
   runtime-sanitize:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Check out repository

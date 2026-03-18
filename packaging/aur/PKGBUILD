@@ -1,0 +1,47 @@
+# Maintainer: Marsolab <maintainer@marsolab.dev>
+pkgname=run-lang
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Systems programming language compiler with Go simplicity and low-level control"
+arch=('x86_64' 'aarch64')
+url="https://runlang.dev"
+license=('MIT')
+depends=('zig')
+provides=('run')
+conflicts=('run')
+
+_github_url="https://github.com/marsolab/runlang/releases/download/v${pkgver}"
+
+source_x86_64=("${_github_url}/run-${pkgver}-linux-amd64.tar.gz")
+source_aarch64=("${_github_url}/run-${pkgver}-linux-arm64.tar.gz")
+
+sha256sums_x86_64=('PLACEHOLDER')
+sha256sums_aarch64=('PLACEHOLDER')
+
+package() {
+    # Determine the extracted directory name based on architecture.
+    if [[ "$CARCH" == "x86_64" ]]; then
+        _srcdir="run-${pkgver}-linux-amd64"
+    elif [[ "$CARCH" == "aarch64" ]]; then
+        _srcdir="run-${pkgver}-linux-arm64"
+    fi
+
+    cd "${srcdir}/${_srcdir}"
+
+    # Install binary.
+    install -Dm755 bin/run "${pkgdir}/usr/local/bin/run"
+
+    # Install runtime library.
+    install -Dm644 lib/librunrt.a "${pkgdir}/usr/local/lib/librunrt.a"
+
+    # Install headers.
+    install -d "${pkgdir}/usr/local/include/run"
+    for header in include/run/*.h; do
+        install -Dm644 "$header" "${pkgdir}/usr/local/include/run/$(basename "$header")"
+    done
+
+    # Install license.
+    if [[ -f LICENSE ]]; then
+        install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+    fi
+}

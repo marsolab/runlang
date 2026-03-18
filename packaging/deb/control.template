@@ -1,0 +1,17 @@
+Package: run
+Version: {{VERSION}}
+Architecture: {{ARCH}}
+Maintainer: Marsolab <maintainer@marsolab.dev>
+Installed-Size: {{INSTALLED_SIZE}}
+Section: devel
+Priority: optional
+Homepage: https://runlang.dev
+Description: Systems programming language compiler with Go simplicity and low-level control
+ Run is a systems programming language that combines the simplicity and
+ readability of Go with fine-grained control over memory and hardware.
+ It features generational references for memory safety without a garbage
+ collector or borrow checker, green threads for concurrency, and compiles
+ to native code via C.
+ .
+ Note: Zig (>= 0.15) is required at runtime as the compiler uses 'zig cc'
+ for C compilation and linking. Install Zig separately from https://ziglang.org.
