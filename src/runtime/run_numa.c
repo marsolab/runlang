@@ -1,7 +1,3 @@
-#if defined(__linux__)
-#define _GNU_SOURCE
-#endif
-
 #include "run_numa.h"
 
 #include "run_vmem.h"

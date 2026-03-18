@@ -68,8 +68,11 @@ pub fn build(b: *std.Build) void {
     };
 
     // Build sanitizer flags
-    var sanitizer_flag_buf: [8][]const u8 = undefined;
+    var sanitizer_flag_buf: [10][]const u8 = undefined;
     var sanitizer_flag_count: usize = 0;
+    // Enable GNU extensions (sched_getcpu, CPU_ZERO, pthread_setaffinity_np, etc.)
+    sanitizer_flag_buf[sanitizer_flag_count] = "-D_GNU_SOURCE";
+    sanitizer_flag_count += 1;
     if (sanitize) {
         sanitizer_flag_buf[sanitizer_flag_count] = "-fsanitize=address,undefined";
         sanitizer_flag_count += 1;
