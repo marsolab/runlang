@@ -1,0 +1,369 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  ZIG_VERSION: "0.15.2"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build matrix: cross-compile for each target and package a tarball.
+  # ---------------------------------------------------------------------------
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-linux-gnu
+            os: linux
+            arch: amd64
+          - runner: ubuntu-latest
+            target: aarch64-linux-gnu
+            os: linux
+            arch: arm64
+          - runner: macos-13
+            target: x86_64-macos
+            os: darwin
+            arch: amd64
+          - runner: macos-14
+            target: aarch64-macos
+            os: darwin
+            arch: arm64
+
+    runs-on: ${{ matrix.runner }}
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: zig build -Dtarget=${{ matrix.target }} -Doptimize=ReleaseSafe
+
+      - name: Package tarball
+        run: |
+          chmod +x scripts/create-release-tarball.sh
+          ./scripts/create-release-tarball.sh \
+            --version "${{ steps.version.outputs.version }}" \
+            --os "${{ matrix.os }}" \
+            --arch "${{ matrix.arch }}" \
+            --output-dir dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-${{ steps.version.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/run-${{ steps.version.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # macOS universal DMG: combine arm64 + amd64 into a single .dmg image.
+  # ---------------------------------------------------------------------------
+  dmg:
+    needs: build
+    runs-on: macos-14
+    name: macOS Universal DMG
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download darwin-arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: run-${{ steps.version.outputs.version }}-darwin-arm64
+          path: artifacts
+
+      - name: Download darwin-amd64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: run-${{ steps.version.outputs.version }}-darwin-amd64
+          path: artifacts
+
+      - name: Extract tarballs
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p extracted/arm64 extracted/amd64
+          tar xzf "artifacts/run-${VERSION}-darwin-arm64.tar.gz" -C extracted/arm64 --strip-components=1
+          tar xzf "artifacts/run-${VERSION}-darwin-amd64.tar.gz" -C extracted/amd64 --strip-components=1
+
+      - name: Create universal binary
+        run: |
+          mkdir -p dmg-staging/run/bin
+          mkdir -p dmg-staging/run/lib
+          mkdir -p dmg-staging/run/include/run
+
+          # Universal binary via lipo
+          lipo -create \
+            extracted/arm64/bin/run \
+            extracted/amd64/bin/run \
+            -output dmg-staging/run/bin/run
+          chmod +x dmg-staging/run/bin/run
+
+          # Use arm64 static lib (architecture-specific; users pick one or we ship both)
+          cp extracted/arm64/lib/librunrt.a dmg-staging/run/lib/librunrt-arm64.a
+          cp extracted/amd64/lib/librunrt.a dmg-staging/run/lib/librunrt-amd64.a
+
+          # Headers are the same across architectures
+          cp -R extracted/arm64/include/run/ dmg-staging/run/include/run/
+
+          # Copy LICENSE and README
+          [[ -f LICENSE ]] && cp LICENSE dmg-staging/run/
+          [[ -f README.md ]] && cp README.md dmg-staging/run/
+
+      - name: Create README.txt
+        run: |
+          cat > dmg-staging/run/README.txt <<'READMEEOF'
+          Run Language Compiler
+          =====================
+
+          This DMG contains a macOS universal binary of the Run compiler.
+
+          Contents:
+            bin/run                  - the Run compiler (universal binary)
+            lib/librunrt-arm64.a     - runtime library (Apple Silicon)
+            lib/librunrt-amd64.a     - runtime library (Intel)
+            include/run/             - runtime headers
+            install.sh               - installer script
+
+          Quick Install:
+            1. Open Terminal
+            2. cd to this volume
+            3. Run: ./install.sh
+
+          The installer copies files into /usr/local (bin, lib, include).
+
+          NOTE: The Run compiler requires Zig to be installed on your system
+          (it shells out to `zig cc` for compilation).
+          READMEEOF
+          # Strip leading whitespace caused by YAML indentation.
+          sed -i '' 's/^          //' dmg-staging/run/README.txt
+
+      - name: Create install.sh
+        run: |
+          cat > dmg-staging/run/install.sh <<'INSTALLEOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          PREFIX="${1:-/usr/local}"
+
+          echo "Installing Run compiler to ${PREFIX} ..."
+
+          # Detect architecture for the correct runtime library.
+          MACHINE="$(uname -m)"
+          case "$MACHINE" in
+              arm64|aarch64) LIB_SUFFIX="arm64" ;;
+              x86_64)        LIB_SUFFIX="amd64" ;;
+              *)             echo "Unsupported architecture: $MACHINE" >&2; exit 1 ;;
+          esac
+
+          install -d "${PREFIX}/bin"
+          install -d "${PREFIX}/lib"
+          install -d "${PREFIX}/include/run"
+
+          install -m 755 bin/run "${PREFIX}/bin/run"
+          install -m 644 "lib/librunrt-${LIB_SUFFIX}.a" "${PREFIX}/lib/librunrt.a"
+
+          for header in include/run/*.h; do
+              install -m 644 "$header" "${PREFIX}/include/run/"
+          done
+
+          echo "Done. Make sure ${PREFIX}/bin is in your PATH."
+          echo ""
+          echo "NOTE: The Run compiler requires Zig to be installed."
+          echo "  brew install zig   # or see https://ziglang.org/download/"
+          INSTALLEOF
+          # Strip leading whitespace caused by YAML indentation.
+          sed -i '' 's/^          //' dmg-staging/run/install.sh
+          chmod +x dmg-staging/run/install.sh
+
+      - name: Build DMG
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          DMG_NAME="run-${VERSION}-darwin-universal.dmg"
+
+          mkdir -p dist
+          hdiutil create \
+            -volname "Run ${VERSION}" \
+            -srcfolder dmg-staging/run \
+            -ov \
+            -format UDZO \
+            "dist/${DMG_NAME}"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-${{ steps.version.outputs.version }}-darwin-universal-dmg
+          path: dist/run-${{ steps.version.outputs.version }}-darwin-universal.dmg
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Create GitHub Release with all artifacts and checksums.
+  # ---------------------------------------------------------------------------
+  release:
+    needs: [build, dmg]
+    runs-on: ubuntu-latest
+    name: GitHub Release
+
+    steps:
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.dmg' \) -exec cp {} release/ \;
+          ls -lh release/
+
+      - name: Compute checksums
+        run: |
+          cd release
+          sha256sum ./* > ../checksums.txt
+          cat ../checksums.txt
+          cp ../checksums.txt run-${{ steps.version.outputs.version }}-checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release/*.tar.gz
+            release/*.dmg
+            release/run-${{ steps.version.outputs.version }}-checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Update Homebrew tap with the new release.
+  # ---------------------------------------------------------------------------
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    name: Update Homebrew Tap
+
+    steps:
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Compute checksums for Homebrew
+        id: checksums
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          DARWIN_ARM64_SHA=$(sha256sum "artifacts/run-${VERSION}-darwin-arm64/run-${VERSION}-darwin-arm64.tar.gz" | awk '{print $1}')
+          DARWIN_AMD64_SHA=$(sha256sum "artifacts/run-${VERSION}-darwin-amd64/run-${VERSION}-darwin-amd64.tar.gz" | awk '{print $1}')
+          LINUX_ARM64_SHA=$(sha256sum "artifacts/run-${VERSION}-linux-arm64/run-${VERSION}-linux-arm64.tar.gz" | awk '{print $1}')
+          LINUX_AMD64_SHA=$(sha256sum "artifacts/run-${VERSION}-linux-amd64/run-${VERSION}-linux-amd64.tar.gz" | awk '{print $1}')
+
+          echo "darwin_arm64_sha=${DARWIN_ARM64_SHA}" >> "$GITHUB_OUTPUT"
+          echo "darwin_amd64_sha=${DARWIN_AMD64_SHA}" >> "$GITHUB_OUTPUT"
+          echo "linux_arm64_sha=${LINUX_ARM64_SHA}" >> "$GITHUB_OUTPUT"
+          echo "linux_amd64_sha=${LINUX_AMD64_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Clone homebrew-tap and update formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO_URL="https://github.com/marsolab/runlang/releases/download/v${VERSION}"
+
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/marsolab/homebrew-tap.git" homebrew-tap
+          cd homebrew-tap
+
+          mkdir -p Formula
+
+          cat > Formula/run.rb <<FORMULA
+          class Run < Formula
+            desc "The Run programming language compiler"
+            homepage "https://github.com/marsolab/runlang"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "${REPO_URL}/run-${VERSION}-darwin-arm64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.darwin_arm64_sha }}"
+              else
+                url "${REPO_URL}/run-${VERSION}-darwin-amd64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.darwin_amd64_sha }}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "${REPO_URL}/run-${VERSION}-linux-arm64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.linux_arm64_sha }}"
+              else
+                url "${REPO_URL}/run-${VERSION}-linux-amd64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.linux_amd64_sha }}"
+              end
+            end
+
+            depends_on "zig" => "0.15.2"
+
+            def install
+              bin.install "bin/run"
+              lib.install "lib/librunrt.a"
+              (include/"run").install Dir["include/run/*.h"]
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/run --version 2>&1", 0)
+            end
+          end
+          FORMULA
+          # Strip leading whitespace caused by YAML indentation.
+          sed -i 's/^          //' Formula/run.rb
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          BRANCH="update-run-${VERSION}"
+          git checkout -b "${BRANCH}"
+          git add Formula/run.rb
+          git commit -m "run ${VERSION}"
+          git push origin "${BRANCH}"
+
+          # Create PR using GitHub API
+          curl -X POST \
+            -H "Authorization: token ${HOMEBREW_TAP_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/marsolab/homebrew-tap/pulls" \
+            -d "{
+              \"title\": \"run ${VERSION}\",
+              \"head\": \"${BRANCH}\",
+              \"base\": \"main\",
+              \"body\": \"Automated formula update for Run ${VERSION}.\"
+            }"

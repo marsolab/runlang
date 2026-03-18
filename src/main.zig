@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const Token = @import("token.zig").Token;
 const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;
@@ -31,7 +32,8 @@ const usage =
     \\  --force      Overwrite existing files (init)
     \\  --no-color   Disable colored output
     \\  -g           Compile with debug symbols
-    \\  -h, --help   Show this help message
+    \\  -V, --version  Show version
+    \\  -h, --help     Show this help message
     \\
 ;
 
@@ -51,6 +53,11 @@ pub fn main() !void {
 
     if (std.mem.eql(u8, command, "-h") or std.mem.eql(u8, command, "--help")) {
         try File.stdout().writeAll(usage);
+        return;
+    }
+
+    if (std.mem.eql(u8, command, "--version") or std.mem.eql(u8, command, "-V")) {
+        try File.stdout().writeAll("run " ++ build_options.version ++ "\n");
         return;
     }
 

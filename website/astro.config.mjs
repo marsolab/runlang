@@ -16,6 +16,12 @@ export default defineConfig({
       ],
       sidebar: [
         {
+          label: 'Getting Started',
+          items: [
+            { label: 'Installation', slug: 'getting-started/installation' },
+          ],
+        },
+        {
           label: 'Language Tour',
           items: [
             { label: 'Introduction', slug: 'tour/00-introduction' },
