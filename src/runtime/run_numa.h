@@ -71,10 +71,10 @@ run_allocator_t run_numa_allocator(uint32_t node_id);
 
 /* ---------- Policy Constants ---------- */
 
-#define RUN_NUMA_POLICY_LOCAL      0
-#define RUN_NUMA_POLICY_BIND       1
+#define RUN_NUMA_POLICY_LOCAL 0
+#define RUN_NUMA_POLICY_BIND 1
 #define RUN_NUMA_POLICY_INTERLEAVE 2
-#define RUN_NUMA_POLICY_PREFERRED  3
+#define RUN_NUMA_POLICY_PREFERRED 3
 
 /* ---------- Extended NUMA API ---------- */
 

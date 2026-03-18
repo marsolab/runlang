@@ -212,7 +212,8 @@ int run_numa_set_memory_policy(uint32_t policy, uint32_t node_id) {
         break;
     case RUN_NUMA_POLICY_BIND:
         linux_policy = 2; /* MPOL_BIND */
-        if (node_id < 64) nodemask = 1UL << node_id;
+        if (node_id < 64)
+            nodemask = 1UL << node_id;
         maxnode = (unsigned long)node_id + 2;
         break;
     case RUN_NUMA_POLICY_INTERLEAVE:
@@ -223,15 +224,15 @@ int run_numa_set_memory_policy(uint32_t policy, uint32_t node_id) {
         break;
     case RUN_NUMA_POLICY_PREFERRED:
         linux_policy = 1; /* MPOL_PREFERRED */
-        if (node_id < 64) nodemask = 1UL << node_id;
+        if (node_id < 64)
+            nodemask = 1UL << node_id;
         maxnode = (unsigned long)node_id + 2;
         break;
     default:
         return -1;
     }
 
-    long ret = syscall(__NR_set_mempolicy, linux_policy,
-                       nodemask ? &nodemask : NULL, maxnode);
+    long ret = syscall(__NR_set_mempolicy, linux_policy, nodemask ? &nodemask : NULL, maxnode);
     return (ret == 0) ? 0 : -1;
 }
 
