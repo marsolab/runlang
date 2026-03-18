@@ -8,6 +8,9 @@ const Token = @import("token.zig").Token;
 const ir = @import("ir.zig");
 const resolve = @import("resolve.zig");
 const types = @import("types.zig");
+const TypeId = types.TypeId;
+const TypePool = types.TypePool;
+const typecheck_mod = @import("typecheck.zig");
 const diagnostics = @import("diagnostics.zig");
 
 pub const LowerError = error{OutOfMemory};
@@ -17,8 +20,9 @@ pub fn lower(
     allocator: std.mem.Allocator,
     tree: *const Ast,
     tokens: []const Token,
+    tc_result: *const typecheck_mod.TypeCheckResult,
 ) LowerError!ir.Module {
-    return lowerWithSource(allocator, tree, tokens, null);
+    return lowerWithSource(allocator, tree, tokens, tc_result, null);
 }
 
 /// Lower a typed AST into an IR Module, optionally recording source debug info.
@@ -26,12 +30,15 @@ pub fn lowerWithSource(
     allocator: std.mem.Allocator,
     tree: *const Ast,
     tokens: []const Token,
+    tc_result: *const typecheck_mod.TypeCheckResult,
     source_path: ?[]const u8,
 ) LowerError!ir.Module {
     var ctx = LoweringContext{
         .allocator = allocator,
         .tree = tree,
         .tokens = tokens,
+        .type_map = tc_result.type_map.items,
+        .type_pool = &tc_result.type_pool,
         .module = ir.Module.init(),
         .current_func = null,
         .current_block = null,
@@ -58,6 +65,8 @@ const LoweringContext = struct {
     allocator: std.mem.Allocator,
     tree: *const Ast,
     tokens: []const Token,
+    type_map: []const TypeId,
+    type_pool: *const TypePool,
     module: ir.Module,
     current_func: ?*ir.Function,
     current_block: ?*ir.BasicBlock,
@@ -164,9 +173,9 @@ const LoweringContext = struct {
         try self.emitScopeCleanup(0, 0);
     }
 
-    fn defineVar(self: *LoweringContext, name: []const u8, c_type: []const u8, init_ref: ir.Ref) LowerError!u32 {
+    fn defineVar(self: *LoweringContext, name: []const u8, c_type: []const u8, alignment: u32, init_ref: ir.Ref) LowerError!u32 {
         const prev_local = self.var_lookup.get(name);
-        const local_idx = try self.module.addLocalInfo(self.allocator, name, c_type);
+        const local_idx = try self.module.addLocalInfoAligned(self.allocator, name, c_type, alignment);
         try self.var_map.append(self.allocator, .{ .name = name, .local_idx = local_idx });
         try self.var_shadow_stack.append(self.allocator, .{
             .name = name,
@@ -197,32 +206,173 @@ const LoweringContext = struct {
         return self.var_lookup.get(name);
     }
 
-    /// Infer C type from an expression node.
-    fn inferCTypeFromExpr(self: *LoweringContext, node_idx: NodeIndex) []const u8 {
-        if (node_idx == null_node) return "int64_t";
-        const node = self.tree.nodes.items[node_idx];
-        return switch (node.tag) {
-            .string_literal => "run_string_t",
-            .bool_literal => "bool",
-            .int_literal => "int64_t",
-            .float_literal => "double",
-            .null_literal => "void*",
-            .alloc_expr => {
-                if (node.data.lhs != null_node and self.tree.nodes.items[node.data.lhs].tag == .type_chan) {
-                    return "run_chan_t*";
-                }
-                return "int64_t";
+    fn typeOfNode(self: *const LoweringContext, node_idx: NodeIndex) TypeId {
+        if (node_idx == null_node or node_idx >= self.type_map.len) return types.null_type;
+        return self.type_map[node_idx];
+    }
+
+    fn simdTypeSuffix(self: *const LoweringContext, type_id: TypeId) []const u8 {
+        if (type_id < types.primitives.count) {
+            return switch (type_id) {
+                types.primitives.v2bool_id => "v2bool",
+                types.primitives.v4bool_id => "v4bool",
+                types.primitives.v8bool_id => "v8bool",
+                types.primitives.v16bool_id => "v16bool",
+                types.primitives.v32bool_id => "v32bool",
+                types.primitives.v4f32_id => "v4f32",
+                types.primitives.v2f64_id => "v2f64",
+                types.primitives.v4i32_id => "v4i32",
+                types.primitives.v8i16_id => "v8i16",
+                types.primitives.v16i8_id => "v16i8",
+                types.primitives.v8f32_id => "v8f32",
+                types.primitives.v4f64_id => "v4f64",
+                types.primitives.v8i32_id => "v8i32",
+                types.primitives.v16i16_id => "v16i16",
+                types.primitives.v32i8_id => "v32i8",
+                else => "<simd>",
+            };
+        }
+
+        const simd = self.type_pool.getSimd(type_id) orelse return "<simd>";
+        return switch (simd.elem_kind) {
+            .bool => switch (simd.lanes) {
+                2 => "v2bool",
+                4 => "v4bool",
+                8 => "v8bool",
+                16 => "v16bool",
+                32 => "v32bool",
+                else => "<simd>",
             },
-            .call => {
-                // Check if the callee is a function that returns a string (e.g. fmt.sprintf)
-                const callee_name = self.resolveCalleeName(node.data.lhs);
-                const target = mapBuiltinCall(callee_name);
-                if (std.mem.startsWith(u8, target, "run_fmt_sprint")) {
-                    return "run_string_t";
-                }
-                return "int64_t";
+            .float => switch (simd.lanes) {
+                2 => "v2f64",
+                4 => if (simd.elem_bits == 32) "v4f32" else "v4f64",
+                8 => "v8f32",
+                else => "<simd>",
             },
+            .int => switch (simd.lanes) {
+                4 => "v4i32",
+                8 => if (simd.elem_bits == 16) "v8i16" else "v8i32",
+                16 => if (simd.elem_bits == 8) "v16i8" else "v16i16",
+                32 => "v32i8",
+                else => "<simd>",
+            },
+        };
+    }
+
+    fn simdCType(self: *const LoweringContext, type_id: TypeId) []const u8 {
+        _ = self;
+        return switch (type_id) {
+            types.primitives.v2bool_id => "run_simd_v2bool_t",
+            types.primitives.v4bool_id => "run_simd_v4bool_t",
+            types.primitives.v8bool_id => "run_simd_v8bool_t",
+            types.primitives.v16bool_id => "run_simd_v16bool_t",
+            types.primitives.v32bool_id => "run_simd_v32bool_t",
+            types.primitives.v4f32_id => "run_simd_v4f32_t",
+            types.primitives.v2f64_id => "run_simd_v2f64_t",
+            types.primitives.v4i32_id => "run_simd_v4i32_t",
+            types.primitives.v8i16_id => "run_simd_v8i16_t",
+            types.primitives.v16i8_id => "run_simd_v16i8_t",
+            types.primitives.v8f32_id => "run_simd_v8f32_t",
+            types.primitives.v4f64_id => "run_simd_v4f64_t",
+            types.primitives.v8i32_id => "run_simd_v8i32_t",
+            types.primitives.v16i16_id => "run_simd_v16i16_t",
+            types.primitives.v32i8_id => "run_simd_v32i8_t",
+            else => "run_simd_v4f32_t",
+        };
+    }
+
+    fn cTypeForTypeId(self: *const LoweringContext, type_id: TypeId) []const u8 {
+        if (type_id == types.null_type or type_id == types.primitives.void_id) return "void";
+
+        if (type_id < types.primitives.count) {
+            return switch (type_id) {
+                types.primitives.bool_id => "bool",
+                types.primitives.int_id, types.primitives.i64_id => "int64_t",
+                types.primitives.uint_id, types.primitives.u64_id => "uint64_t",
+                types.primitives.i32_id => "int32_t",
+                types.primitives.u32_id => "uint32_t",
+                types.primitives.byte_id => "uint8_t",
+                types.primitives.i8_id => "int8_t",
+                types.primitives.i16_id => "int16_t",
+                types.primitives.f32_id => "float",
+                types.primitives.f64_id => "double",
+                types.primitives.string_id => "run_string_t",
+                types.primitives.any_id => "run_any_t",
+                types.primitives.v2bool_id,
+                types.primitives.v4bool_id,
+                types.primitives.v8bool_id,
+                types.primitives.v16bool_id,
+                types.primitives.v32bool_id,
+                types.primitives.v4f32_id,
+                types.primitives.v2f64_id,
+                types.primitives.v4i32_id,
+                types.primitives.v8i16_id,
+                types.primitives.v16i8_id,
+                types.primitives.v8f32_id,
+                types.primitives.v4f64_id,
+                types.primitives.v8i32_id,
+                types.primitives.v16i16_id,
+                types.primitives.v32i8_id,
+                => self.simdCType(type_id),
+                else => "int64_t",
+            };
+        }
+
+        return switch (self.type_pool.get(type_id)) {
+            .ptr_type => "run_gen_ref_t",
+            .chan_type => "run_chan_t*",
+            .map_type => "run_map_t*",
+            .simd_type => self.simdCType(type_id),
+            .newtype => |newtype| self.cTypeForTypeId(newtype.underlying),
             else => "int64_t",
+        };
+    }
+
+    fn cTypeForNode(self: *const LoweringContext, node_idx: NodeIndex) []const u8 {
+        const type_id = self.typeOfNode(node_idx);
+        if (type_id == types.null_type) return "int64_t";
+        return self.cTypeForTypeId(type_id);
+    }
+
+    fn alignmentForTypeId(self: *const LoweringContext, type_id: TypeId) u32 {
+        return self.type_pool.simdAlignment(type_id) orelse 0;
+    }
+
+    fn alignmentForNode(self: *const LoweringContext, node_idx: NodeIndex) u32 {
+        return self.alignmentForTypeId(self.typeOfNode(node_idx));
+    }
+
+    fn typeNameForTypeId(self: *const LoweringContext, type_id: TypeId) []const u8 {
+        if (type_id < types.primitives.count) {
+            return switch (type_id) {
+                types.primitives.void_id => "void",
+                types.primitives.bool_id => "bool",
+                types.primitives.int_id => "int",
+                types.primitives.uint_id => "uint",
+                types.primitives.i32_id => "i32",
+                types.primitives.i64_id => "i64",
+                types.primitives.u32_id => "u32",
+                types.primitives.u64_id => "u64",
+                types.primitives.byte_id => "byte",
+                types.primitives.f32_id => "f32",
+                types.primitives.f64_id => "f64",
+                types.primitives.string_id => "string",
+                types.primitives.any_id => "any",
+                types.primitives.i8_id => "i8",
+                types.primitives.i16_id => "i16",
+                else => self.simdTypeSuffix(type_id),
+            };
+        }
+        return switch (self.type_pool.get(type_id)) {
+            .ptr_type => "ptr",
+            .chan_type => "chan",
+            .map_type => "map",
+            .simd_type => self.simdTypeSuffix(type_id),
+            .newtype => |newtype| newtype.name,
+            .struct_type => |st| st.name,
+            .interface_type => |it| it.name,
+            .sum_type => |st| st.name,
+            else => "value",
         };
     }
 
@@ -262,6 +412,7 @@ const LoweringContext = struct {
         const node = self.tree.nodes.items[node_idx];
         const fn_tok = node.main_token;
         self.setSrcLocFromNode(node_idx);
+        const extra = self.tree.extra_data.items;
 
         var name_tok = fn_tok + 1;
         if (self.tokens[name_tok].tag == .l_paren) {
@@ -287,11 +438,43 @@ const LoweringContext = struct {
         const func_id = try self.module.addFunction(self.allocator, mangled);
         self.current_func = self.module.getFunction(func_id);
         self.current_func.?.return_type_name = "void";
+        const params_start = node.data.lhs;
+        var param_count: u32 = 0;
+        while (params_start + param_count < extra.len) : (param_count += 1) {
+            if (extra[params_start + param_count] == param_count) break;
+        }
+        const param_nodes = extra[params_start .. params_start + param_count];
+        const fn_type_id = self.typeOfNode(node_idx);
+        var param_refs: [64]ir.Ref = [_]ir.Ref{ir.null_ref} ** 64;
+        var param_type_ids: [64]TypeId = [_]TypeId{types.null_type} ** 64;
+        if (fn_type_id != types.null_type) {
+            switch (self.type_pool.get(fn_type_id)) {
+                .fn_type => |fn_type| {
+                    self.current_func.?.return_type_name = self.cTypeForTypeId(fn_type.return_type);
+                    for (param_nodes, 0..) |param_node, i| {
+                        if (param_node == null_node or i >= fn_type.params.len or i >= param_refs.len) continue;
+                        const param_name = self.tokenSlice(self.tree.nodes.items[param_node].main_token);
+                        const param_type_id = fn_type.params[i];
+                        const param_c_type = self.cTypeForTypeId(param_type_id);
+                        const param_c_name = try std.fmt.allocPrint(self.allocator, "_param_{s}", .{param_name});
+                        try self.module.owned_strings.append(self.allocator, param_c_name);
+                        param_refs[i] = try self.current_func.?.addParam(self.allocator, param_c_name, param_c_type);
+                        param_type_ids[i] = param_type_id;
+                    }
+                },
+                else => {},
+            }
+        }
 
         const block_id = try self.current_func.?.addBlock(self.allocator);
         self.current_block = self.current_func.?.getBlock(block_id);
 
         try self.pushScope();
+        for (param_nodes, 0..) |param_node, i| {
+            if (param_node == null_node or i >= param_refs.len or param_refs[i] == ir.null_ref) continue;
+            const param_name = self.tokenSlice(self.tree.nodes.items[param_node].main_token);
+            _ = try self.defineVar(param_name, self.cTypeForTypeId(param_type_ids[i]), self.alignmentForTypeId(param_type_ids[i]), param_refs[i]);
+        }
 
         const body = node.data.rhs;
         if (body != null_node) {
@@ -366,11 +549,12 @@ const LoweringContext = struct {
         const node = self.tree.nodes.items[node_idx];
         const name_tok = node.main_token + 1;
         const name = self.tokenSlice(name_tok);
-        const c_type = self.inferCTypeFromExpr(node.data.rhs);
+        const c_type = self.cTypeForNode(node_idx);
+        const alignment = self.alignmentForNode(node_idx);
 
         if (node.data.rhs != null_node) {
             const val = try self.lowerExpr(node.data.rhs);
-            const local_idx = try self.defineVar(name, c_type, val);
+            const local_idx = try self.defineVar(name, c_type, alignment, val);
 
             // Track ownership for alloc expressions
             if (self.tree.nodes.items[node.data.rhs].tag == .alloc_expr) {
@@ -381,7 +565,7 @@ const LoweringContext = struct {
                 });
             }
         } else {
-            _ = try self.defineVar(name, c_type, ir.null_ref);
+            _ = try self.defineVar(name, c_type, alignment, ir.null_ref);
         }
     }
 
@@ -391,10 +575,11 @@ const LoweringContext = struct {
             const lhs_node = self.tree.nodes.items[node.data.lhs];
             if (lhs_node.tag == .ident) {
                 const name = self.tokenSlice(lhs_node.main_token);
-                const c_type = self.inferCTypeFromExpr(node.data.rhs);
+                const c_type = self.cTypeForNode(node_idx);
+                const alignment = self.alignmentForNode(node_idx);
                 if (node.data.rhs != null_node) {
                     const val = try self.lowerExpr(node.data.rhs);
-                    const local_idx = try self.defineVar(name, c_type, val);
+                    const local_idx = try self.defineVar(name, c_type, alignment, val);
 
                     // Track ownership for alloc expressions
                     if (self.tree.nodes.items[node.data.rhs].tag == .alloc_expr) {
@@ -411,6 +596,11 @@ const LoweringContext = struct {
 
     fn lowerAssign(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
         const node = self.tree.nodes.items[node_idx];
+        if (node.data.lhs != null_node and self.tree.nodes.items[node.data.lhs].tag == .index_access) {
+            try self.lowerSimdLaneAssign(node.data.lhs, node.data.rhs);
+            return;
+        }
+
         const val = try self.lowerExpr(node.data.rhs);
 
         if (node.data.lhs != null_node) {
@@ -587,6 +777,9 @@ const LoweringContext = struct {
             },
             .call => return try self.lowerCall(node_idx),
             .binary_op => {
+                if (self.type_pool.isSimd(self.typeOfNode(node.data.lhs)) or self.type_pool.isSimd(self.typeOfNode(node_idx))) {
+                    return try self.lowerSimdBinaryOp(node_idx);
+                }
                 const lhs_ref = try self.lowerExpr(node.data.lhs);
                 const rhs_ref = try self.lowerExpr(node.data.rhs);
                 const op_tok = node.main_token;
@@ -622,6 +815,7 @@ const LoweringContext = struct {
                 try self.emit(ir.makeInst(op, r, operand, 0));
                 return r;
             },
+            .simd_literal => return try self.lowerSimdLiteral(node_idx),
             .alloc_expr => {
                 // alloc(Type, capacity?) — check if this is a channel allocation
                 const type_node_idx = node.data.lhs;
@@ -649,19 +843,48 @@ const LoweringContext = struct {
                 }
 
                 // Default: generational allocation
+                const alloc_type = self.typeOfNode(node_idx);
+                const pointee_type = self.type_pool.unwrapPointer(alloc_type) orelse self.resolveTypeNode(type_node_idx);
+                const alloc_size = if (pointee_type != types.null_type) self.sizeOfTypeId(pointee_type) else 8;
+                const alloc_alignment = if (pointee_type != types.null_type) self.alignOfTypeId(pointee_type) else 0;
                 const size_ref = self.allocRef();
-                try self.emit(ir.makeInst(.const_int, size_ref, 8, 0));
-                const ptr_ref = self.allocRef();
-                try self.emit(ir.makeInst(.gen_alloc, ptr_ref, size_ref, 0));
+                try self.emit(ir.makeInst(.const_int, size_ref, alloc_size, 0));
+                const ptr_ref = if (alloc_alignment > 8) blk: {
+                    const align_ref = self.allocRef();
+                    try self.emit(ir.makeInst(.const_int, align_ref, alloc_alignment, 0));
+                    break :blk try self.emitTypedCall("run_gen_alloc_aligned", &.{ size_ref, align_ref }, "void*", false);
+                } else blk: {
+                    const raw_ref = self.allocRef();
+                    try self.emit(ir.makeInst(.gen_alloc, raw_ref, size_ref, 0));
+                    break :blk raw_ref;
+                };
                 const ref_result = self.allocRef();
                 try self.emit(ir.makeInst(.gen_ref_create, ref_result, ptr_ref, 0));
                 return ref_result;
             },
+            .index_access => {
+                if (self.type_pool.isSimd(self.typeOfNode(node.data.lhs))) {
+                    return try self.lowerSimdLaneAccess(node_idx);
+                }
+                return ir.null_ref;
+            },
             .addr_of, .addr_of_const => {
-                // &expr or @expr — create a generational reference from the operand
-                const operand = try self.lowerExpr(node.data.lhs);
+                // &ident/@ident should capture the local's storage, not its loaded value.
+                const operand_node = node.data.lhs;
+                const ptr_ref = blk: {
+                    if (operand_node != null_node and self.tree.nodes.items[operand_node].tag == .ident) {
+                        const name = self.tokenSlice(self.tree.nodes.items[operand_node].main_token);
+                        if (self.lookupLocalIdx(name)) |local_idx| {
+                            const local_ptr = self.allocRef();
+                            try self.emit(ir.makeInst(.local_addr, local_ptr, local_idx, 0));
+                            break :blk local_ptr;
+                        }
+                    }
+
+                    break :blk try self.lowerExpr(operand_node);
+                };
                 const ref_result = self.allocRef();
-                try self.emit(ir.makeInst(.gen_ref_create, ref_result, operand, 0));
+                try self.emit(ir.makeInst(.gen_ref_create, ref_result, ptr_ref, 0));
                 return ref_result;
             },
             .deref => {
@@ -829,10 +1052,14 @@ const LoweringContext = struct {
         const else_node = extra[node.data.rhs + 1];
 
         const func = self.current_func orelse return ir.null_ref;
+        const result_type = self.typeOfNode(node_idx);
+        const result_c_type = if (result_type == types.null_type) "int64_t" else self.cTypeForTypeId(result_type);
+        const result_alignment = self.alignmentForTypeId(result_type);
 
         // Use a local variable for the result so it survives across blocks
-        const result_name = "_if_result";
-        const result_idx = try self.module.addLocalInfo(self.allocator, result_name, "int64_t");
+        const result_name = try std.fmt.allocPrint(self.allocator, "_if_result_{d}", .{func.next_ref});
+        try self.module.owned_strings.append(self.allocator, result_name);
+        const result_idx = try self.module.addLocalInfoAligned(self.allocator, result_name, result_c_type, result_alignment);
 
         const then_bb = try func.addBlock(self.allocator);
         const else_bb = try func.addBlock(self.allocator);
@@ -857,6 +1084,296 @@ const LoweringContext = struct {
         return r;
     }
 
+    fn findTrailingCount(self: *const LoweringContext, start: u32) u32 {
+        const extra = self.tree.extra_data.items;
+        var n: u32 = 0;
+        while (start + n < extra.len) : (n += 1) {
+            if (extra[start + n] == n) return n;
+        }
+        return 0;
+    }
+
+    fn resolveTypeNode(self: *LoweringContext, node_idx: NodeIndex) TypeId {
+        if (node_idx == null_node) return types.null_type;
+        const node = self.tree.nodes.items[node_idx];
+        return switch (node.tag) {
+            .type_name, .ident => blk: {
+                const name = self.tokenSlice(node.main_token);
+                if (TypePool.lookupPrimitive(name)) |prim| break :blk prim;
+                const typed = self.typeOfNode(node_idx);
+                break :blk typed;
+            },
+            .type_ptr => blk: {
+                const inner = self.resolveTypeNode(node.data.lhs);
+                if (inner == types.null_type) break :blk types.null_type;
+                break :blk @constCast(self.type_pool).intern(self.allocator, .{ .ptr_type = .{
+                    .pointee = inner,
+                    .is_const = false,
+                } }) catch types.null_type;
+            },
+            .type_const_ptr => blk: {
+                const inner = self.resolveTypeNode(node.data.lhs);
+                if (inner == types.null_type) break :blk types.null_type;
+                break :blk @constCast(self.type_pool).intern(self.allocator, .{ .ptr_type = .{
+                    .pointee = inner,
+                    .is_const = true,
+                } }) catch types.null_type;
+            },
+            .type_nullable => blk: {
+                const inner = self.resolveTypeNode(node.data.lhs);
+                if (inner == types.null_type) break :blk types.null_type;
+                break :blk @constCast(self.type_pool).intern(self.allocator, .{ .nullable_type = .{
+                    .inner = inner,
+                } }) catch types.null_type;
+            },
+            .type_slice => blk: {
+                const inner = self.resolveTypeNode(node.data.lhs);
+                if (inner == types.null_type) break :blk types.null_type;
+                break :blk @constCast(self.type_pool).intern(self.allocator, .{ .slice_type = .{
+                    .elem = inner,
+                } }) catch types.null_type;
+            },
+            .type_chan => blk: {
+                const inner = self.resolveTypeNode(node.data.lhs);
+                if (inner == types.null_type) break :blk types.null_type;
+                break :blk @constCast(self.type_pool).intern(self.allocator, .{ .chan_type = .{
+                    .elem = inner,
+                } }) catch types.null_type;
+            },
+            .type_map => blk: {
+                const extra = self.tree.extra_data.items;
+                const key = self.resolveTypeNode(extra[node.data.lhs]);
+                const value = self.resolveTypeNode(extra[node.data.lhs + 1]);
+                if (key == types.null_type or value == types.null_type) break :blk types.null_type;
+                break :blk @constCast(self.type_pool).intern(self.allocator, .{ .map_type = .{
+                    .key = key,
+                    .value = value,
+                } }) catch types.null_type;
+            },
+            else => self.typeOfNode(node_idx),
+        };
+    }
+
+    fn resolveTypeArgument(self: *LoweringContext, node_idx: NodeIndex) TypeId {
+        const node = self.tree.nodes.items[node_idx];
+        return switch (node.tag) {
+            .type_name, .ident, .type_ptr, .type_const_ptr, .type_nullable, .type_slice, .type_chan, .type_map => self.resolveTypeNode(node_idx),
+            else => self.typeOfNode(node_idx),
+        };
+    }
+
+    fn sizeOfTypeId(self: *const LoweringContext, type_id: TypeId) u32 {
+        if (type_id == types.null_type or type_id == types.primitives.void_id) return 0;
+        if (self.type_pool.isSimd(type_id)) {
+            const simd = self.type_pool.getSimd(type_id).?;
+            return (@as(u32, simd.lanes) * @as(u32, simd.elem_bits) + 7) / 8;
+        }
+        if (type_id < types.primitives.count) {
+            return switch (type_id) {
+                types.primitives.bool_id,
+                types.primitives.byte_id,
+                types.primitives.i8_id,
+                => 1,
+                types.primitives.i16_id => 2,
+                types.primitives.i32_id,
+                types.primitives.u32_id,
+                types.primitives.f32_id,
+                => 4,
+                types.primitives.int_id,
+                types.primitives.uint_id,
+                types.primitives.i64_id,
+                types.primitives.u64_id,
+                types.primitives.f64_id,
+                => 8,
+                types.primitives.string_id,
+                => 16,
+                else => 8,
+            };
+        }
+        return switch (self.type_pool.get(type_id)) {
+            .ptr_type, .chan_type, .map_type => 8,
+            .newtype => |newtype| self.sizeOfTypeId(newtype.underlying),
+            else => 8,
+        };
+    }
+
+    fn alignOfTypeId(self: *const LoweringContext, type_id: TypeId) u32 {
+        if (self.type_pool.simdAlignment(type_id)) |alignment| return alignment;
+        if (type_id == types.primitives.string_id) return 8;
+        return @max(@as(u32, 1), @min(self.sizeOfTypeId(type_id), @as(u32, 8)));
+    }
+
+    fn builtinCallName(self: *LoweringContext, callee_idx: NodeIndex) ?[]const u8 {
+        if (callee_idx == null_node) return null;
+        const callee = self.tree.nodes.items[callee_idx];
+        if (callee.tag != .field_access) return null;
+        const object_node = callee.data.lhs;
+        if (object_node == null_node or self.tree.nodes.items[object_node].tag != .ident) return null;
+
+        const package_name = self.tokenSlice(self.tree.nodes.items[object_node].main_token);
+        const member_name = self.tokenSlice(callee.main_token + 1);
+
+        if (std.mem.eql(u8, package_name, "unsafe") and std.mem.eql(u8, member_name, "alignof")) return "unsafe.alignof";
+        if (!std.mem.eql(u8, package_name, "simd")) return null;
+        if (std.mem.eql(u8, member_name, "hadd")) return "simd.hadd";
+        if (std.mem.eql(u8, member_name, "dot")) return "simd.dot";
+        if (std.mem.eql(u8, member_name, "shuffle")) return "simd.shuffle";
+        if (std.mem.eql(u8, member_name, "min")) return "simd.min";
+        if (std.mem.eql(u8, member_name, "max")) return "simd.max";
+        if (std.mem.eql(u8, member_name, "select")) return "simd.select";
+        if (std.mem.eql(u8, member_name, "load")) return "simd.load";
+        if (std.mem.eql(u8, member_name, "store")) return "simd.store";
+        if (std.mem.eql(u8, member_name, "load_unaligned")) return "simd.load_unaligned";
+        if (std.mem.eql(u8, member_name, "width")) return "simd.width";
+        return null;
+    }
+
+    fn targetNameForCall(self: *LoweringContext, callee_name: []const u8) LowerError![]const u8 {
+        const builtin_target = mapBuiltinCall(callee_name);
+        if (!std.mem.eql(u8, builtin_target, callee_name)) return builtin_target;
+        if (std.mem.indexOfScalar(u8, callee_name, '.')) |_| return callee_name;
+        if (std.mem.startsWith(u8, callee_name, "run_")) return callee_name;
+
+        const mangled = try std.fmt.allocPrint(self.allocator, "run_main__{s}", .{callee_name});
+        try self.module.owned_strings.append(self.allocator, mangled);
+        return mangled;
+    }
+
+    fn emitTypedCall(self: *LoweringContext, target_name: []const u8, arg_refs: []const ir.Ref, return_type_name: []const u8, is_variadic: bool) LowerError!ir.Ref {
+        const call_idx = if (is_variadic)
+            try self.module.addTypedVariadicCallInfo(self.allocator, target_name, arg_refs, return_type_name)
+        else
+            try self.module.addTypedCallInfo(self.allocator, target_name, arg_refs, return_type_name);
+
+        const is_void = std.mem.eql(u8, return_type_name, "void");
+        const result = if (is_void) ir.null_ref else self.allocRef();
+        try self.emit(ir.makeInst(.call, result, call_idx, 0));
+        return result;
+    }
+
+    fn lowerSimdBinaryOp(self: *LoweringContext, node_idx: NodeIndex) LowerError!ir.Ref {
+        const node = self.tree.nodes.items[node_idx];
+        const lhs_type = self.typeOfNode(node.data.lhs);
+        const result_type = self.typeOfNode(node_idx);
+        const helper_suffix = self.simdTypeSuffix(lhs_type);
+        const helper_op = switch (self.tokens[node.main_token].tag) {
+            .plus => "add",
+            .minus => "sub",
+            .star => "mul",
+            .slash => "div",
+            .equal_equal => "eq",
+            .bang_equal => "ne",
+            .less => "lt",
+            .less_equal => "le",
+            .greater => "gt",
+            .greater_equal => "ge",
+            else => "nop",
+        };
+        const helper_name = try std.fmt.allocPrint(self.allocator, "run_simd_{s}_{s}", .{ helper_suffix, helper_op });
+        try self.module.owned_strings.append(self.allocator, helper_name);
+
+        const lhs_ref = try self.lowerExpr(node.data.lhs);
+        const rhs_ref = try self.lowerExpr(node.data.rhs);
+        return self.emitTypedCall(helper_name, &.{ lhs_ref, rhs_ref }, self.cTypeForTypeId(result_type), false);
+    }
+
+    fn lowerSimdLiteral(self: *LoweringContext, node_idx: NodeIndex) LowerError!ir.Ref {
+        const node = self.tree.nodes.items[node_idx];
+        const type_id = self.resolveTypeNode(node.data.lhs);
+        const lanes_start = node.data.rhs;
+        const lane_count = self.findTrailingCount(lanes_start);
+        const lane_nodes = self.tree.extra_data.items[lanes_start .. lanes_start + lane_count];
+
+        var arg_refs: std.ArrayList(ir.Ref) = .empty;
+        defer arg_refs.deinit(self.allocator);
+        for (lane_nodes) |lane_node| {
+            try arg_refs.append(self.allocator, try self.lowerExpr(lane_node));
+        }
+
+        const helper_name = try std.fmt.allocPrint(self.allocator, "run_simd_{s}_make", .{self.simdTypeSuffix(type_id)});
+        try self.module.owned_strings.append(self.allocator, helper_name);
+        return self.emitTypedCall(helper_name, arg_refs.items, self.cTypeForTypeId(type_id), false);
+    }
+
+    fn lowerSimdLaneAccess(self: *LoweringContext, node_idx: NodeIndex) LowerError!ir.Ref {
+        const node = self.tree.nodes.items[node_idx];
+        const base_type = self.typeOfNode(node.data.lhs);
+        const helper_name = try std.fmt.allocPrint(self.allocator, "run_simd_{s}_get_lane", .{self.simdTypeSuffix(base_type)});
+        try self.module.owned_strings.append(self.allocator, helper_name);
+
+        const base_ref = try self.lowerExpr(node.data.lhs);
+        const index_ref = try self.lowerExpr(node.data.rhs);
+        return self.emitTypedCall(helper_name, &.{ base_ref, index_ref }, self.cTypeForTypeId(self.typeOfNode(node_idx)), false);
+    }
+
+    fn lowerSimdLaneAssign(self: *LoweringContext, lhs_idx: NodeIndex, rhs_idx: NodeIndex) LowerError!void {
+        const lhs = self.tree.nodes.items[lhs_idx];
+        const base_node = lhs.data.lhs;
+        if (base_node == null_node or self.tree.nodes.items[base_node].tag != .ident) return;
+
+        const base_name = self.tokenSlice(self.tree.nodes.items[base_node].main_token);
+        const base_type = self.typeOfNode(base_node);
+        const helper_name = try std.fmt.allocPrint(self.allocator, "run_simd_{s}_set_lane", .{self.simdTypeSuffix(base_type)});
+        try self.module.owned_strings.append(self.allocator, helper_name);
+
+        const base_ref = try self.getVar(base_name);
+        const index_ref = try self.lowerExpr(lhs.data.rhs);
+        const value_ref = try self.lowerExpr(rhs_idx);
+        const updated_ref = try self.emitTypedCall(helper_name, &.{ base_ref, index_ref, value_ref }, self.cTypeForTypeId(base_type), false);
+        try self.setVar(base_name, updated_ref);
+    }
+
+    fn lowerBuiltinCall(self: *LoweringContext, builtin_name: []const u8, node_idx: NodeIndex, arg_nodes: []const NodeIndex) LowerError!ir.Ref {
+        if (std.mem.eql(u8, builtin_name, "unsafe.alignof")) {
+            const type_id = if (arg_nodes.len > 0) self.resolveTypeArgument(arg_nodes[0]) else types.null_type;
+            const alignment = self.alignOfTypeId(type_id);
+            const result = self.allocRef();
+            try self.emit(ir.makeInst(.const_int, result, alignment, 0));
+            return result;
+        }
+
+        if (std.mem.eql(u8, builtin_name, "simd.width")) {
+            return self.emitTypedCall("run_simd_width", &.{}, "int64_t", false);
+        }
+
+        var arg_refs: std.ArrayList(ir.Ref) = .empty;
+        defer arg_refs.deinit(self.allocator);
+        for (arg_nodes) |arg_node| {
+            try arg_refs.append(self.allocator, try self.lowerExpr(arg_node));
+        }
+
+        const result_type = self.typeOfNode(node_idx);
+        const helper_type = switch (builtin_name[5]) {
+            'h' => self.typeOfNode(arg_nodes[0]),
+            'd' => self.typeOfNode(arg_nodes[0]),
+            'm' => self.typeOfNode(arg_nodes[0]),
+            's' => if (std.mem.eql(u8, builtin_name, "simd.select")) result_type else self.typeOfNode(arg_nodes[0]),
+            'l' => result_type,
+            else => result_type,
+        };
+
+        const helper_name = blk: {
+            if (std.mem.eql(u8, builtin_name, "simd.hadd")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_hadd", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.dot")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_dot", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.shuffle")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_shuffle", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.min")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_min", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.max")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_max", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.select")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_select", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.load")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_load", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.load_unaligned")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_load_unaligned", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.store")) {
+                const ptr_type = if (arg_nodes.len > 0) self.typeOfNode(arg_nodes[0]) else types.null_type;
+                const pointee = self.type_pool.unwrapPointer(ptr_type) orelse types.null_type;
+                break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_store", .{self.simdTypeSuffix(pointee)});
+            }
+            break :blk try std.fmt.allocPrint(self.allocator, "{s}", .{builtin_name});
+        };
+        try self.module.owned_strings.append(self.allocator, helper_name);
+
+        const return_type_name = if (std.mem.eql(u8, builtin_name, "simd.store")) "void" else self.cTypeForTypeId(result_type);
+        return self.emitTypedCall(helper_name, arg_refs.items, return_type_name, false);
+    }
+
     fn lowerRunStmt(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
         const node = self.tree.nodes.items[node_idx];
         const call_idx = node.data.lhs;
@@ -867,28 +1384,21 @@ const LoweringContext = struct {
 
         // Get the target function name and mangle it
         const callee_name = self.resolveCalleeName(call_node.data.lhs);
-        const target = mapBuiltinCall(callee_name);
-        const mangled = std.fmt.allocPrint(self.allocator, "run_main__{s}", .{target}) catch return LowerError.OutOfMemory;
-        try self.module.owned_strings.append(self.allocator, mangled);
+        const target_name = try self.targetNameForCall(callee_name);
 
         // Lower arguments (same pattern as lowerCall)
-        const extra = self.tree.extra_data.items;
         const args_start = call_node.data.rhs;
         var arg_refs: std.ArrayList(ir.Ref) = .empty;
         defer arg_refs.deinit(self.allocator);
 
-        var n: u32 = 0;
-        while (args_start + n < extra.len) {
-            if (extra[args_start + n] == n) break;
-            n += 1;
-        }
-        for (extra[args_start .. args_start + n]) |arg_node| {
+        const n = self.findTrailingCount(args_start);
+        for (self.tree.extra_data.items[args_start .. args_start + n]) |arg_node| {
             const arg_ref = try self.lowerExpr(arg_node);
             try arg_refs.append(self.allocator, arg_ref);
         }
 
         // Store spawn info in call_info so codegen can emit the function name as a symbol
-        const spawn_info = try self.module.addCallInfo(self.allocator, mangled, arg_refs.items);
+        const spawn_info = try self.module.addTypedCallInfo(self.allocator, target_name, arg_refs.items, "void");
         try self.emit(ir.makeInst(.spawn, 0, spawn_info, 0));
     }
 
@@ -896,35 +1406,33 @@ const LoweringContext = struct {
         const node = self.tree.nodes.items[node_idx];
         const callee_idx = node.data.lhs;
         const args_start = node.data.rhs;
-
-        const callee_name = self.resolveCalleeName(callee_idx);
-        const target_name = mapBuiltinCall(callee_name);
-
-        const extra = self.tree.extra_data.items;
-        var arg_refs: std.ArrayList(ir.Ref) = .empty;
-        defer arg_refs.deinit(self.allocator);
-
-        var n: u32 = 0;
-        while (args_start + n < extra.len) {
-            if (extra[args_start + n] == n) break;
-            n += 1;
+        const arg_count = self.findTrailingCount(args_start);
+        const arg_nodes = self.tree.extra_data.items[args_start .. args_start + arg_count];
+        if (self.builtinCallName(callee_idx)) |builtin_name| {
+            return try self.lowerBuiltinCall(builtin_name, node_idx, arg_nodes);
         }
 
-        const arg_nodes = extra[args_start .. args_start + n];
+        const callee_name = self.resolveCalleeName(callee_idx);
+        const target_name = try self.targetNameForCall(callee_name);
+
+        var arg_refs: std.ArrayList(ir.Ref) = .empty;
+        defer arg_refs.deinit(self.allocator);
         for (arg_nodes) |arg_node| {
             const arg_ref = try self.lowerExpr(arg_node);
             try arg_refs.append(self.allocator, arg_ref);
         }
 
-        const call_idx = if (isVariadicFmtCall(target_name))
-            try self.module.addVariadicCallInfo(self.allocator, target_name, arg_refs.items)
-        else
-            try self.module.addCallInfo(self.allocator, target_name, arg_refs.items);
-
-        const is_void = isVoidCall(target_name);
-        const r = if (is_void) ir.null_ref else self.allocRef();
-        try self.emit(ir.makeInst(.call, r, call_idx, 0));
-        return r;
+        var return_type_name = self.cTypeForNode(node_idx);
+        if (self.typeOfNode(node_idx) == types.null_type) {
+            if (isVoidCall(target_name)) {
+                return_type_name = "void";
+            } else if (std.mem.startsWith(u8, target_name, "run_fmt_sprint")) {
+                return_type_name = "run_string_t";
+            } else {
+                return_type_name = "int64_t";
+            }
+        }
+        return self.emitTypedCall(target_name, arg_refs.items, return_type_name, isVariadicFmtCall(target_name));
     }
 
     fn resolveCalleeName(self: *LoweringContext, callee_idx: NodeIndex) []const u8 {
@@ -1062,7 +1570,15 @@ fn testLower(source: []const u8) !ir.Module {
     defer parser.deinit();
     _ = try parser.parseFile();
 
-    return try lower(allocator, &parser.tree, token_list.items);
+    var resolve_result = try resolve.resolveNames(allocator, &parser.tree, token_list.items);
+    defer resolve_result.deinit(allocator);
+    try std.testing.expect(!resolve_result.diagnostics.hasErrors());
+
+    var tc_result = try typecheck_mod.typeCheck(allocator, &parser.tree, token_list.items, &resolve_result);
+    defer tc_result.deinit(allocator);
+    try std.testing.expect(!tc_result.diagnostics.hasErrors());
+
+    return try lower(allocator, &parser.tree, token_list.items, &tc_result);
 }
 
 test "lower: empty function" {
@@ -1109,7 +1625,7 @@ test "lower: fmt.print maps to runtime print" {
 
 test "lower: integer literal" {
     var module = try testLower(
-        \\fn main() {
+        \\fn main() int {
         \\    return 42
         \\}
         \\
@@ -1154,7 +1670,7 @@ test "lower: variable via local_set/local_get" {
 
 test "lower: if/else produces multiple blocks" {
     var module = try testLower(
-        \\fn main() {
+        \\fn main() int {
         \\    let x = 1
         \\    if x > 0 {
         \\        return 1
@@ -1194,6 +1710,13 @@ test "lower: for loop produces cond/body/after blocks" {
 fn blockHasOp(block: *const ir.BasicBlock, op: ir.Inst.Op) bool {
     for (block.insts.items) |inst| {
         if (inst.op == op) return true;
+    }
+    return false;
+}
+
+fn moduleHasCallTarget(module: *const ir.Module, target_name: []const u8) bool {
+    for (module.call_infos.items) |info| {
+        if (std.mem.eql(u8, info.target_name, target_name)) return true;
     }
     return false;
 }
@@ -1273,7 +1796,7 @@ test "lower: moved variable is not freed (no double-free)" {
     var module = try testLower(
         \\fn main() {
         \\    var s = alloc([]int, 8)
-        \\    var t = 0
+        \\    var t &[]int
         \\    t = s
         \\}
         \\
@@ -1317,20 +1840,20 @@ test "lower: nested scopes free inner scope first" {
 
 test "lower: nested scope lookup keeps outer local binding" {
     var module = try testLower(
+        \\use "fmt"
         \\fn main() {
         \\    let x = 1
         \\    {
-        \\        let x = 2
-        \\        x
+        \\        let y = 2
         \\    }
-        \\    return x
+        \\    fmt.print_int(x)
         \\}
         \\
     );
     defer module.deinit(std.testing.allocator);
 
     // The outer local binding should still exist after nested scope traversal.
-    try std.testing.expectEqual(@as(usize, 1), module.local_infos.items.len);
+    try std.testing.expectEqual(@as(usize, 2), module.local_infos.items.len);
     try std.testing.expectEqualStrings("x", module.local_infos.items[0].name);
 
     const func = &module.functions.items[0];
@@ -1476,4 +1999,82 @@ test "lower: close emits chan_close call" {
         }
     }
     try std.testing.expect(found_close);
+}
+
+test "lower: SIMD helpers are emitted as typed calls" {
+    var module = try testLower(
+        \\fn main() {
+        \\    let a = v4f32{ 1.0, 2.0, 3.0, 4.0 }
+        \\    let b = v4f32{ 10.0, 20.0, 30.0, 40.0 }
+        \\    let c = a + b
+        \\    let m = c < b
+        \\    let d = simd.select(m, c, b)
+        \\    let s = simd.hadd(d)
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    try std.testing.expect(moduleHasCallTarget(&module, "run_simd_v4f32_make"));
+    try std.testing.expect(moduleHasCallTarget(&module, "run_simd_v4f32_add"));
+    try std.testing.expect(moduleHasCallTarget(&module, "run_simd_v4f32_lt"));
+    try std.testing.expect(moduleHasCallTarget(&module, "run_simd_v4f32_select"));
+    try std.testing.expect(moduleHasCallTarget(&module, "run_simd_v4f32_hadd"));
+
+    var saw_aligned_local = false;
+    for (module.local_infos.items) |info| {
+        if (std.mem.eql(u8, info.name, "a")) {
+            saw_aligned_local = info.alignment == 16 and std.mem.eql(u8, info.c_type, "run_simd_v4f32_t");
+        }
+    }
+    try std.testing.expect(saw_aligned_local);
+}
+
+test "lower: SIMD lane assignment uses set_lane helper" {
+    var module = try testLower(
+        \\fn main() {
+        \\    var v = v4i32{ 1, 2, 3, 4 }
+        \\    v[1] = 9
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    try std.testing.expect(moduleHasCallTarget(&module, "run_simd_v4i32_set_lane"));
+}
+
+test "lower: SIMD alloc uses aligned runtime helper for wide vectors" {
+    var module = try testLower(
+        \\fn main() {
+        \\    var ptr = alloc(v8f32)
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    try std.testing.expect(moduleHasCallTarget(&module, "run_gen_alloc_aligned"));
+}
+
+test "lower: addr_of local emits local storage address" {
+    var module = try testLower(
+        \\fn main() {
+        \\    var v = v4f32{ 1.0, 2.0, 3.0, 4.0 }
+        \\    let ptr = &v
+        \\    simd.store(ptr, v)
+        \\}
+        \\
+    );
+    defer module.deinit(std.testing.allocator);
+
+    var saw_local_addr = false;
+    for (module.functions.items) |func| {
+        for (func.blocks.items) |block| {
+            for (block.insts.items) |inst| {
+                if (inst.op == .local_addr) saw_local_addr = true;
+            }
+        }
+    }
+
+    try std.testing.expect(saw_local_addr);
+    try std.testing.expect(moduleHasCallTarget(&module, "run_simd_v4f32_store"));
 }

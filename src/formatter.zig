@@ -87,6 +87,7 @@ pub const Formatter = struct {
             .unary_op => try self.formatUnaryOp(node),
             .call => try self.formatCall(node),
             .struct_literal => try self.formatStructLiteral(node),
+            .simd_literal => try self.formatSimdLiteral(node),
             .struct_field_init => try self.formatStructFieldInit(node),
             .field_access => try self.formatFieldAccess(node),
             .index_access => try self.formatIndexAccess(node),
@@ -649,6 +650,27 @@ pub const Formatter = struct {
         for (fields, 0..) |f, i| {
             if (i > 0) try self.write(", ");
             try self.formatNode(f);
+        }
+        try self.write("}");
+    }
+
+    fn formatSimdLiteral(self: *Formatter, node: Node) !void {
+        try self.formatNode(node.data.lhs); // type name
+
+        const lanes_start = node.data.rhs;
+        var lane_idx = lanes_start;
+        while (lane_idx < self.tree.extra_data.items.len) {
+            const val = self.tree.extra_data.items[lane_idx];
+            if (val == lane_idx - lanes_start) break;
+            lane_idx += 1;
+        }
+        const lane_count = self.tree.extra_data.items[lane_idx];
+        const lanes = self.tree.extra_data.items[lanes_start .. lanes_start + lane_count];
+
+        try self.write("{");
+        for (lanes, 0..) |lane, i| {
+            if (i > 0) try self.write(", ");
+            try self.formatNode(lane);
         }
         try self.write("}");
     }

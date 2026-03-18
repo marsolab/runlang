@@ -20,6 +20,9 @@ typedef struct {
 /* Allocate `size` bytes with generation tracking. Returns pointer to user data. */
 void *run_gen_alloc(size_t size);
 
+/* Allocate `size` bytes with at least `alignment` byte alignment. */
+void *run_gen_alloc_aligned(size_t size, size_t alignment);
+
 /* Free a generational allocation. Marks generation as freed. Detects double-free. */
 void run_gen_free(void *ptr);
 

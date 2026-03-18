@@ -1034,6 +1034,10 @@ const TypeChecker = struct {
             }
         }
 
+        if (data.lhs != null_node and self.nodeTag(data.lhs) == .index_access) {
+            try self.checkSimdLaneAssignTarget(data.lhs);
+        }
+
         // Check const pointer write protection: prevent field assignment through @T.
         if (data.lhs != null_node and self.nodeTag(data.lhs) == .field_access) {
             try self.checkConstPtrFieldAssign(data.lhs);
@@ -1082,6 +1086,38 @@ const TypeChecker = struct {
                 if (sym.kind == .variable and self.isOwnedDecl(sym.decl_node)) {
                     try self.moved_nodes.append(self.allocator, sym.decl_node);
                 }
+            }
+        }
+    }
+
+    fn checkSimdLaneAssignTarget(self: *TypeChecker, lane_node: NodeIndex) CheckError!void {
+        const lane_data = self.nodeData(lane_node);
+        const base_node = lane_data.lhs;
+        if (base_node == null_node) return;
+
+        if (self.nodeTag(base_node) != .ident) {
+            const loc = self.tokenLoc(self.nodeMainToken(lane_node));
+            try self.diagnostics.addError(loc.start, loc.end, "SIMD lane assignment target must be a local identifier or parameter");
+            return;
+        }
+
+        const base_type = try self.inferExpr(base_node);
+        if (base_type != types.null_type and !self.type_pool.isSimd(base_type)) {
+            const loc = self.tokenLoc(self.nodeMainToken(lane_node));
+            try self.diagnostics.addError(loc.start, loc.end, "lane assignment is only supported for SIMD vectors");
+        }
+
+        if (self.resolution_map[base_node]) |sym_id| {
+            const sym = self.symbols.getSymbol(sym_id);
+            if (sym.kind == .param) return;
+            if (sym.kind != .variable) {
+                const loc = self.tokenLoc(self.nodeMainToken(lane_node));
+                try self.diagnostics.addError(loc.start, loc.end, "SIMD lane assignment target must be a local identifier or parameter");
+                return;
+            }
+            if (!sym.is_mutable) {
+                const loc = self.tokenLoc(self.nodeMainToken(lane_node));
+                try self.diagnostics.addErrorFmt(loc.start, loc.end, "cannot assign to immutable variable '{s}'", .{sym.name});
             }
         }
     }
@@ -1483,11 +1519,7 @@ const TypeChecker = struct {
 
             .field_access => try self.inferFieldAccess(node),
 
-            .index_access => blk: {
-                _ = try self.inferExpr(self.nodeData(node).lhs);
-                _ = try self.inferExpr(self.nodeData(node).rhs);
-                break :blk types.null_type;
-            },
+            .index_access => try self.inferIndexAccess(node),
 
             .addr_of => blk: {
                 const operand_type = try self.inferExpr(self.nodeData(node).lhs);
@@ -1519,6 +1551,19 @@ const TypeChecker = struct {
             .chan_recv => blk: {
                 _ = try self.inferExpr(self.nodeData(node).lhs);
                 break :blk types.null_type;
+            },
+            .alloc_expr => blk: {
+                const alloc_type_node = self.nodeData(node).lhs;
+                if (alloc_type_node == null_node) break :blk types.null_type;
+                if (self.nodeTag(alloc_type_node) == .type_chan) {
+                    break :blk self.resolveTypeNode(alloc_type_node);
+                }
+                const pointee = self.resolveTypeNode(alloc_type_node);
+                if (pointee == types.null_type) break :blk types.null_type;
+                break :blk try self.type_pool.intern(self.allocator, .{ .ptr_type = .{
+                    .pointee = pointee,
+                    .is_const = false,
+                } });
             },
 
             .try_expr => blk: {
@@ -1559,6 +1604,7 @@ const TypeChecker = struct {
             .if_expr => try self.inferIfExpr(node),
 
             .struct_literal => try self.inferStructLiteral(node),
+            .simd_literal => try self.inferSimdLiteral(node),
 
             .anon_struct_literal => blk: {
                 const data = self.nodeData(node);
@@ -1610,6 +1656,10 @@ const TypeChecker = struct {
             arg_types[i] = try self.inferExpr(arg);
         }
 
+        if (self.builtinCallName(callee_node)) |builtin_name| {
+            return try self.inferBuiltinCall(builtin_name, arg_nodes[0..actual_count], arg_types[0..actual_count], node);
+        }
+
         // Check if this is a method call (callee is field_access on a struct).
         if (callee_node != null_node and self.nodeTag(callee_node) == .field_access) {
             const fa_data = self.nodeData(callee_node);
@@ -1652,6 +1702,257 @@ const TypeChecker = struct {
         if (callee_type == types.null_type) return types.null_type;
 
         return self.checkFnCallArgs(callee_type, arg_nodes[0..actual_count], arg_types[0..actual_count], node, false);
+    }
+
+    fn builtinCallName(self: *TypeChecker, callee_node: NodeIndex) ?[]const u8 {
+        if (callee_node == null_node or self.nodeTag(callee_node) != .field_access) return null;
+        const callee_data = self.nodeData(callee_node);
+        if (callee_data.lhs == null_node or self.nodeTag(callee_data.lhs) != .ident) return null;
+
+        const package_name = self.tokenSlice(self.nodeMainToken(callee_data.lhs));
+        const member_name = self.tokenSlice(self.nodeMainToken(callee_node) + 1);
+
+        if (std.mem.eql(u8, package_name, "unsafe") and std.mem.eql(u8, member_name, "alignof")) return "unsafe.alignof";
+        if (!std.mem.eql(u8, package_name, "simd")) return null;
+        if (std.mem.eql(u8, member_name, "hadd")) return "simd.hadd";
+        if (std.mem.eql(u8, member_name, "dot")) return "simd.dot";
+        if (std.mem.eql(u8, member_name, "shuffle")) return "simd.shuffle";
+        if (std.mem.eql(u8, member_name, "min")) return "simd.min";
+        if (std.mem.eql(u8, member_name, "max")) return "simd.max";
+        if (std.mem.eql(u8, member_name, "select")) return "simd.select";
+        if (std.mem.eql(u8, member_name, "load")) return "simd.load";
+        if (std.mem.eql(u8, member_name, "store")) return "simd.store";
+        if (std.mem.eql(u8, member_name, "load_unaligned")) return "simd.load_unaligned";
+        if (std.mem.eql(u8, member_name, "width")) return "simd.width";
+        return null;
+    }
+
+    fn inferBuiltinCall(
+        self: *TypeChecker,
+        builtin_name: []const u8,
+        arg_nodes: []const NodeIndex,
+        arg_types: []const TypeId,
+        call_node: NodeIndex,
+    ) CheckError!TypeId {
+        const call_tok = self.nodeMainToken(call_node);
+        const call_loc = self.tokenLoc(call_tok);
+
+        if (std.mem.eql(u8, builtin_name, "unsafe.alignof")) {
+            if (arg_nodes.len != 1) {
+                try self.diagnostics.addErrorFmt(call_loc.start, call_loc.end, "unsafe.alignof expects 1 argument, got {d}", .{arg_nodes.len});
+                return types.primitives.int_id;
+            }
+            const arg_type = self.resolveTypeArgument(arg_nodes[0]) orelse arg_types[0];
+            if (arg_type == types.null_type) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+                try self.diagnostics.addError(loc.start, loc.end, "unsafe.alignof expects a type or typed expression");
+            }
+            return types.primitives.int_id;
+        }
+
+        if (std.mem.eql(u8, builtin_name, "simd.width")) {
+            if (arg_nodes.len != 0) {
+                try self.diagnostics.addErrorFmt(call_loc.start, call_loc.end, "simd.width expects 0 arguments, got {d}", .{arg_nodes.len});
+            }
+            return types.primitives.int_id;
+        }
+
+        if (std.mem.eql(u8, builtin_name, "simd.load") or std.mem.eql(u8, builtin_name, "simd.load_unaligned")) {
+            if (arg_nodes.len != 1) {
+                try self.diagnostics.addErrorFmt(call_loc.start, call_loc.end, "{s} expects 1 argument, got {d}", .{ builtin_name, arg_nodes.len });
+                return types.null_type;
+            }
+            const ptr_type = arg_types[0];
+            const pointee = self.type_pool.unwrapPointer(ptr_type) orelse {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+                try self.diagnostics.addError(loc.start, loc.end, "simd.load expects a pointer-to-vector argument");
+                return types.null_type;
+            };
+            if (!self.type_pool.isSimd(pointee) or self.type_pool.isSimdMask(pointee)) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+                try self.diagnostics.addError(loc.start, loc.end, "simd.load expects a pointer-to-vector argument");
+                return types.null_type;
+            }
+            return pointee;
+        }
+
+        if (std.mem.eql(u8, builtin_name, "simd.store")) {
+            if (arg_nodes.len != 2) {
+                try self.diagnostics.addErrorFmt(call_loc.start, call_loc.end, "simd.store expects 2 arguments, got {d}", .{arg_nodes.len});
+                return types.null_type;
+            }
+            const ptr_type = arg_types[0];
+            const resolved_ptr = self.type_pool.get(ptr_type);
+            const pointee = self.type_pool.unwrapPointer(ptr_type) orelse {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+                try self.diagnostics.addError(loc.start, loc.end, "simd.store expects a mutable pointer-to-vector argument");
+                return types.null_type;
+            };
+            switch (resolved_ptr) {
+                .ptr_type => |ptr_type_info| {
+                    if (ptr_type_info.is_const) {
+                        const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+                        try self.diagnostics.addError(loc.start, loc.end, "simd.store expects a mutable pointer-to-vector argument");
+                    }
+                },
+                else => {},
+            }
+            if (pointee != types.null_type and arg_types[1] != types.null_type and !self.type_pool.typeEql(pointee, arg_types[1])) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[1]));
+                try self.diagnostics.addErrorFmt(loc.start, loc.end, "simd.store value type mismatch: expected '{s}', got '{s}'", .{
+                    self.typeName(pointee),
+                    self.typeName(arg_types[1]),
+                });
+            }
+            return types.null_type;
+        }
+
+        if (std.mem.eql(u8, builtin_name, "simd.hadd")) {
+            const vec_type = try self.expectSimdVectorArgs(builtin_name, arg_nodes, arg_types, 1, call_node) orelse return types.null_type;
+            return self.type_pool.simdElementType(vec_type) orelse types.null_type;
+        }
+
+        if (std.mem.eql(u8, builtin_name, "simd.dot")) {
+            const vec_type = try self.expectSimdVectorArgs(builtin_name, arg_nodes, arg_types, 2, call_node) orelse return types.null_type;
+            if (arg_types.len >= 2 and arg_types[1] != types.null_type and !self.type_pool.typeEql(vec_type, arg_types[1])) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[1]));
+                try self.diagnostics.addErrorFmt(loc.start, loc.end, "simd.dot requires matching vector types, got '{s}' and '{s}'", .{
+                    self.typeName(vec_type),
+                    self.typeName(arg_types[1]),
+                });
+            }
+            return self.type_pool.simdElementType(vec_type) orelse types.null_type;
+        }
+
+        if (std.mem.eql(u8, builtin_name, "simd.min") or std.mem.eql(u8, builtin_name, "simd.max")) {
+            const vec_type = try self.expectSimdVectorArgs(builtin_name, arg_nodes, arg_types, 2, call_node) orelse return types.null_type;
+            if (arg_types.len >= 2 and arg_types[1] != types.null_type and !self.type_pool.typeEql(vec_type, arg_types[1])) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[1]));
+                try self.diagnostics.addErrorFmt(loc.start, loc.end, "{s} requires matching vector types, got '{s}' and '{s}'", .{
+                    builtin_name,
+                    self.typeName(vec_type),
+                    self.typeName(arg_types[1]),
+                });
+            }
+            return vec_type;
+        }
+
+        if (std.mem.eql(u8, builtin_name, "simd.select")) {
+            if (arg_nodes.len != 3) {
+                try self.diagnostics.addErrorFmt(call_loc.start, call_loc.end, "simd.select expects 3 arguments, got {d}", .{arg_nodes.len});
+                return types.null_type;
+            }
+            const mask_type = arg_types[0];
+            const true_type = arg_types[1];
+            const false_type = arg_types[2];
+            if (true_type == types.null_type or false_type == types.null_type) return types.null_type;
+            if (!self.type_pool.typeEql(true_type, false_type)) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[2]));
+                try self.diagnostics.addErrorFmt(loc.start, loc.end, "simd.select requires matching vector arguments, got '{s}' and '{s}'", .{
+                    self.typeName(true_type),
+                    self.typeName(false_type),
+                });
+                return true_type;
+            }
+            if (!self.type_pool.isSimd(true_type) or self.type_pool.isSimdMask(true_type)) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[1]));
+                try self.diagnostics.addError(loc.start, loc.end, "simd.select expects vector arguments");
+                return true_type;
+            }
+            const expected_mask = self.type_pool.simdMaskFor(true_type);
+            if (expected_mask == null or mask_type == types.null_type or !self.type_pool.typeEql(mask_type, expected_mask.?)) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+                try self.diagnostics.addErrorFmt(loc.start, loc.end, "simd.select mask type mismatch: expected '{s}', got '{s}'", .{
+                    self.typeName(expected_mask orelse types.null_type),
+                    self.typeName(mask_type),
+                });
+            }
+            return true_type;
+        }
+
+        if (std.mem.eql(u8, builtin_name, "simd.shuffle")) {
+            const vec_type = try self.expectSimdVectorArgs(builtin_name, arg_nodes[0..@min(arg_nodes.len, @as(usize, 1))], arg_types[0..@min(arg_types.len, @as(usize, 1))], 1, call_node) orelse return types.null_type;
+            const simd = self.type_pool.getSimd(vec_type).?;
+            const expected_arg_count: usize = 1 + simd.lanes;
+            if (arg_nodes.len != expected_arg_count) {
+                try self.diagnostics.addErrorFmt(call_loc.start, call_loc.end, "simd.shuffle expects {d} arguments for '{s}', got {d}", .{
+                    expected_arg_count,
+                    self.typeName(vec_type),
+                    arg_nodes.len,
+                });
+                return vec_type;
+            }
+            for (arg_nodes[1..], 0..) |index_node, i| {
+                if (self.nodeTag(index_node) != .int_literal) {
+                    const loc = self.tokenLoc(self.nodeMainToken(index_node));
+                    try self.diagnostics.addError(loc.start, loc.end, "simd.shuffle indices must be integer literals");
+                    continue;
+                }
+                const text = self.tokenSlice(self.nodeMainToken(index_node));
+                const lane_index = std.fmt.parseInt(i64, text, 10) catch {
+                    const loc = self.tokenLoc(self.nodeMainToken(index_node));
+                    try self.diagnostics.addError(loc.start, loc.end, "simd.shuffle indices must be integer literals");
+                    continue;
+                };
+                _ = i;
+                if (lane_index < 0 or lane_index >= simd.lanes) {
+                    const loc = self.tokenLoc(self.nodeMainToken(index_node));
+                    try self.diagnostics.addErrorFmt(loc.start, loc.end, "simd.shuffle index {d} is out of range for '{s}'", .{
+                        lane_index,
+                        self.typeName(vec_type),
+                    });
+                }
+            }
+            return vec_type;
+        }
+
+        return types.null_type;
+    }
+
+    fn expectSimdVectorArgs(
+        self: *TypeChecker,
+        builtin_name: []const u8,
+        arg_nodes: []const NodeIndex,
+        arg_types: []const TypeId,
+        expected_count: usize,
+        call_node: NodeIndex,
+    ) CheckError!?TypeId {
+        if (arg_nodes.len != expected_count) {
+            const loc = self.tokenLoc(self.nodeMainToken(call_node));
+            try self.diagnostics.addErrorFmt(loc.start, loc.end, "{s} expects {d} argument(s), got {d}", .{
+                builtin_name,
+                expected_count,
+                arg_nodes.len,
+            });
+            return null;
+        }
+        const vec_type = arg_types[0];
+        if (vec_type == types.null_type) return null;
+        if (!self.type_pool.isSimd(vec_type) or self.type_pool.isSimdMask(vec_type)) {
+            const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+            try self.diagnostics.addErrorFmt(loc.start, loc.end, "{s} expects a numeric SIMD vector argument, got '{s}'", .{
+                builtin_name,
+                self.typeName(vec_type),
+            });
+            return null;
+        }
+        return vec_type;
+    }
+
+    fn resolveTypeArgument(self: *TypeChecker, node: NodeIndex) ?TypeId {
+        if (node == null_node) return null;
+        const tag = self.nodeTag(node);
+        if (tag == .ident or tag == .type_name) {
+            const name = self.tokenSlice(self.nodeMainToken(node));
+            if (TypePool.lookupPrimitive(name)) |primitive| return primitive;
+            if (self.symbols.lookup(name)) |sym_id| {
+                const sym = self.symbols.getSymbol(sym_id);
+                if (sym.kind == .type_def and sym.type_id != types.null_type) {
+                    return sym.type_id;
+                }
+            }
+        }
+        return null;
     }
 
     /// Validate function call arguments against a FnType.
@@ -1878,6 +2179,22 @@ const TypeChecker = struct {
         }
     }
 
+    fn inferIndexAccess(self: *TypeChecker, node: NodeIndex) CheckError!TypeId {
+        const data = self.nodeData(node);
+        const base_type = try self.inferExpr(data.lhs);
+        const index_type = try self.inferExpr(data.rhs);
+
+        if (base_type == types.null_type) return types.null_type;
+        if (!self.type_pool.isSimd(base_type)) return types.null_type;
+
+        if (index_type != types.null_type and !self.type_pool.isInteger(index_type)) {
+            const loc = self.tokenLoc(self.nodeMainToken(data.rhs));
+            try self.diagnostics.addError(loc.start, loc.end, "SIMD lane index must be an integer expression");
+        }
+
+        return self.type_pool.simdElementType(base_type) orelse types.null_type;
+    }
+
     /// Find the closest matching field name for "did you mean" suggestions.
     fn findClosestField(self: *const TypeChecker, fields: []const types.StructField, target: []const u8) ?[]const u8 {
         _ = self;
@@ -2002,6 +2319,47 @@ const TypeChecker = struct {
         }
     }
 
+    fn inferSimdLiteral(self: *TypeChecker, node: NodeIndex) CheckError!TypeId {
+        const data = self.nodeData(node);
+        const simd_type = self.resolveTypeNode(data.lhs);
+        if (simd_type == types.null_type) return types.null_type;
+        if (!self.type_pool.isSimd(simd_type)) {
+            const loc = self.tokenLoc(self.nodeMainToken(node));
+            try self.diagnostics.addError(loc.start, loc.end, "SIMD literal requires a SIMD vector type");
+            return types.null_type;
+        }
+
+        const simd = self.type_pool.getSimd(simd_type).?;
+        const fields_start = data.rhs;
+        const extra = self.tree.extra_data.items;
+        const lane_count = self.findTrailingCount(fields_start, extra);
+        const lane_nodes = extra[fields_start .. fields_start + lane_count];
+        const expected_lane_count: usize = simd.lanes;
+        if (lane_nodes.len != expected_lane_count) {
+            const loc = self.tokenLoc(self.nodeMainToken(node));
+            try self.diagnostics.addErrorFmt(loc.start, loc.end, "SIMD literal for '{s}' expects {d} lane(s), got {d}", .{
+                self.typeName(simd_type),
+                expected_lane_count,
+                lane_nodes.len,
+            });
+        }
+
+        const elem_type = self.type_pool.simdElementType(simd_type) orelse types.null_type;
+        for (lane_nodes) |lane_node| {
+            const lane_type = try self.inferExpr(lane_node);
+            if (lane_type == types.null_type or elem_type == types.null_type) continue;
+            if (!self.typesCompatible(elem_type, lane_type)) {
+                const loc = self.tokenLoc(self.nodeMainToken(lane_node));
+                try self.diagnostics.addErrorFmt(loc.start, loc.end, "SIMD literal lane type mismatch: expected '{s}', got '{s}'", .{
+                    self.typeName(elem_type),
+                    self.typeName(lane_type),
+                });
+            }
+        }
+
+        return simd_type;
+    }
+
     /// Check if a struct field has a default value by looking at the struct_decl AST node.
     fn fieldHasDefault(self: *const TypeChecker, struct_type_id: TypeId, field_index: usize) bool {
         // Find the struct_decl node by scanning for a type_def symbol with this type_id.
@@ -2038,6 +2396,29 @@ const TypeChecker = struct {
         switch (op) {
             // Arithmetic operators
             .plus, .minus, .star, .slash, .percent => {
+                if (self.type_pool.isSimd(lhs_type) or self.type_pool.isSimd(rhs_type)) {
+                    if (!self.type_pool.isSimd(lhs_type) or !self.type_pool.isSimd(rhs_type) or !self.type_pool.typeEql(lhs_type, rhs_type)) {
+                        const loc = self.tokenLoc(op_tok);
+                        try self.diagnostics.addErrorFmt(
+                            loc.start,
+                            loc.end,
+                            "SIMD operator '{s}' requires matching vector operands, got '{s}' and '{s}'",
+                            .{ self.tokenSlice(op_tok), self.typeName(lhs_type), self.typeName(rhs_type) },
+                        );
+                        return types.null_type;
+                    }
+                    if (self.type_pool.isSimdMask(lhs_type) or op == .percent) {
+                        const loc = self.tokenLoc(op_tok);
+                        try self.diagnostics.addErrorFmt(
+                            loc.start,
+                            loc.end,
+                            "SIMD operator '{s}' is not supported for '{s}'",
+                            .{ self.tokenSlice(op_tok), self.typeName(lhs_type) },
+                        );
+                        return types.null_type;
+                    }
+                    return lhs_type;
+                }
                 if (!self.type_pool.isNumeric(lhs_type)) {
                     const loc = self.tokenLoc(op_tok);
                     try self.diagnostics.addErrorFmt(
@@ -2067,6 +2448,19 @@ const TypeChecker = struct {
 
             // Comparison operators
             .equal_equal, .bang_equal, .less, .greater, .less_equal, .greater_equal => {
+                if (self.type_pool.isSimd(lhs_type) or self.type_pool.isSimd(rhs_type)) {
+                    if (!self.type_pool.isSimd(lhs_type) or !self.type_pool.isSimd(rhs_type) or !self.type_pool.typeEql(lhs_type, rhs_type)) {
+                        const loc = self.tokenLoc(op_tok);
+                        try self.diagnostics.addErrorFmt(
+                            loc.start,
+                            loc.end,
+                            "cannot compare '{s}' and '{s}'",
+                            .{ self.typeName(lhs_type), self.typeName(rhs_type) },
+                        );
+                        return types.null_type;
+                    }
+                    return self.type_pool.simdMaskFor(lhs_type) orelse types.null_type;
+                }
                 // Both operands must be compatible.
                 if (!self.typesCompatible(lhs_type, rhs_type)) {
                     const loc = self.tokenLoc(op_tok);
@@ -2201,6 +2595,32 @@ const TypeChecker = struct {
                     .inner = inner_type,
                 } }) catch types.null_type;
             },
+            .type_slice => {
+                const inner = self.nodeData(node).lhs;
+                const inner_type = self.resolveTypeNode(inner);
+                if (inner_type == types.null_type) return types.null_type;
+                return self.type_pool.intern(self.allocator, .{ .slice_type = .{
+                    .elem = inner_type,
+                } }) catch types.null_type;
+            },
+            .type_chan => {
+                const inner = self.nodeData(node).lhs;
+                const inner_type = self.resolveTypeNode(inner);
+                if (inner_type == types.null_type) return types.null_type;
+                return self.type_pool.intern(self.allocator, .{ .chan_type = .{
+                    .elem = inner_type,
+                } }) catch types.null_type;
+            },
+            .type_map => {
+                const extra = self.tree.extra_data.items;
+                const key_type = self.resolveTypeNode(extra[self.nodeData(node).lhs]);
+                const value_type = self.resolveTypeNode(extra[self.nodeData(node).lhs + 1]);
+                if (key_type == types.null_type or value_type == types.null_type) return types.null_type;
+                return self.type_pool.intern(self.allocator, .{ .map_type = .{
+                    .key = key_type,
+                    .value = value_type,
+                } }) catch types.null_type;
+            },
             else => types.null_type,
         };
     }
@@ -2240,6 +2660,23 @@ const TypeChecker = struct {
                 types.primitives.f64_id => "f64",
                 types.primitives.string_id => "string",
                 types.primitives.any_id => "any",
+                types.primitives.i8_id => "i8",
+                types.primitives.i16_id => "i16",
+                types.primitives.v2bool_id => "v2bool",
+                types.primitives.v4bool_id => "v4bool",
+                types.primitives.v8bool_id => "v8bool",
+                types.primitives.v16bool_id => "v16bool",
+                types.primitives.v32bool_id => "v32bool",
+                types.primitives.v4f32_id => "v4f32",
+                types.primitives.v2f64_id => "v2f64",
+                types.primitives.v4i32_id => "v4i32",
+                types.primitives.v8i16_id => "v8i16",
+                types.primitives.v16i8_id => "v16i8",
+                types.primitives.v8f32_id => "v8f32",
+                types.primitives.v4f64_id => "v4f64",
+                types.primitives.v8i32_id => "v8i32",
+                types.primitives.v16i16_id => "v16i16",
+                types.primitives.v32i8_id => "v32i8",
                 else => "<unknown>",
             };
         }
@@ -2255,6 +2692,29 @@ const TypeChecker = struct {
             .ptr_type => |pt| {
                 if (pt.is_const) return "@T";
                 return "&T";
+            },
+            .simd_type => |simd| switch (simd.elem_kind) {
+                .bool => switch (simd.lanes) {
+                    2 => "v2bool",
+                    4 => "v4bool",
+                    8 => "v8bool",
+                    16 => "v16bool",
+                    32 => "v32bool",
+                    else => "<unknown>",
+                },
+                .float => switch (simd.lanes) {
+                    2 => "v2f64",
+                    4 => if (simd.elem_bits == 32) "v4f32" else "v4f64",
+                    8 => "v8f32",
+                    else => "<unknown>",
+                },
+                .int => switch (simd.lanes) {
+                    4 => "v4i32",
+                    8 => if (simd.elem_bits == 16) "v8i16" else "v8i32",
+                    16 => if (simd.elem_bits == 8) "v16i8" else "v16i16",
+                    32 => "v32i8",
+                    else => "<unknown>",
+                },
             },
             else => "<unknown>",
         };
@@ -4050,6 +4510,72 @@ test "typecheck: alloc without move is valid" {
         \\fn main() {
         \\    var s = alloc([]int, 8)
         \\    var t = alloc([]int, 4)
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: SIMD literal and arithmetic valid" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    let a = v4f32{ 1.0, 2.0, 3.0, 4.0 }
+        \\    let b = v4f32{ 10.0, 20.0, 30.0, 40.0 }
+        \\    let c = a + b
+        \\    let m = c < b
+        \\    let d = simd.select(m, c, b)
+        \\    let s = simd.hadd(d)
+        \\    let dot = simd.dot(d, b)
+        \\    let width = simd.width()
+        \\    let align = unsafe.alignof(v4f32)
+        \\}
+        \\
+    );
+    try std.testing.expect(!result.has_errors);
+}
+
+test "typecheck: SIMD arithmetic mismatch rejected" {
+    try std.testing.expect(try testTypeCheckHasErrorContaining(
+        \\fn main() {
+        \\    let a = v4f32{ 1.0, 2.0, 3.0, 4.0 }
+        \\    let b = v8f32{ 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0 }
+        \\    let c = a + b
+        \\}
+        \\
+    , "requires matching vector operands"));
+}
+
+test "typecheck: SIMD shuffle indices must be literals" {
+    try std.testing.expect(try testTypeCheckHasErrorContaining(
+        \\fn main() {
+        \\    let a = v4f32{ 1.0, 2.0, 3.0, 4.0 }
+        \\    let i = 1
+        \\    let b = simd.shuffle(a, i, 2, 3, 0)
+        \\}
+        \\
+    , "indices must be integer literals"));
+}
+
+test "typecheck: SIMD select mask mismatch rejected" {
+    try std.testing.expect(try testTypeCheckHasErrorContaining(
+        \\fn main() {
+        \\    let a = v4f32{ 1.0, 2.0, 3.0, 4.0 }
+        \\    let b = v4f32{ 10.0, 20.0, 30.0, 40.0 }
+        \\    let m = v8bool{ true, false, true, false, true, false, true, false }
+        \\    let c = simd.select(m, a, b)
+        \\}
+        \\
+    , "mask type mismatch"));
+}
+
+test "typecheck: SIMD load store with pointer-to-vector valid" {
+    const result = try testTypeCheck(
+        \\fn main() {
+        \\    var ptr = alloc(v4f32)
+        \\    let value = v4f32{ 1.0, 2.0, 3.0, 4.0 }
+        \\    simd.store(ptr, value)
+        \\    let roundtrip = simd.load(ptr)
+        \\    let unaligned = simd.load_unaligned(ptr)
         \\}
         \\
     );

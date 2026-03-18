@@ -199,7 +199,7 @@ Plain `try` (without context) still propagates errors unchanged.
 
 ### Primitive Types
 
-- **Integers**: `int`, `uint`, `i32`, `i64`, `u32`, `u64`, `byte`
+- **Integers**: `int`, `uint`, `i8`, `i16`, `i32`, `i64`, `u32`, `u64`, `byte`
 - **Floats**: `f32`, `f64`
 - **Boolean**: `bool`
 - **String**: `string` — UTF-8 byte slice
@@ -462,10 +462,14 @@ generated C code. The runtime already uses this pattern for context switching
 
 ## SIMD Types and Operations
 
-Run provides first-class SIMD vector types as native primitives. No generics are needed —
-SIMD types are concrete, matching how SIMD hardware works with fixed register widths.
+Run provides first-class SIMD vector and mask types as native primitives. The
+`simd.*` namespace is compiler-recognized in this release, so these operations
+do not rely on generic library overloading.
 
-### Vector Types
+### Scalar and Vector Types
+
+Lane access for integer vectors uses the scalar primitives `i8`, `i16`, and
+`i32`.
 
 128-bit vectors:
 
@@ -483,9 +487,18 @@ SIMD types are concrete, matching how SIMD hardware works with fixed register wi
 - `v16i16` — 16 × `i16`
 - `v32i8` — 32 × `i8`
 
+Mask types:
+
+- `v2bool`
+- `v4bool`
+- `v8bool`
+- `v16bool`
+- `v32bool`
+
 ### Operations
 
-SIMD types support standard arithmetic operators and built-in operations:
+SIMD vectors support literal syntax, element-wise arithmetic, comparisons, and
+lane access:
 
 ```go
 a := v4f32{ 1.0, 2.0, 3.0, 4.0 }
@@ -493,43 +506,50 @@ b := v4f32{ 5.0, 6.0, 7.0, 8.0 }
 
 c := a + b              // element-wise add: { 6.0, 8.0, 10.0, 12.0 }
 d := a * b              // element-wise mul: { 5.0, 12.0, 21.0, 32.0 }
+mask := c > a           // comparison result: v4bool
 
-// Built-in SIMD functions
-sum := simd.hadd(c)             // horizontal sum: 34.0
-dot := simd.dot(a, b)           // dot product: 70.0
-shuf := simd.shuffle(a, 3,2,1,0)  // reverse lanes: { 4.0, 3.0, 2.0, 1.0 }
-min := simd.min(a, b)           // element-wise min
-max := simd.max(a, b)           // element-wise max
-
-// Lane access
-x := a[0]              // extract lane: 1.0
-a[2] = 9.0             // insert lane
+x := a[0]                     // read lane
+a[2] = 9.0                    // write lane on a mutable local/parameter
 ```
 
-### Alignment
+Comparisons on matching vector types produce the mask type with the same lane
+count. Lane indexing returns the corresponding scalar element type.
+
+### Builtins
+
+The compiler recognizes these `simd.*` builtins:
+
+- `simd.hadd(v)` — horizontal reduction to the scalar lane type
+- `simd.dot(a, b)` — dot product of matching vector types
+- `simd.shuffle(v, idx0, ..., idxN)` — lane permutation; indices must be integer literals, and the call must provide exactly one index per lane
+- `simd.min(a, b)`, `simd.max(a, b)` — element-wise minimum/maximum
+- `simd.select(mask, a, b)` — choose lanes from `a` or `b` using the matching mask type
+- `simd.load(ptr)` — aligned load from a pointer-to-vector
+- `simd.load_unaligned(ptr)` — unaligned load from a pointer-to-vector
+- `simd.store(ptr, v)` — aligned store through a mutable pointer-to-vector
+- `simd.width()` — available fast-path width in the compiled binary (`256` with AVX-enabled builds, `128` with SSE/NEON builds, otherwise `0`)
+
+### Memory and Alignment
+
+`simd.load`, `simd.load_unaligned`, and `simd.store` operate on pointers to the
+vector type itself, not pointers to slices or arrays:
+
+```go
+var data = v4f32{ 1.0, 2.0, 3.0, 4.0 }
+let ptr = &data
+
+let loaded = simd.load(ptr)
+simd.store(ptr, loaded)
+```
 
 SIMD types are automatically aligned to their natural boundary:
 
 - 128-bit types: 16-byte aligned
 - 256-bit types: 32-byte aligned
 
-The allocator respects SIMD alignment for heap allocations. Stack-allocated SIMD
-values are aligned by the compiler.
-
-### Masking and Conditional Operations
-
-```go
-mask := a > b                        // per-lane comparison: v4bool
-result := simd.select(mask, a, b)    // select lanes by mask
-```
-
-### Memory Operations
-
-```go
-data := simd.load(ptr)               // aligned load from @[]f32
-simd.store(ptr, vec)                 // aligned store
-data := simd.load_unaligned(ptr)     // unaligned load (slower)
-```
+The allocator respects SIMD alignment for heap allocations, stack locals are
+emitted with matching alignment, and `unsafe.alignof(T)` reports the correct
+SIMD alignment for these types.
 
 ### Platform Mapping
 
@@ -538,22 +558,17 @@ SIMD operations lower to C compiler intrinsics in the codegen backend:
 - **x86-64**: SSE/AVX intrinsics (`_mm_add_ps`, `_mm256_mul_ps`, etc.) via `<immintrin.h>`
 - **ARM64**: NEON intrinsics (`vaddq_f32`, `vmulq_f32`, etc.) via `<arm_neon.h>`
 
-On platforms without SIMD support, the compiler emits scalar fallback code.
+On platforms without a matching hardware fast path, the compiler emits scalar
+fallback helpers so the same source still compiles and runs.
 
 SIMD types do **not** require the `unsafe` package — they are safe, first-class types.
 For operations not covered by the built-in functions, use inline assembly (see Assembly Language).
 
 ### Standard Library: `simd` Package
 
-The `simd` package provides higher-level helpers:
-
-- `simd.hadd(v)` — horizontal sum
-- `simd.dot(a, b)` — dot product
-- `simd.shuffle(v, ...)` — lane permutation
-- `simd.min(a, b)`, `simd.max(a, b)` — element-wise min/max
-- `simd.select(mask, a, b)` — conditional select
-- `simd.load(ptr)`, `simd.store(ptr, v)` — aligned memory operations
-- `simd.width()` — runtime query for available SIMD width (128, 256, or 0)
+The `simd` namespace exposes the compiler-recognized builtins listed above. The
+older per-type helper names such as `sum_f32` and `blend_f32` are not part of
+this API.
 
 ## NUMA Awareness
 

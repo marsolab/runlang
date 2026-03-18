@@ -1630,47 +1630,70 @@ reset(signals ...Signal)                   — reset to default behavior
 
 ### `simd` — SIMD Vector Operations
 
-**Purpose:** High-level operations on Run's first-class SIMD vector types (`v4f32`, `v8i32`, etc.). Provides portable operations that map to platform-specific instructions.
+**Purpose:** Compiler-recognized operations on Run's first-class SIMD vector and
+mask primitives. The `simd` namespace maps to runtime helpers and target
+intrinsics, with scalar fallbacks when no fast path is available.
 
-**Key types and functions:**
+**Key scalar and vector types:**
 ```
-// Run has built-in SIMD types: v4f32, v8f32, v2f64, v4f64,
-// v4i32, v8i32, v16i8, v32i8, v8i16, v16i16, v2i64, v4i64
+// Scalar lane types used by SIMD indexing
+i8, i16, i32, f32, f64
 
-// Horizontal reductions
-sum_f32(v v4f32) f32
-sum_f64(v v2f64) f64
-sum_i32(v v4i32) i32
-min_f32(v v4f32) f32
-max_f32(v v4f32) f32
-dot_f32(a, b v4f32) f32       — dot product
+// Built-in vector primitives
+v4f32, v2f64, v4i32, v8i16, v16i8
+v8f32, v4f64, v8i32, v16i16, v32i8
 
-// Blending and selection
-blend_f32(a, b v4f32, mask v4i32) v4f32
-select_f32(cond v4i32, a, b v4f32) v4f32
-
-// Conversion
-i32_to_f32(v v4i32) v4f32
-f32_to_i32(v v4f32) v4i32
-
-// Math on vectors (element-wise)
-sqrt_f32(v v4f32) v4f32
-abs_f32(v v4f32) v4f32
-floor_f32(v v4f32) v4f32
-ceil_f32(v v4f32) v4f32
-round_f32(v v4f32) v4f32
-clamp_f32(v, lo, hi v4f32) v4f32
-fma_f32(a, b, c v4f32) v4f32  — fused multiply-add
-
-// Shuffles and permutations
-shuffle_f32(a, b v4f32, imm int) v4f32
-broadcast_f32(s f32) v4f32
-
-// All functions have analogous versions for other vector widths
-// (v8f32, v2f64, v4f64, etc.)
+// Built-in mask primitives
+v2bool, v4bool, v8bool, v16bool, v32bool
 ```
 
-**Dependencies:** None (maps to compiler builtins/intrinsics)
+**Key operations:**
+```
+// Element-wise operators on matching vector types
+v + w
+v - w
+v * w
+v / w
+
+// Comparisons return the matching mask type
+v < w
+v <= w
+v > w
+v >= w
+v == w
+v != w
+
+// Lane access
+lane := v[i]
+v[i] = lane_value        // mutable local/parameter only
+
+// SIMD literal syntax
+v4f32{ 1.0, 2.0, 3.0, 4.0 }
+```
+
+**Compiler-recognized `simd.*` builtins:**
+```
+hadd(v) scalar
+dot(a, b) scalar
+shuffle(v, idx0, ..., idxN) vector     — one literal index per lane, all indices in range
+min(a, b) vector
+max(a, b) vector
+select(mask, a, b) vector              — mask lane count must match vector lane count
+load(ptr) vector                       — aligned load from @Vector or &Vector
+load_unaligned(ptr) vector             — unaligned load from @Vector or &Vector
+store(ptr, v)                          — aligned store through &Vector
+width() int                            — 256 with AVX, 128 with SSE/NEON, otherwise 0
+```
+
+**Notes:**
+- `simd` is currently a compiler-recognized pseudo-package; it does not rely on
+  ordinary package loading.
+- `unsafe.alignof(T)` returns the natural SIMD alignment (`16` for 128-bit
+  vectors, `32` for 256-bit vectors).
+- Older per-type helper names such as `sum_f32` and `blend_f32` are not part of
+  the current API.
+
+**Dependencies:** None (compiler-recognized namespace lowered to runtime helpers/intrinsics)
 
 ---
 

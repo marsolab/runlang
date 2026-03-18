@@ -63,6 +63,7 @@ pub const CCodegen = struct {
 
     fn emitPreamble(self: *CCodegen) !void {
         try self.emitLine("#include \"run_runtime.h\"");
+        try self.emitLine("#include \"run_simd.h\"");
         try self.emitLine("");
     }
 
@@ -150,7 +151,11 @@ pub const CCodegen = struct {
                         declared_locals[local_idx] = true;
                         const info = self.module.local_infos.items[local_idx];
                         try self.emitIndent();
-                        try self.writer().print("{s} {s};\n", .{ info.c_type, info.name });
+                        if (info.alignment > 0) {
+                            try self.writer().print("{s} {s} __attribute__((aligned({d})));\n", .{ info.c_type, info.name, info.alignment });
+                        } else {
+                            try self.writer().print("{s} {s};\n", .{ info.c_type, info.name });
+                        }
                     }
                 }
             }
@@ -193,18 +198,14 @@ pub const CCodegen = struct {
             .const_string => "run_string_t",
             .const_bool, .eq, .ne, .lt, .le, .gt, .ge, .log_and, .log_or, .log_not => "bool",
             .const_null => "void*",
-            .alloc_local, .field_ptr, .index_ptr, .gen_alloc, .gen_ref_deref => "void*",
+            .alloc_local, .local_addr, .field_ptr, .index_ptr, .gen_alloc, .gen_ref_deref => "void*",
             .gen_get_gen => "uint64_t",
             .gen_ref_create => "run_gen_ref_t",
             .load => "int64_t", // conservative default
             .call => blk: {
-                // Check if this call returns run_string_t (e.g., sprintf)
                 const ci = inst.arg1;
                 if (ci < self.module.call_infos.items.len) {
-                    const cinfo = self.module.call_infos.items[ci];
-                    if (std.mem.startsWith(u8, cinfo.target_name, "run_fmt_sprint")) {
-                        break :blk "run_string_t";
-                    }
+                    break :blk self.module.call_infos.items[ci].return_type_name;
                 }
                 break :blk "int64_t";
             },
@@ -320,6 +321,14 @@ pub const CCodegen = struct {
             .alloc_local => {
                 try self.emitIndent();
                 try self.writer().print("_t{d} = NULL; /* alloc_local */\n", .{inst.result});
+            },
+            .local_addr => {
+                try self.emitIndent();
+                const local_name = if (inst.arg1 < self.module.local_infos.items.len)
+                    self.module.local_infos.items[inst.arg1].name
+                else
+                    "_invalid_local";
+                try self.writer().print("_t{d} = &{s};\n", .{ inst.result, local_name });
             },
             .load => {
                 try self.emitIndent();
@@ -479,7 +488,15 @@ pub const CCodegen = struct {
                     if (inst.arg2 != ir.null_ref) {
                         try self.writer().print("{s} = _t{d};\n", .{ info.name, inst.arg2 });
                     } else {
-                        try self.writer().print("{s} = 0;\n", .{info.name});
+                        if (std.mem.eql(u8, info.c_type, "run_gen_ref_t") or
+                            std.mem.eql(u8, info.c_type, "run_string_t") or
+                            std.mem.eql(u8, info.c_type, "run_any_t") or
+                            std.mem.startsWith(u8, info.c_type, "run_simd_"))
+                        {
+                            try self.writer().print("{s} = ({s}){{0}};\n", .{ info.name, info.c_type });
+                        } else {
+                            try self.writer().print("{s} = 0;\n", .{info.name});
+                        }
                     }
                 }
             },
@@ -1035,4 +1052,78 @@ test "CCodegen: comparison and logical ops" {
 
     try std.testing.expect(std.mem.indexOf(u8, result, "_t3 = _t1 < _t2;") != null);
     try std.testing.expect(std.mem.indexOf(u8, result, "_t4 = !_t3;") != null);
+}
+
+test "CCodegen: SIMD locals are aligned and typed calls preserve return type" {
+    var module = ir.Module.init();
+    defer module.deinit(std.testing.allocator);
+
+    const fid = try module.addFunction(std.testing.allocator, "run_main__simd");
+    var func = module.getFunction(fid);
+    func.return_type_name = "void";
+
+    const local_idx = try module.addLocalInfoAligned(std.testing.allocator, "v", "run_simd_v4f32_t", 16);
+    const call_idx = try module.addTypedCallInfo(std.testing.allocator, "run_simd_v4f32_add", &.{}, "run_simd_v4f32_t");
+
+    const b0 = try func.addBlock(std.testing.allocator);
+    var block = func.getBlock(b0);
+
+    const t1 = func.allocRef();
+    try block.addInst(std.testing.allocator, ir.makeInst(.call, t1, call_idx, 0));
+    try block.addInst(std.testing.allocator, ir.makeInst(.local_set, 0, local_idx, t1));
+    try block.addInst(std.testing.allocator, ir.makeInst(.ret_void, 0, 0, 0));
+
+    var cg = CCodegen.init(std.testing.allocator, &module);
+    defer cg.deinit();
+
+    const result = try cg.generate();
+    try std.testing.expect(std.mem.indexOf(u8, result, "#include \"run_simd.h\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_simd_v4f32_t v __attribute__((aligned(16)));") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_simd_v4f32_t _t1;") != null);
+}
+
+test "CCodegen: struct-like locals zero initialize with compound literal" {
+    var module = ir.Module.init();
+    defer module.deinit(std.testing.allocator);
+
+    const fid = try module.addFunction(std.testing.allocator, "run_main__zero");
+    var func = module.getFunction(fid);
+    func.return_type_name = "void";
+
+    const local_idx = try module.addLocalInfo(std.testing.allocator, "refValue", "run_gen_ref_t");
+
+    const b0 = try func.addBlock(std.testing.allocator);
+    var block = func.getBlock(b0);
+    try block.addInst(std.testing.allocator, ir.makeInst(.local_set, 0, local_idx, ir.null_ref));
+    try block.addInst(std.testing.allocator, ir.makeInst(.ret_void, 0, 0, 0));
+
+    var cg = CCodegen.init(std.testing.allocator, &module);
+    defer cg.deinit();
+
+    const result = try cg.generate();
+    try std.testing.expect(std.mem.indexOf(u8, result, "refValue = (run_gen_ref_t){0};") != null);
+}
+
+test "CCodegen: local_addr takes the address of the declared local" {
+    var module = ir.Module.init();
+    defer module.deinit(std.testing.allocator);
+
+    const local_idx = try module.addLocalInfo(std.testing.allocator, "vec", "run_simd_v4f32_t");
+
+    const fid = try module.addFunction(std.testing.allocator, "run_main__main");
+    var func = module.getFunction(fid);
+    func.return_type_name = "void";
+
+    const b0 = try func.addBlock(std.testing.allocator);
+    var block = func.getBlock(b0);
+
+    const t1 = func.allocRef();
+    try block.addInst(std.testing.allocator, ir.makeInst(.local_addr, t1, local_idx, 0));
+    try block.addInst(std.testing.allocator, ir.makeInst(.ret_void, 0, 0, 0));
+
+    var cg = CCodegen.init(std.testing.allocator, &module);
+    defer cg.deinit();
+
+    const result = try cg.generate();
+    try std.testing.expect(std.mem.indexOf(u8, result, "_t1 = &vec;") != null);
 }
