@@ -8,7 +8,7 @@
 /* ---------- Limits ---------- */
 
 #define RUN_NUMA_MAX_NODES 64
-#define RUN_NUMA_MAX_CPUS  1024
+#define RUN_NUMA_MAX_CPUS 1024
 
 /* ---------- Topology Types ---------- */
 

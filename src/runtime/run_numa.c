@@ -1,4 +1,9 @@
+#if defined(__linux__)
+#define _GNU_SOURCE
+#endif
+
 #include "run_numa.h"
+
 #include "run_vmem.h"
 
 #include <stdio.h>
@@ -169,8 +174,8 @@ void *run_numa_alloc_on_node(size_t size, uint32_t node_id) {
     }
 
     /* mbind(ptr, size, MPOL_BIND, &nodemask, maxnode, 0) */
-    long ret = syscall(__NR_mbind, ptr, size, RUN_MPOL_BIND,
-                       &nodemask, (unsigned long)(node_id + 2), 0);
+    long ret =
+        syscall(__NR_mbind, ptr, size, RUN_MPOL_BIND, &nodemask, (unsigned long)node_id + 2, 0);
     if (ret != 0) {
         /* mbind failed — memory still usable, just not bound to node */
         fprintf(stderr, "run: numa mbind failed for node %u (non-fatal)\n", node_id);
@@ -306,9 +311,8 @@ uint32_t run_numa_current_node(void) {
 }
 
 void *run_numa_alloc_on_node(size_t size, uint32_t node_id) {
-    return VirtualAllocExNuma(GetCurrentProcess(), NULL, size,
-                             MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE,
-                             (DWORD)node_id);
+    return VirtualAllocExNuma(GetCurrentProcess(), NULL, size, MEM_COMMIT | MEM_RESERVE,
+                              PAGE_READWRITE, (DWORD)node_id);
 }
 
 void run_numa_free(void *ptr, size_t size) {

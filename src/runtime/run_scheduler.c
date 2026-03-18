@@ -1,3 +1,7 @@
+#if defined(__linux__)
+#define _GNU_SOURCE
+#endif
+
 #include "run_scheduler.h"
 
 #include "run_numa.h"
@@ -891,8 +895,7 @@ void run_spawn_on_node(void (*fn)(void *), void *arg, int32_t node_id) {
     /* Place in a P on the preferred node if possible */
     if (node_id >= 0) {
         for (uint32_t i = 0; i < num_ps; i++) {
-            if (all_ps[i].numa_node == (uint32_t)node_id &&
-                all_ps[i].status == P_RUNNING) {
+            if (all_ps[i].numa_node == (uint32_t)node_id && all_ps[i].status == P_RUNNING) {
                 run_g_queue_push(&all_ps[i].local_queue, g);
                 goto wake;
             }
