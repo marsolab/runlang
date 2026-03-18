@@ -1,0 +1,109 @@
+package simd
+
+// simd is a compiler-recognized pseudo-package providing portable SIMD
+// vector operations on Run's first-class vector types. All functions
+// dispatch based on argument type and lower to runtime helpers with
+// platform-specific intrinsics (SSE/AVX on x86, NEON on ARM).
+
+// hadd returns the horizontal sum (reduction) of all lanes.
+pub fun hadd(v v4f32) f32 {
+    return 0.0
+}
+
+// dot returns the dot product of two vectors.
+pub fun dot(a v4f32, b v4f32) f32 {
+    return 0.0
+}
+
+// shuffle permutes vector lanes using compile-time literal indices.
+pub fun shuffle(v v4f32, i0 int, i1 int, i2 int, i3 int) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// min returns the element-wise minimum of two vectors.
+pub fun min(a v4f32, b v4f32) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// max returns the element-wise maximum of two vectors.
+pub fun max(a v4f32, b v4f32) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// select blends two vectors using a mask: mask[i] ? a[i] : b[i].
+pub fun select(mask v4bool, a v4f32, b v4f32) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// load performs an aligned load from a pointer to a vector.
+pub fun load(ptr @v4f32) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// load_unaligned performs an unaligned load from a pointer to a vector.
+pub fun load_unaligned(ptr @v4f32) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// store performs an aligned store of a vector through a mutable pointer.
+pub fun store(ptr &v4f32, v v4f32) {
+}
+
+// width returns the compiled SIMD fast-path width in bits
+// (256 for AVX, 128 for SSE/NEON, 0 for scalar fallback).
+pub fun width() int {
+    return 0
+}
+
+// sqrt returns the element-wise square root. Float vectors only.
+pub fun sqrt(v v4f32) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// abs returns the element-wise absolute value. Float vectors only.
+pub fun abs(v v4f32) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// floor returns the element-wise floor. Float vectors only.
+pub fun floor(v v4f32) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// ceil returns the element-wise ceiling. Float vectors only.
+pub fun ceil(v v4f32) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// round returns the element-wise round to nearest. Float vectors only.
+pub fun round(v v4f32) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// fma returns fused multiply-add: a*b + c, element-wise. Float vectors only.
+pub fun fma(a v4f32, b v4f32, c v4f32) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// clamp returns element-wise clamping to the range [lo, hi].
+pub fun clamp(v v4f32, lo v4f32, hi v4f32) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// broadcast fills all lanes of vector type T with the given scalar value.
+// Usage: simd.broadcast(v4f32, 1.0)
+pub fun broadcast(v v4f32) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// i32_to_f32 converts an integer vector to a float vector.
+// Works with v4i32 -> v4f32 and v8i32 -> v8f32.
+pub fun i32_to_f32(v v4i32) v4f32 {
+    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+}
+
+// f32_to_i32 converts a float vector to an integer vector.
+// Works with v4f32 -> v4i32 and v8f32 -> v8i32.
+pub fun f32_to_i32(v v4f32) v4i32 {
+    return v4i32{ 0, 0, 0, 0 }
+}

@@ -1724,6 +1724,16 @@ const TypeChecker = struct {
         if (std.mem.eql(u8, member_name, "store")) return "simd.store";
         if (std.mem.eql(u8, member_name, "load_unaligned")) return "simd.load_unaligned";
         if (std.mem.eql(u8, member_name, "width")) return "simd.width";
+        if (std.mem.eql(u8, member_name, "sqrt")) return "simd.sqrt";
+        if (std.mem.eql(u8, member_name, "abs")) return "simd.abs";
+        if (std.mem.eql(u8, member_name, "floor")) return "simd.floor";
+        if (std.mem.eql(u8, member_name, "ceil")) return "simd.ceil";
+        if (std.mem.eql(u8, member_name, "round")) return "simd.round";
+        if (std.mem.eql(u8, member_name, "fma")) return "simd.fma";
+        if (std.mem.eql(u8, member_name, "clamp")) return "simd.clamp";
+        if (std.mem.eql(u8, member_name, "broadcast")) return "simd.broadcast";
+        if (std.mem.eql(u8, member_name, "i32_to_f32")) return "simd.i32_to_f32";
+        if (std.mem.eql(u8, member_name, "f32_to_i32")) return "simd.f32_to_i32";
         return null;
     }
 
@@ -1904,6 +1914,124 @@ const TypeChecker = struct {
                 }
             }
             return vec_type;
+        }
+
+        // Unary element-wise math (float vectors only)
+        if (std.mem.eql(u8, builtin_name, "simd.sqrt") or
+            std.mem.eql(u8, builtin_name, "simd.abs") or
+            std.mem.eql(u8, builtin_name, "simd.floor") or
+            std.mem.eql(u8, builtin_name, "simd.ceil") or
+            std.mem.eql(u8, builtin_name, "simd.round"))
+        {
+            const vec_type = try self.expectSimdVectorArgs(builtin_name, arg_nodes, arg_types, 1, call_node) orelse return types.null_type;
+            const simd = self.type_pool.getSimd(vec_type).?;
+            if (simd.elem_kind != .float) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+                try self.diagnostics.addErrorFmt(loc.start, loc.end, "{s} requires a float vector argument", .{builtin_name});
+                return types.null_type;
+            }
+            return vec_type;
+        }
+
+        // Ternary: fma (float only)
+        if (std.mem.eql(u8, builtin_name, "simd.fma")) {
+            if (arg_nodes.len != 3) {
+                try self.diagnostics.addErrorFmt(call_loc.start, call_loc.end, "simd.fma expects 3 arguments, got {d}", .{arg_nodes.len});
+                return types.null_type;
+            }
+            const vec_type = arg_types[0];
+            if (vec_type == types.null_type) return types.null_type;
+            if (!self.type_pool.isSimd(vec_type) or self.type_pool.isSimdMask(vec_type)) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+                try self.diagnostics.addError(loc.start, loc.end, "simd.fma expects numeric SIMD vector arguments");
+                return types.null_type;
+            }
+            const simd = self.type_pool.getSimd(vec_type).?;
+            if (simd.elem_kind != .float) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+                try self.diagnostics.addError(loc.start, loc.end, "simd.fma requires float vector arguments");
+                return types.null_type;
+            }
+            for (arg_types[1..]) |at| {
+                if (at != types.null_type and !self.type_pool.typeEql(vec_type, at)) {
+                    try self.diagnostics.addErrorFmt(call_loc.start, call_loc.end, "simd.fma requires matching vector types", .{});
+                    return vec_type;
+                }
+            }
+            return vec_type;
+        }
+
+        // Ternary: clamp (all numeric vectors)
+        if (std.mem.eql(u8, builtin_name, "simd.clamp")) {
+            if (arg_nodes.len != 3) {
+                try self.diagnostics.addErrorFmt(call_loc.start, call_loc.end, "simd.clamp expects 3 arguments, got {d}", .{arg_nodes.len});
+                return types.null_type;
+            }
+            const vec_type = arg_types[0];
+            if (vec_type == types.null_type) return types.null_type;
+            if (!self.type_pool.isSimd(vec_type) or self.type_pool.isSimdMask(vec_type)) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+                try self.diagnostics.addError(loc.start, loc.end, "simd.clamp expects numeric SIMD vector arguments");
+                return types.null_type;
+            }
+            for (arg_types[1..]) |at| {
+                if (at != types.null_type and !self.type_pool.typeEql(vec_type, at)) {
+                    try self.diagnostics.addErrorFmt(call_loc.start, call_loc.end, "simd.clamp requires matching vector types", .{});
+                    return vec_type;
+                }
+            }
+            return vec_type;
+        }
+
+        // Broadcast: simd.broadcast(T, scalar)
+        if (std.mem.eql(u8, builtin_name, "simd.broadcast")) {
+            if (arg_nodes.len != 2) {
+                try self.diagnostics.addErrorFmt(call_loc.start, call_loc.end, "simd.broadcast expects 2 arguments (type, scalar), got {d}", .{arg_nodes.len});
+                return types.null_type;
+            }
+            const target_type = self.resolveTypeArgument(arg_nodes[0]) orelse {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+                try self.diagnostics.addError(loc.start, loc.end, "simd.broadcast first argument must be a SIMD vector type");
+                return types.null_type;
+            };
+            if (!self.type_pool.isSimd(target_type) or self.type_pool.isSimdMask(target_type)) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+                try self.diagnostics.addError(loc.start, loc.end, "simd.broadcast first argument must be a SIMD vector type");
+                return types.null_type;
+            }
+            return target_type;
+        }
+
+        // Conversion: i32_to_f32
+        if (std.mem.eql(u8, builtin_name, "simd.i32_to_f32")) {
+            const vec_type = try self.expectSimdVectorArgs(builtin_name, arg_nodes, arg_types, 1, call_node) orelse return types.null_type;
+            const simd = self.type_pool.getSimd(vec_type).?;
+            if (simd.elem_kind != .int or simd.elem_bits != 32) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+                try self.diagnostics.addError(loc.start, loc.end, "simd.i32_to_f32 expects a v4i32 or v8i32 argument");
+                return types.null_type;
+            }
+            return switch (simd.lanes) {
+                4 => types.primitives.v4f32_id,
+                8 => types.primitives.v8f32_id,
+                else => types.null_type,
+            };
+        }
+
+        // Conversion: f32_to_i32
+        if (std.mem.eql(u8, builtin_name, "simd.f32_to_i32")) {
+            const vec_type = try self.expectSimdVectorArgs(builtin_name, arg_nodes, arg_types, 1, call_node) orelse return types.null_type;
+            const simd = self.type_pool.getSimd(vec_type).?;
+            if (simd.elem_kind != .float or simd.elem_bits != 32) {
+                const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
+                try self.diagnostics.addError(loc.start, loc.end, "simd.f32_to_i32 expects a v4f32 or v8f32 argument");
+                return types.null_type;
+            }
+            return switch (simd.lanes) {
+                4 => types.primitives.v4i32_id,
+                8 => types.primitives.v8i32_id,
+                else => types.null_type,
+            };
         }
 
         return types.null_type;

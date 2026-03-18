@@ -1683,6 +1683,16 @@ load(ptr) vector                       — aligned load from @Vector or &Vector
 load_unaligned(ptr) vector             — unaligned load from @Vector or &Vector
 store(ptr, v)                          — aligned store through &Vector
 width() int                            — 256 with AVX, 128 with SSE/NEON, otherwise 0
+sqrt(v) vector                         — element-wise square root (float vectors only)
+abs(v) vector                          — element-wise absolute value (float vectors only)
+floor(v) vector                        — element-wise floor (float vectors only)
+ceil(v) vector                         — element-wise ceiling (float vectors only)
+round(v) vector                        — element-wise round to nearest (float vectors only)
+fma(a, b, c) vector                    — fused multiply-add a*b+c (float vectors only)
+clamp(v, lo, hi) vector                — element-wise clamp to [lo, hi]
+broadcast(T, scalar) vector            — fill all lanes of vector type T with scalar
+i32_to_f32(v) vector                   — convert v4i32/v8i32 to v4f32/v8f32
+f32_to_i32(v) vector                   — convert v4f32/v8f32 to v4i32/v8i32
 ```
 
 **Notes:**
@@ -1690,8 +1700,6 @@ width() int                            — 256 with AVX, 128 with SSE/NEON, othe
   ordinary package loading.
 - `unsafe.alignof(T)` returns the natural SIMD alignment (`16` for 128-bit
   vectors, `32` for 256-bit vectors).
-- Older per-type helper names such as `sum_f32` and `blend_f32` are not part of
-  the current API.
 
 **Dependencies:** None (compiler-recognized namespace lowered to runtime helpers/intrinsics)
 
