@@ -575,13 +575,14 @@ dist := numa.distance(0, 1)          // relative distance between nodes
 ```
 
 The runtime discovers NUMA topology at startup:
-- **Linux**: reads `/sys/devices/system/node/` or uses `libnuma`
+- **Linux**: parses `/sys/devices/system/node/` sysfs entries directly (no `libnuma` dependency)
 - **Windows**: `GetNumaProcessorNodeEx`, `GetNumaAvailableMemoryNode`
 - **macOS/Apple Silicon**: UMA (single node) — NUMA APIs return trivial values
 
 ### NUMA-Aware Allocation
 
-NUMA-local allocators can be passed to `alloc()` using Run's existing custom allocator support:
+NUMA-local allocators conform to a minimal allocator vtable (`alloc_fn`, `free_fn`, `ctx`)
+and can be passed to `alloc()` using Run's existing custom allocator support:
 
 ```run
 use "runtime/numa"
@@ -626,9 +627,9 @@ minimizing cross-node memory traffic without explicit management in most cases.
 
 | Feature | Linux | Windows | macOS |
 |---------|-------|---------|-------|
-| Topology discovery | `/sys/` + `libnuma` | `GetNumaProcessorNodeEx` | UMA (trivial) |
-| NUMA-local alloc | `mbind()` / `VirtualAllocExNuma` | `VirtualAllocExNuma` | Default alloc |
-| Thread affinity | `pthread_setaffinity_np` | `SetThreadAffinityMask` | Default scheduling |
+| Topology discovery | `/sys/devices/system/node/` (sysfs) | `GetNumaProcessorNodeEx` | UMA (trivial) |
+| NUMA-local alloc | `mmap` + `mbind(MPOL_BIND)` | `VirtualAllocExNuma` | Default alloc |
+| Thread affinity | `pthread_setaffinity_np` | `SetThreadAffinityMask` | No-op (no API) |
 
 ## Visibility and Modules
 

@@ -472,6 +472,7 @@ pub fn invokeZigCC(
                 "run_vmem.c",
                 "run_map.c",
                 "run_simd.c",
+                "run_numa.c",
             };
 
             for (&runtime_sources) |name| {
@@ -504,6 +505,9 @@ pub fn invokeZigCC(
     // Disable stack protector — green thread context switching is
     // incompatible with stack canaries.
     try args.append(allocator, "-fno-stack-protector");
+
+    // Enable GNU extensions (sched_getcpu, CPU_ZERO, pthread_setaffinity_np, etc.)
+    try args.append(allocator, "-D_GNU_SOURCE");
 
     // Debug mode: emit DWARF debug info and disable optimizations
     if (debug) {

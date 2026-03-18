@@ -81,7 +81,7 @@ jobs:
         run: sudo apt-get install -y clang-tidy
 
       - name: Run clang-tidy
-        run: clang-tidy src/runtime/*.c -- -Isrc/runtime
+        run: clang-tidy src/runtime/*.c -- -Isrc/runtime -D_GNU_SOURCE
 
   clang-format:
     runs-on: ubuntu-latest

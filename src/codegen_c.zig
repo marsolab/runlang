@@ -428,6 +428,20 @@ pub const CCodegen = struct {
                     try self.writer().print(");\n", .{});
                 }
             },
+            .spawn_on_node => {
+                try self.emitIndent();
+                const info_idx = inst.arg1;
+                if (info_idx < self.module.call_infos.items.len) {
+                    const info = self.module.call_infos.items[info_idx];
+                    try self.writer().print("run_spawn_on_node((run_task_fn){s}, ", .{info.target_name});
+                    if (info.args.items.len > 0) {
+                        try self.writer().print("(void*)(intptr_t)_t{d}, ", .{info.args.items[0]});
+                    } else {
+                        try self.writer().print("NULL, ", .{});
+                    }
+                    try self.writer().print("(int32_t)_t{d});\n", .{inst.arg2});
+                }
+            },
             .chan_send => {
                 try self.emitIndent();
                 try self.writer().print("run_chan_send(_t{d}, &_t{d});\n", .{ inst.arg1, inst.arg2 });

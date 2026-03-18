@@ -64,11 +64,15 @@ pub fn build(b: *std.Build) void {
         "src/runtime/run_vmem.c",
         "src/runtime/run_map.c",
         "src/runtime/run_simd.c",
+        "src/runtime/run_numa.c",
     };
 
     // Build sanitizer flags
-    var sanitizer_flag_buf: [8][]const u8 = undefined;
+    var sanitizer_flag_buf: [10][]const u8 = undefined;
     var sanitizer_flag_count: usize = 0;
+    // Enable GNU extensions (sched_getcpu, CPU_ZERO, pthread_setaffinity_np, etc.)
+    sanitizer_flag_buf[sanitizer_flag_count] = "-D_GNU_SOURCE";
+    sanitizer_flag_count += 1;
     if (sanitize) {
         sanitizer_flag_buf[sanitizer_flag_count] = "-fsanitize=address,undefined";
         sanitizer_flag_count += 1;
@@ -167,6 +171,7 @@ pub fn build(b: *std.Build) void {
         "src/runtime/tests/test_map.c",
         "src/runtime/tests/test_fmt.c",
         "src/runtime/tests/test_simd.c",
+        "src/runtime/tests/test_numa.c",
     };
     inline for (runtime_test_sources) |src| {
         runtime_test_exe.root_module.addCSourceFile(.{
