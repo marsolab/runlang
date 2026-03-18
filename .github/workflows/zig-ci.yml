@@ -51,12 +51,9 @@ jobs:
         run: zig test src/root.zig
 
   runtime-sanitize:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-14]
-
-    runs-on: ${{ matrix.os }}
+    # Sanitizer libraries (libasan, libubsan) are only available as standalone
+    # system libraries on Linux (GCC). macOS embeds them in compiler-rt.
+    runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
