@@ -273,100 +273,100 @@ RUN_SIMD_DEFINE_TYPE(v32i8, int8_t, 32, 32);
         return out;                                                                                \
     }
 
-#define RUN_SIMD_DEFINE_UNARY_MATH_F32(NAME, LANES)                                                  \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_sqrt(run_simd_##NAME##_t v) {                \
-        run_simd_##NAME##_t out;                                                                     \
-        for (size_t i = 0; i < (LANES); ++i)                                                         \
-            out.lanes[i] = sqrtf(v.lanes[i]);                                                        \
-        return out;                                                                                  \
-    }                                                                                                \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_abs(run_simd_##NAME##_t v) {                 \
-        run_simd_##NAME##_t out;                                                                     \
-        for (size_t i = 0; i < (LANES); ++i)                                                         \
-            out.lanes[i] = fabsf(v.lanes[i]);                                                        \
-        return out;                                                                                  \
-    }                                                                                                \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_floor(run_simd_##NAME##_t v) {               \
-        run_simd_##NAME##_t out;                                                                     \
-        for (size_t i = 0; i < (LANES); ++i)                                                         \
-            out.lanes[i] = floorf(v.lanes[i]);                                                       \
-        return out;                                                                                  \
-    }                                                                                                \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_ceil(run_simd_##NAME##_t v) {                \
-        run_simd_##NAME##_t out;                                                                     \
-        for (size_t i = 0; i < (LANES); ++i)                                                         \
-            out.lanes[i] = ceilf(v.lanes[i]);                                                        \
-        return out;                                                                                  \
-    }                                                                                                \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_round(run_simd_##NAME##_t v) {               \
-        run_simd_##NAME##_t out;                                                                     \
-        for (size_t i = 0; i < (LANES); ++i)                                                         \
-            out.lanes[i] = roundf(v.lanes[i]);                                                       \
-        return out;                                                                                  \
+#define RUN_SIMD_DEFINE_UNARY_MATH_F32(NAME, LANES)                                                \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_sqrt(run_simd_##NAME##_t v) {              \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = sqrtf(v.lanes[i]);                                                      \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_abs(run_simd_##NAME##_t v) {               \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = fabsf(v.lanes[i]);                                                      \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_floor(run_simd_##NAME##_t v) {             \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = floorf(v.lanes[i]);                                                     \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_ceil(run_simd_##NAME##_t v) {              \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = ceilf(v.lanes[i]);                                                      \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_round(run_simd_##NAME##_t v) {             \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = roundf(v.lanes[i]);                                                     \
+        return out;                                                                                \
     }
 
-#define RUN_SIMD_DEFINE_UNARY_MATH_F64(NAME, LANES)                                                  \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_sqrt(run_simd_##NAME##_t v) {                \
-        run_simd_##NAME##_t out;                                                                     \
-        for (size_t i = 0; i < (LANES); ++i)                                                         \
-            out.lanes[i] = sqrt(v.lanes[i]);                                                         \
-        return out;                                                                                  \
-    }                                                                                                \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_abs(run_simd_##NAME##_t v) {                 \
-        run_simd_##NAME##_t out;                                                                     \
-        for (size_t i = 0; i < (LANES); ++i)                                                         \
-            out.lanes[i] = fabs(v.lanes[i]);                                                         \
-        return out;                                                                                  \
-    }                                                                                                \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_floor(run_simd_##NAME##_t v) {               \
-        run_simd_##NAME##_t out;                                                                     \
-        for (size_t i = 0; i < (LANES); ++i)                                                         \
-            out.lanes[i] = floor(v.lanes[i]);                                                        \
-        return out;                                                                                  \
-    }                                                                                                \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_ceil(run_simd_##NAME##_t v) {                \
-        run_simd_##NAME##_t out;                                                                     \
-        for (size_t i = 0; i < (LANES); ++i)                                                         \
-            out.lanes[i] = ceil(v.lanes[i]);                                                         \
-        return out;                                                                                  \
-    }                                                                                                \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_round(run_simd_##NAME##_t v) {               \
-        run_simd_##NAME##_t out;                                                                     \
-        for (size_t i = 0; i < (LANES); ++i)                                                         \
-            out.lanes[i] = round(v.lanes[i]);                                                        \
-        return out;                                                                                  \
+#define RUN_SIMD_DEFINE_UNARY_MATH_F64(NAME, LANES)                                                \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_sqrt(run_simd_##NAME##_t v) {              \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = sqrt(v.lanes[i]);                                                       \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_abs(run_simd_##NAME##_t v) {               \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = fabs(v.lanes[i]);                                                       \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_floor(run_simd_##NAME##_t v) {             \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = floor(v.lanes[i]);                                                      \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_ceil(run_simd_##NAME##_t v) {              \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = ceil(v.lanes[i]);                                                       \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_round(run_simd_##NAME##_t v) {             \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = round(v.lanes[i]);                                                      \
+        return out;                                                                                \
     }
 
-#define RUN_SIMD_DEFINE_FMA_GENERIC(NAME, ELEM, LANES)                                               \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_fma(run_simd_##NAME##_t a,                   \
-                                                            run_simd_##NAME##_t b,                   \
-                                                            run_simd_##NAME##_t c) {                  \
-        run_simd_##NAME##_t out;                                                                     \
-        for (size_t i = 0; i < (LANES); ++i)                                                         \
-            out.lanes[i] = a.lanes[i] * b.lanes[i] + c.lanes[i];                                     \
-        return out;                                                                                  \
+#define RUN_SIMD_DEFINE_FMA_GENERIC(NAME, ELEM, LANES)                                             \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_fma(                                       \
+        run_simd_##NAME##_t a, run_simd_##NAME##_t b, run_simd_##NAME##_t c) {                     \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = a.lanes[i] * b.lanes[i] + c.lanes[i];                                   \
+        return out;                                                                                \
     }
 
-#define RUN_SIMD_DEFINE_CLAMP_GENERIC(NAME, ELEM, LANES)                                             \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_clamp(run_simd_##NAME##_t v,                 \
-                                                              run_simd_##NAME##_t lo,                \
-                                                              run_simd_##NAME##_t hi) {               \
-        run_simd_##NAME##_t out;                                                                     \
-        for (size_t i = 0; i < (LANES); ++i) {                                                       \
-            ELEM x = v.lanes[i];                                                                     \
-            if (x < lo.lanes[i]) x = lo.lanes[i];                                                    \
-            if (x > hi.lanes[i]) x = hi.lanes[i];                                                    \
-            out.lanes[i] = x;                                                                        \
-        }                                                                                            \
-        return out;                                                                                  \
+#define RUN_SIMD_DEFINE_CLAMP_GENERIC(NAME, ELEM, LANES)                                           \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_clamp(                                     \
+        run_simd_##NAME##_t v, run_simd_##NAME##_t lo, run_simd_##NAME##_t hi) {                   \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i) {                                                     \
+            ELEM x = v.lanes[i];                                                                   \
+            if (x < lo.lanes[i])                                                                   \
+                x = lo.lanes[i];                                                                   \
+            if (x > hi.lanes[i])                                                                   \
+                x = hi.lanes[i];                                                                   \
+            out.lanes[i] = x;                                                                      \
+        }                                                                                          \
+        return out;                                                                                \
     }
 
-#define RUN_SIMD_DEFINE_BROADCAST_GENERIC(NAME, ELEM, LANES)                                         \
-    static inline run_simd_##NAME##_t run_simd_##NAME##_broadcast(ELEM value) {                      \
-        run_simd_##NAME##_t out;                                                                     \
-        for (size_t i = 0; i < (LANES); ++i)                                                         \
-            out.lanes[i] = value;                                                                    \
-        return out;                                                                                  \
+#define RUN_SIMD_DEFINE_BROADCAST_GENERIC(NAME, ELEM, LANES)                                       \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_broadcast(ELEM value) {                    \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = value;                                                                  \
+        return out;                                                                                \
     }
 
 RUN_SIMD_DEFINE_MAKE_2(v2bool, bool);
@@ -597,7 +597,7 @@ static inline run_simd_v4f32_t run_simd_v4f32_round(run_simd_v4f32_t v) {
     vst1q_f32(out.lanes, vrndnq_f32(vld1q_f32(v.lanes)));
 #elif defined(__SSE4_1__)
     _mm_storeu_ps(out.lanes, _mm_round_ps(_mm_loadu_ps(v.lanes),
-                  _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+                                          _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
 #else
     for (size_t i = 0; i < 4; ++i)
         out.lanes[i] = roundf(v.lanes[i]);
@@ -605,7 +605,7 @@ static inline run_simd_v4f32_t run_simd_v4f32_round(run_simd_v4f32_t v) {
     return out;
 }
 static inline run_simd_v4f32_t run_simd_v4f32_fma(run_simd_v4f32_t a, run_simd_v4f32_t b,
-                                                   run_simd_v4f32_t c) {
+                                                  run_simd_v4f32_t c) {
     run_simd_v4f32_t out;
 #if defined(__aarch64__)
     vst1q_f32(out.lanes, vfmaq_f32(vld1q_f32(c.lanes), vld1q_f32(a.lanes), vld1q_f32(b.lanes)));
@@ -619,7 +619,7 @@ static inline run_simd_v4f32_t run_simd_v4f32_fma(run_simd_v4f32_t a, run_simd_v
     return out;
 }
 static inline run_simd_v4f32_t run_simd_v4f32_clamp(run_simd_v4f32_t v, run_simd_v4f32_t lo,
-                                                     run_simd_v4f32_t hi) {
+                                                    run_simd_v4f32_t hi) {
     run_simd_v4f32_t out;
 #if defined(__aarch64__)
     float32x4_t vv = vld1q_f32(v.lanes);
@@ -634,8 +634,10 @@ static inline run_simd_v4f32_t run_simd_v4f32_clamp(run_simd_v4f32_t v, run_simd
 #else
     for (size_t i = 0; i < 4; ++i) {
         float x = v.lanes[i];
-        if (x < lo.lanes[i]) x = lo.lanes[i];
-        if (x > hi.lanes[i]) x = hi.lanes[i];
+        if (x < lo.lanes[i])
+            x = lo.lanes[i];
+        if (x > hi.lanes[i])
+            x = hi.lanes[i];
         out.lanes[i] = x;
     }
 #endif
@@ -815,7 +817,7 @@ static inline run_simd_v8f32_t run_simd_v8f32_round(run_simd_v8f32_t v) {
     run_simd_v8f32_t out;
 #if defined(__AVX__)
     _mm256_storeu_ps(out.lanes, _mm256_round_ps(_mm256_loadu_ps(v.lanes),
-                     _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+                                                _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
 #else
     for (size_t i = 0; i < 8; ++i)
         out.lanes[i] = roundf(v.lanes[i]);
@@ -823,7 +825,7 @@ static inline run_simd_v8f32_t run_simd_v8f32_round(run_simd_v8f32_t v) {
     return out;
 }
 static inline run_simd_v8f32_t run_simd_v8f32_fma(run_simd_v8f32_t a, run_simd_v8f32_t b,
-                                                   run_simd_v8f32_t c) {
+                                                  run_simd_v8f32_t c) {
     run_simd_v8f32_t out;
 #if defined(__FMA__)
     _mm256_storeu_ps(out.lanes, _mm256_fmadd_ps(_mm256_loadu_ps(a.lanes), _mm256_loadu_ps(b.lanes),
@@ -835,7 +837,7 @@ static inline run_simd_v8f32_t run_simd_v8f32_fma(run_simd_v8f32_t a, run_simd_v
     return out;
 }
 static inline run_simd_v8f32_t run_simd_v8f32_clamp(run_simd_v8f32_t v, run_simd_v8f32_t lo,
-                                                     run_simd_v8f32_t hi) {
+                                                    run_simd_v8f32_t hi) {
     run_simd_v8f32_t out;
 #if defined(__AVX__)
     __m256 vv = _mm256_loadu_ps(v.lanes);
@@ -845,8 +847,10 @@ static inline run_simd_v8f32_t run_simd_v8f32_clamp(run_simd_v8f32_t v, run_simd
 #else
     for (size_t i = 0; i < 8; ++i) {
         float x = v.lanes[i];
-        if (x < lo.lanes[i]) x = lo.lanes[i];
-        if (x > hi.lanes[i]) x = hi.lanes[i];
+        if (x < lo.lanes[i])
+            x = lo.lanes[i];
+        if (x > hi.lanes[i])
+            x = hi.lanes[i];
         out.lanes[i] = x;
     }
 #endif
