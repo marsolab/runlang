@@ -1245,6 +1245,16 @@ const LoweringContext = struct {
         if (std.mem.eql(u8, member_name, "store")) return "simd.store";
         if (std.mem.eql(u8, member_name, "load_unaligned")) return "simd.load_unaligned";
         if (std.mem.eql(u8, member_name, "width")) return "simd.width";
+        if (std.mem.eql(u8, member_name, "sqrt")) return "simd.sqrt";
+        if (std.mem.eql(u8, member_name, "abs")) return "simd.abs";
+        if (std.mem.eql(u8, member_name, "floor")) return "simd.floor";
+        if (std.mem.eql(u8, member_name, "ceil")) return "simd.ceil";
+        if (std.mem.eql(u8, member_name, "round")) return "simd.round";
+        if (std.mem.eql(u8, member_name, "fma")) return "simd.fma";
+        if (std.mem.eql(u8, member_name, "clamp")) return "simd.clamp";
+        if (std.mem.eql(u8, member_name, "broadcast")) return "simd.broadcast";
+        if (std.mem.eql(u8, member_name, "i32_to_f32")) return "simd.i32_to_f32";
+        if (std.mem.eql(u8, member_name, "f32_to_i32")) return "simd.f32_to_i32";
         return null;
     }
 
@@ -1368,6 +1378,28 @@ const LoweringContext = struct {
             return self.emitTypedCall(target, numa_arg_refs.items, ret_type, false);
         }
 
+        // Broadcast: first arg is type, second is scalar value
+        if (std.mem.eql(u8, builtin_name, "simd.broadcast")) {
+            const type_id = if (arg_nodes.len > 0) self.resolveTypeArgument(arg_nodes[0]) else types.null_type;
+            const scalar_ref = if (arg_nodes.len > 1) try self.lowerExpr(arg_nodes[1]) else ir.null_ref;
+            const suffix = self.simdTypeSuffix(type_id);
+            const helper_name = try std.fmt.allocPrint(self.allocator, "run_simd_{s}_broadcast", .{suffix});
+            try self.module.owned_strings.append(self.allocator, helper_name);
+            return self.emitTypedCall(helper_name, &.{scalar_ref}, self.cTypeForTypeId(type_id), false);
+        }
+
+        // Conversions: i32_to_f32, f32_to_i32
+        if (std.mem.eql(u8, builtin_name, "simd.i32_to_f32") or std.mem.eql(u8, builtin_name, "simd.f32_to_i32")) {
+            const arg_ref = if (arg_nodes.len > 0) try self.lowerExpr(arg_nodes[0]) else ir.null_ref;
+            const src_type = if (arg_nodes.len > 0) self.typeOfNode(arg_nodes[0]) else types.null_type;
+            const dst_type = self.typeOfNode(node_idx);
+            const src_suffix = self.simdTypeSuffix(src_type);
+            const dst_suffix = self.simdTypeSuffix(dst_type);
+            const helper_name = try std.fmt.allocPrint(self.allocator, "run_simd_{s}_to_{s}", .{ src_suffix, dst_suffix });
+            try self.module.owned_strings.append(self.allocator, helper_name);
+            return self.emitTypedCall(helper_name, &.{arg_ref}, self.cTypeForTypeId(dst_type), false);
+        }
+
         var arg_refs: std.ArrayList(ir.Ref) = .empty;
         defer arg_refs.deinit(self.allocator);
         for (arg_nodes) |arg_node| {
@@ -1381,6 +1413,10 @@ const LoweringContext = struct {
             'm' => self.typeOfNode(arg_nodes[0]),
             's' => if (std.mem.eql(u8, builtin_name, "simd.select")) result_type else self.typeOfNode(arg_nodes[0]),
             'l' => result_type,
+            'a' => self.typeOfNode(arg_nodes[0]),
+            'f' => self.typeOfNode(arg_nodes[0]),
+            'c' => self.typeOfNode(arg_nodes[0]),
+            'r' => self.typeOfNode(arg_nodes[0]),
             else => result_type,
         };
 
@@ -1398,6 +1434,13 @@ const LoweringContext = struct {
                 const pointee = self.type_pool.unwrapPointer(ptr_type) orelse types.null_type;
                 break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_store", .{self.simdTypeSuffix(pointee)});
             }
+            if (std.mem.eql(u8, builtin_name, "simd.sqrt")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_sqrt", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.abs")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_abs", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.floor")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_floor", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.ceil")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_ceil", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.round")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_round", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.fma")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_fma", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.clamp")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_clamp", .{self.simdTypeSuffix(helper_type)});
             break :blk try std.fmt.allocPrint(self.allocator, "{s}", .{builtin_name});
         };
         try self.module.owned_strings.append(self.allocator, helper_name);

@@ -3,6 +3,7 @@
 
 #include "run_alloc.h"
 
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -272,6 +273,102 @@ RUN_SIMD_DEFINE_TYPE(v32i8, int8_t, 32, 32);
         return out;                                                                                \
     }
 
+#define RUN_SIMD_DEFINE_UNARY_MATH_F32(NAME, LANES)                                                \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_sqrt(run_simd_##NAME##_t v) {              \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = sqrtf(v.lanes[i]);                                                      \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_abs(run_simd_##NAME##_t v) {               \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = fabsf(v.lanes[i]);                                                      \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_floor(run_simd_##NAME##_t v) {             \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = floorf(v.lanes[i]);                                                     \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_ceil(run_simd_##NAME##_t v) {              \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = ceilf(v.lanes[i]);                                                      \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_round(run_simd_##NAME##_t v) {             \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = roundf(v.lanes[i]);                                                     \
+        return out;                                                                                \
+    }
+
+#define RUN_SIMD_DEFINE_UNARY_MATH_F64(NAME, LANES)                                                \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_sqrt(run_simd_##NAME##_t v) {              \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = sqrt(v.lanes[i]);                                                       \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_abs(run_simd_##NAME##_t v) {               \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = fabs(v.lanes[i]);                                                       \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_floor(run_simd_##NAME##_t v) {             \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = floor(v.lanes[i]);                                                      \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_ceil(run_simd_##NAME##_t v) {              \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = ceil(v.lanes[i]);                                                       \
+        return out;                                                                                \
+    }                                                                                              \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_round(run_simd_##NAME##_t v) {             \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = round(v.lanes[i]);                                                      \
+        return out;                                                                                \
+    }
+
+#define RUN_SIMD_DEFINE_FMA_GENERIC(NAME, ELEM, LANES)                                             \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_fma(                                       \
+        run_simd_##NAME##_t a, run_simd_##NAME##_t b, run_simd_##NAME##_t c) {                     \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = a.lanes[i] * b.lanes[i] + c.lanes[i];                                   \
+        return out;                                                                                \
+    }
+
+#define RUN_SIMD_DEFINE_CLAMP_GENERIC(NAME, ELEM, LANES)                                           \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_clamp(                                     \
+        run_simd_##NAME##_t v, run_simd_##NAME##_t lo, run_simd_##NAME##_t hi) {                   \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i) {                                                     \
+            ELEM x = v.lanes[i];                                                                   \
+            if (x < lo.lanes[i])                                                                   \
+                x = lo.lanes[i];                                                                   \
+            if (x > hi.lanes[i])                                                                   \
+                x = hi.lanes[i];                                                                   \
+            out.lanes[i] = x;                                                                      \
+        }                                                                                          \
+        return out;                                                                                \
+    }
+
+#define RUN_SIMD_DEFINE_BROADCAST_GENERIC(NAME, ELEM, LANES)                                       \
+    static inline run_simd_##NAME##_t run_simd_##NAME##_broadcast(ELEM value) {                    \
+        run_simd_##NAME##_t out;                                                                   \
+        for (size_t i = 0; i < (LANES); ++i)                                                       \
+            out.lanes[i] = value;                                                                  \
+        return out;                                                                                \
+    }
+
 RUN_SIMD_DEFINE_MAKE_2(v2bool, bool);
 RUN_SIMD_DEFINE_MAKE_4(v4bool, bool);
 RUN_SIMD_DEFINE_MAKE_8(v8bool, bool);
@@ -445,6 +542,119 @@ static inline void run_simd_v4f32_store(run_gen_ref_t ptr, run_simd_v4f32_t valu
     memcpy(raw, &value, sizeof(value));
 #endif
 }
+static inline run_simd_v4f32_t run_simd_v4f32_sqrt(run_simd_v4f32_t v) {
+    run_simd_v4f32_t out;
+#if defined(__aarch64__)
+    vst1q_f32(out.lanes, vsqrtq_f32(vld1q_f32(v.lanes)));
+#elif defined(__SSE__)
+    _mm_storeu_ps(out.lanes, _mm_sqrt_ps(_mm_loadu_ps(v.lanes)));
+#else
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = sqrtf(v.lanes[i]);
+#endif
+    return out;
+}
+static inline run_simd_v4f32_t run_simd_v4f32_abs(run_simd_v4f32_t v) {
+    run_simd_v4f32_t out;
+#if defined(__aarch64__)
+    vst1q_f32(out.lanes, vabsq_f32(vld1q_f32(v.lanes)));
+#elif defined(__SSE__)
+    __m128 sign_mask = _mm_set1_ps(-0.0f);
+    _mm_storeu_ps(out.lanes, _mm_andnot_ps(sign_mask, _mm_loadu_ps(v.lanes)));
+#else
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = fabsf(v.lanes[i]);
+#endif
+    return out;
+}
+static inline run_simd_v4f32_t run_simd_v4f32_floor(run_simd_v4f32_t v) {
+    run_simd_v4f32_t out;
+#if defined(__aarch64__)
+    vst1q_f32(out.lanes, vrndmq_f32(vld1q_f32(v.lanes)));
+#elif defined(__SSE4_1__)
+    _mm_storeu_ps(out.lanes, _mm_floor_ps(_mm_loadu_ps(v.lanes)));
+#else
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = floorf(v.lanes[i]);
+#endif
+    return out;
+}
+static inline run_simd_v4f32_t run_simd_v4f32_ceil(run_simd_v4f32_t v) {
+    run_simd_v4f32_t out;
+#if defined(__aarch64__)
+    vst1q_f32(out.lanes, vrndpq_f32(vld1q_f32(v.lanes)));
+#elif defined(__SSE4_1__)
+    _mm_storeu_ps(out.lanes, _mm_ceil_ps(_mm_loadu_ps(v.lanes)));
+#else
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = ceilf(v.lanes[i]);
+#endif
+    return out;
+}
+static inline run_simd_v4f32_t run_simd_v4f32_round(run_simd_v4f32_t v) {
+    run_simd_v4f32_t out;
+#if defined(__aarch64__)
+    vst1q_f32(out.lanes, vrndnq_f32(vld1q_f32(v.lanes)));
+#elif defined(__SSE4_1__)
+    _mm_storeu_ps(out.lanes, _mm_round_ps(_mm_loadu_ps(v.lanes),
+                                          _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+#else
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = roundf(v.lanes[i]);
+#endif
+    return out;
+}
+static inline run_simd_v4f32_t run_simd_v4f32_fma(run_simd_v4f32_t a, run_simd_v4f32_t b,
+                                                  run_simd_v4f32_t c) {
+    run_simd_v4f32_t out;
+#if defined(__aarch64__)
+    vst1q_f32(out.lanes, vfmaq_f32(vld1q_f32(c.lanes), vld1q_f32(a.lanes), vld1q_f32(b.lanes)));
+#elif defined(__FMA__)
+    _mm_storeu_ps(out.lanes, _mm_fmadd_ps(_mm_loadu_ps(a.lanes), _mm_loadu_ps(b.lanes),
+                                          _mm_loadu_ps(c.lanes)));
+#else
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = a.lanes[i] * b.lanes[i] + c.lanes[i];
+#endif
+    return out;
+}
+static inline run_simd_v4f32_t run_simd_v4f32_clamp(run_simd_v4f32_t v, run_simd_v4f32_t lo,
+                                                    run_simd_v4f32_t hi) {
+    run_simd_v4f32_t out;
+#if defined(__aarch64__)
+    float32x4_t vv = vld1q_f32(v.lanes);
+    vv = vmaxq_f32(vv, vld1q_f32(lo.lanes));
+    vv = vminq_f32(vv, vld1q_f32(hi.lanes));
+    vst1q_f32(out.lanes, vv);
+#elif defined(__SSE__)
+    __m128 vv = _mm_loadu_ps(v.lanes);
+    vv = _mm_max_ps(vv, _mm_loadu_ps(lo.lanes));
+    vv = _mm_min_ps(vv, _mm_loadu_ps(hi.lanes));
+    _mm_storeu_ps(out.lanes, vv);
+#else
+    for (size_t i = 0; i < 4; ++i) {
+        float x = v.lanes[i];
+        if (x < lo.lanes[i])
+            x = lo.lanes[i];
+        if (x > hi.lanes[i])
+            x = hi.lanes[i];
+        out.lanes[i] = x;
+    }
+#endif
+    return out;
+}
+static inline run_simd_v4f32_t run_simd_v4f32_broadcast(float value) {
+    run_simd_v4f32_t out;
+#if defined(__aarch64__)
+    vst1q_f32(out.lanes, vdupq_n_f32(value));
+#elif defined(__SSE__)
+    _mm_storeu_ps(out.lanes, _mm_set1_ps(value));
+#else
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = value;
+#endif
+    return out;
+}
 
 RUN_SIMD_DEFINE_ARITH_REDUCE_GENERIC(v2f64, double, 2);
 RUN_SIMD_DEFINE_LOAD_STORE_GENERIC(v2f64);
@@ -562,6 +772,100 @@ static inline void run_simd_v8f32_store(run_gen_ref_t ptr, run_simd_v8f32_t valu
     memcpy(raw, &value, sizeof(value));
 #endif
 }
+static inline run_simd_v8f32_t run_simd_v8f32_sqrt(run_simd_v8f32_t v) {
+    run_simd_v8f32_t out;
+#if defined(__AVX__)
+    _mm256_storeu_ps(out.lanes, _mm256_sqrt_ps(_mm256_loadu_ps(v.lanes)));
+#else
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = sqrtf(v.lanes[i]);
+#endif
+    return out;
+}
+static inline run_simd_v8f32_t run_simd_v8f32_abs(run_simd_v8f32_t v) {
+    run_simd_v8f32_t out;
+#if defined(__AVX__)
+    __m256 sign_mask = _mm256_set1_ps(-0.0f);
+    _mm256_storeu_ps(out.lanes, _mm256_andnot_ps(sign_mask, _mm256_loadu_ps(v.lanes)));
+#else
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = fabsf(v.lanes[i]);
+#endif
+    return out;
+}
+static inline run_simd_v8f32_t run_simd_v8f32_floor(run_simd_v8f32_t v) {
+    run_simd_v8f32_t out;
+#if defined(__AVX__)
+    _mm256_storeu_ps(out.lanes, _mm256_floor_ps(_mm256_loadu_ps(v.lanes)));
+#else
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = floorf(v.lanes[i]);
+#endif
+    return out;
+}
+static inline run_simd_v8f32_t run_simd_v8f32_ceil(run_simd_v8f32_t v) {
+    run_simd_v8f32_t out;
+#if defined(__AVX__)
+    _mm256_storeu_ps(out.lanes, _mm256_ceil_ps(_mm256_loadu_ps(v.lanes)));
+#else
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = ceilf(v.lanes[i]);
+#endif
+    return out;
+}
+static inline run_simd_v8f32_t run_simd_v8f32_round(run_simd_v8f32_t v) {
+    run_simd_v8f32_t out;
+#if defined(__AVX__)
+    _mm256_storeu_ps(out.lanes, _mm256_round_ps(_mm256_loadu_ps(v.lanes),
+                                                _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+#else
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = roundf(v.lanes[i]);
+#endif
+    return out;
+}
+static inline run_simd_v8f32_t run_simd_v8f32_fma(run_simd_v8f32_t a, run_simd_v8f32_t b,
+                                                  run_simd_v8f32_t c) {
+    run_simd_v8f32_t out;
+#if defined(__FMA__)
+    _mm256_storeu_ps(out.lanes, _mm256_fmadd_ps(_mm256_loadu_ps(a.lanes), _mm256_loadu_ps(b.lanes),
+                                                _mm256_loadu_ps(c.lanes)));
+#else
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = a.lanes[i] * b.lanes[i] + c.lanes[i];
+#endif
+    return out;
+}
+static inline run_simd_v8f32_t run_simd_v8f32_clamp(run_simd_v8f32_t v, run_simd_v8f32_t lo,
+                                                    run_simd_v8f32_t hi) {
+    run_simd_v8f32_t out;
+#if defined(__AVX__)
+    __m256 vv = _mm256_loadu_ps(v.lanes);
+    vv = _mm256_max_ps(vv, _mm256_loadu_ps(lo.lanes));
+    vv = _mm256_min_ps(vv, _mm256_loadu_ps(hi.lanes));
+    _mm256_storeu_ps(out.lanes, vv);
+#else
+    for (size_t i = 0; i < 8; ++i) {
+        float x = v.lanes[i];
+        if (x < lo.lanes[i])
+            x = lo.lanes[i];
+        if (x > hi.lanes[i])
+            x = hi.lanes[i];
+        out.lanes[i] = x;
+    }
+#endif
+    return out;
+}
+static inline run_simd_v8f32_t run_simd_v8f32_broadcast(float value) {
+    run_simd_v8f32_t out;
+#if defined(__AVX__)
+    _mm256_storeu_ps(out.lanes, _mm256_set1_ps(value));
+#else
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = value;
+#endif
+    return out;
+}
 
 RUN_SIMD_DEFINE_ARITH_REDUCE_GENERIC(v4f64, double, 4);
 RUN_SIMD_DEFINE_LOAD_STORE_GENERIC(v4f64);
@@ -571,6 +875,74 @@ RUN_SIMD_DEFINE_ARITH_REDUCE_GENERIC(v16i16, int16_t, 16);
 RUN_SIMD_DEFINE_LOAD_STORE_GENERIC(v16i16);
 RUN_SIMD_DEFINE_ARITH_REDUCE_GENERIC(v32i8, int8_t, 32);
 RUN_SIMD_DEFINE_LOAD_STORE_GENERIC(v32i8);
+
+RUN_SIMD_DEFINE_UNARY_MATH_F64(v2f64, 2);
+RUN_SIMD_DEFINE_FMA_GENERIC(v2f64, double, 2);
+RUN_SIMD_DEFINE_CLAMP_GENERIC(v2f64, double, 2);
+RUN_SIMD_DEFINE_BROADCAST_GENERIC(v2f64, double, 2);
+
+RUN_SIMD_DEFINE_UNARY_MATH_F64(v4f64, 4);
+RUN_SIMD_DEFINE_FMA_GENERIC(v4f64, double, 4);
+RUN_SIMD_DEFINE_CLAMP_GENERIC(v4f64, double, 4);
+RUN_SIMD_DEFINE_BROADCAST_GENERIC(v4f64, double, 4);
+
+RUN_SIMD_DEFINE_CLAMP_GENERIC(v4i32, int32_t, 4);
+RUN_SIMD_DEFINE_BROADCAST_GENERIC(v4i32, int32_t, 4);
+RUN_SIMD_DEFINE_CLAMP_GENERIC(v8i16, int16_t, 8);
+RUN_SIMD_DEFINE_BROADCAST_GENERIC(v8i16, int16_t, 8);
+RUN_SIMD_DEFINE_CLAMP_GENERIC(v16i8, int8_t, 16);
+RUN_SIMD_DEFINE_BROADCAST_GENERIC(v16i8, int8_t, 16);
+RUN_SIMD_DEFINE_CLAMP_GENERIC(v8i32, int32_t, 8);
+RUN_SIMD_DEFINE_BROADCAST_GENERIC(v8i32, int32_t, 8);
+RUN_SIMD_DEFINE_CLAMP_GENERIC(v16i16, int16_t, 16);
+RUN_SIMD_DEFINE_BROADCAST_GENERIC(v16i16, int16_t, 16);
+RUN_SIMD_DEFINE_CLAMP_GENERIC(v32i8, int8_t, 32);
+RUN_SIMD_DEFINE_BROADCAST_GENERIC(v32i8, int8_t, 32);
+
+static inline run_simd_v4f32_t run_simd_v4i32_to_v4f32(run_simd_v4i32_t v) {
+    run_simd_v4f32_t out;
+#if defined(__aarch64__)
+    vst1q_f32(out.lanes, vcvtq_f32_s32(vld1q_s32(v.lanes)));
+#elif defined(__SSE2__)
+    _mm_storeu_ps(out.lanes, _mm_cvtepi32_ps(_mm_loadu_si128((const __m128i *)v.lanes)));
+#else
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = (float)v.lanes[i];
+#endif
+    return out;
+}
+static inline run_simd_v4i32_t run_simd_v4f32_to_v4i32(run_simd_v4f32_t v) {
+    run_simd_v4i32_t out;
+#if defined(__aarch64__)
+    vst1q_s32(out.lanes, vcvtq_s32_f32(vld1q_f32(v.lanes)));
+#elif defined(__SSE2__)
+    _mm_storeu_si128((__m128i *)out.lanes, _mm_cvtps_epi32(_mm_loadu_ps(v.lanes)));
+#else
+    for (size_t i = 0; i < 4; ++i)
+        out.lanes[i] = (int32_t)v.lanes[i];
+#endif
+    return out;
+}
+static inline run_simd_v8f32_t run_simd_v8i32_to_v8f32(run_simd_v8i32_t v) {
+    run_simd_v8f32_t out;
+#if defined(__AVX__)
+    _mm256_storeu_ps(out.lanes, _mm256_cvtepi32_ps(_mm256_loadu_si256((const __m256i *)v.lanes)));
+#else
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = (float)v.lanes[i];
+#endif
+    return out;
+}
+static inline run_simd_v8i32_t run_simd_v8f32_to_v8i32(run_simd_v8f32_t v) {
+    run_simd_v8i32_t out;
+#if defined(__AVX__)
+    _mm256_storeu_si256((__m256i *)out.lanes, _mm256_cvtps_epi32(_mm256_loadu_ps(v.lanes)));
+#else
+    for (size_t i = 0; i < 8; ++i)
+        out.lanes[i] = (int32_t)v.lanes[i];
+#endif
+    return out;
+}
 
 RUN_SIMD_DEFINE_SHUFFLE_2(v2f64);
 RUN_SIMD_DEFINE_SHUFFLE_4(v4f32);
