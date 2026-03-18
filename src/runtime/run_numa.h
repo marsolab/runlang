@@ -69,4 +69,40 @@ void run_numa_free(void *ptr, size_t size);
 /* Create an allocator bound to a specific NUMA node. */
 run_allocator_t run_numa_allocator(uint32_t node_id);
 
+/* ---------- Policy Constants ---------- */
+
+#define RUN_NUMA_POLICY_LOCAL      0
+#define RUN_NUMA_POLICY_BIND       1
+#define RUN_NUMA_POLICY_INTERLEAVE 2
+#define RUN_NUMA_POLICY_PREFERRED  3
+
+/* ---------- Extended NUMA API ---------- */
+
+/* True if the system has more than one NUMA node. */
+bool run_numa_available(void);
+
+/* Preferred NUMA node of the current green thread (-1 if none). */
+int32_t run_numa_preferred_node(void);
+
+/* Allocate page-aligned memory on the current thread's NUMA node. */
+void *run_numa_local_alloc(size_t size);
+
+/* Allocate page-aligned memory on a specific NUMA node (Run-facing arg order). */
+void *run_numa_node_alloc(uint32_t node_id, size_t size);
+
+/* Allocate memory interleaved round-robin across all NUMA nodes. */
+void *run_numa_interleave_alloc(size_t size);
+
+/* Bind the calling OS thread to CPUs on the given NUMA node.
+ * Returns 0 on success, -1 on failure. */
+int run_numa_bind_thread(uint32_t node_id);
+
+/* Number of CPUs on a NUMA node (0 if node_id is invalid). */
+uint32_t run_numa_cpu_count(uint32_t node_id);
+
+/* Set the memory placement policy for the calling thread.
+ * policy: one of RUN_NUMA_POLICY_*. node_id used by BIND and PREFERRED.
+ * Returns 0 on success, -1 on failure. */
+int run_numa_set_memory_policy(uint32_t policy, uint32_t node_id);
+
 #endif

@@ -1221,6 +1221,16 @@ const LoweringContext = struct {
             if (std.mem.eql(u8, member_name, "distance")) return "numa.distance";
             if (std.mem.eql(u8, member_name, "pin")) return "numa.pin";
             if (std.mem.eql(u8, member_name, "memory_on_node")) return "numa.memory_on_node";
+            if (std.mem.eql(u8, member_name, "available")) return "numa.available";
+            if (std.mem.eql(u8, member_name, "preferred_node")) return "numa.preferred_node";
+            if (std.mem.eql(u8, member_name, "local_alloc")) return "numa.local_alloc";
+            if (std.mem.eql(u8, member_name, "node_alloc")) return "numa.node_alloc";
+            if (std.mem.eql(u8, member_name, "interleave_alloc")) return "numa.interleave_alloc";
+            if (std.mem.eql(u8, member_name, "free")) return "numa.free";
+            if (std.mem.eql(u8, member_name, "bind_thread")) return "numa.bind_thread";
+            if (std.mem.eql(u8, member_name, "bind_green_thread")) return "numa.bind_green_thread";
+            if (std.mem.eql(u8, member_name, "set_memory_policy")) return "numa.set_memory_policy";
+            if (std.mem.eql(u8, member_name, "cpu_count")) return "numa.cpu_count";
             return null;
         }
 
@@ -1354,11 +1364,7 @@ const LoweringContext = struct {
                 try numa_arg_refs.append(self.allocator, try self.lowerExpr(arg_node));
             }
             const target = mapBuiltinCall(builtin_name);
-            if (std.mem.eql(u8, builtin_name, "numa.pin")) {
-                return self.emitTypedCall(target, numa_arg_refs.items, "void", false);
-            }
-            // node_count, current_node return uint32_t; distance returns uint32_t; memory_on_node returns uint64_t
-            const ret_type = if (std.mem.eql(u8, builtin_name, "numa.memory_on_node")) "uint64_t" else "uint32_t";
+            const ret_type = numaReturnType(builtin_name);
             return self.emitTypedCall(target, numa_arg_refs.items, ret_type, false);
         }
 
@@ -1524,7 +1530,37 @@ const LoweringContext = struct {
         if (std.mem.eql(u8, name, "numa.distance")) return "run_numa_distance";
         if (std.mem.eql(u8, name, "numa.pin")) return "run_numa_pin";
         if (std.mem.eql(u8, name, "numa.memory_on_node")) return "run_numa_memory_on_node";
+        if (std.mem.eql(u8, name, "numa.available")) return "run_numa_available";
+        if (std.mem.eql(u8, name, "numa.preferred_node")) return "run_numa_preferred_node";
+        if (std.mem.eql(u8, name, "numa.local_alloc")) return "run_numa_local_alloc";
+        if (std.mem.eql(u8, name, "numa.node_alloc")) return "run_numa_node_alloc";
+        if (std.mem.eql(u8, name, "numa.interleave_alloc")) return "run_numa_interleave_alloc";
+        if (std.mem.eql(u8, name, "numa.free")) return "run_numa_free";
+        if (std.mem.eql(u8, name, "numa.bind_thread")) return "run_numa_bind_thread";
+        if (std.mem.eql(u8, name, "numa.bind_green_thread")) return "run_numa_pin";
+        if (std.mem.eql(u8, name, "numa.set_memory_policy")) return "run_numa_set_memory_policy";
+        if (std.mem.eql(u8, name, "numa.cpu_count")) return "run_numa_cpu_count";
         return name;
+    }
+
+    fn numaReturnType(builtin_name: []const u8) []const u8 {
+        if (std.mem.eql(u8, builtin_name, "numa.pin") or
+            std.mem.eql(u8, builtin_name, "numa.bind_green_thread") or
+            std.mem.eql(u8, builtin_name, "numa.free"))
+            return "void";
+        if (std.mem.eql(u8, builtin_name, "numa.bind_thread") or
+            std.mem.eql(u8, builtin_name, "numa.set_memory_policy") or
+            std.mem.eql(u8, builtin_name, "numa.preferred_node"))
+            return "int32_t";
+        if (std.mem.eql(u8, builtin_name, "numa.available"))
+            return "bool";
+        if (std.mem.eql(u8, builtin_name, "numa.local_alloc") or
+            std.mem.eql(u8, builtin_name, "numa.node_alloc") or
+            std.mem.eql(u8, builtin_name, "numa.interleave_alloc"))
+            return "void *";
+        if (std.mem.eql(u8, builtin_name, "numa.memory_on_node"))
+            return "uint64_t";
+        return "uint32_t"; // node_count, current_node, distance, cpu_count
     }
 
     fn emit(self: *LoweringContext, inst: ir.Inst) LowerError!void {

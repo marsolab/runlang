@@ -68,6 +68,75 @@ static void test_numa_allocator_vtable(void) {
     a.free_fn(a.ctx, p, 4096);
 }
 
+/* ---------- Extended API Tests ---------- */
+
+static void test_numa_available(void) {
+    bool avail = run_numa_available();
+    RUN_ASSERT(avail == (run_numa_node_count() > 1));
+}
+
+static void test_numa_preferred_node_default(void) {
+    /* Outside green thread context, should return -1 */
+    int32_t node = run_numa_preferred_node();
+    RUN_ASSERT_EQ(node, -1);
+}
+
+static void test_numa_local_alloc(void) {
+    void *p = run_numa_local_alloc(4096);
+    RUN_ASSERT(p != NULL);
+    memset(p, 0xEF, 4096);
+    RUN_ASSERT(((unsigned char *)p)[0] == 0xEF);
+    run_numa_free(p, 4096);
+}
+
+static void test_numa_node_alloc(void) {
+    void *p = run_numa_node_alloc(0, 4096);
+    RUN_ASSERT(p != NULL);
+    memset(p, 0xDC, 4096);
+    RUN_ASSERT(((unsigned char *)p)[0] == 0xDC);
+    run_numa_free(p, 4096);
+}
+
+static void test_numa_interleave_alloc(void) {
+    void *p1 = run_numa_interleave_alloc(4096);
+    void *p2 = run_numa_interleave_alloc(4096);
+    RUN_ASSERT(p1 != NULL);
+    RUN_ASSERT(p2 != NULL);
+    run_numa_free(p1, 4096);
+    run_numa_free(p2, 4096);
+}
+
+static void test_numa_bind_thread_valid(void) {
+    int ret = run_numa_bind_thread(0);
+    RUN_ASSERT_EQ(ret, 0);
+}
+
+static void test_numa_bind_thread_invalid(void) {
+    int ret = run_numa_bind_thread(9999);
+    /* On macOS, bind_thread is a no-op (returns 0).
+     * On Linux/Windows, invalid node returns -1. */
+#if defined(__APPLE__)
+    RUN_ASSERT_EQ(ret, 0);
+#else
+    RUN_ASSERT_EQ(ret, -1);
+#endif
+}
+
+static void test_numa_cpu_count_valid(void) {
+    uint32_t count = run_numa_cpu_count(0);
+    RUN_ASSERT(count > 0);
+}
+
+static void test_numa_cpu_count_invalid(void) {
+    uint32_t count = run_numa_cpu_count(9999);
+    RUN_ASSERT_EQ(count, 0);
+}
+
+static void test_numa_set_memory_policy_local(void) {
+    int ret = run_numa_set_memory_policy(RUN_NUMA_POLICY_LOCAL, 0);
+    RUN_ASSERT_EQ(ret, 0);
+}
+
 /* ---------- Scheduler Integration Tests ---------- */
 
 static volatile int numa_spawn_counter = 0;
@@ -108,6 +177,18 @@ void run_test_numa(void) {
     /* Allocation */
     RUN_TEST(test_numa_alloc_on_node);
     RUN_TEST(test_numa_allocator_vtable);
+
+    /* Extended API */
+    RUN_TEST(test_numa_available);
+    RUN_TEST(test_numa_preferred_node_default);
+    RUN_TEST(test_numa_local_alloc);
+    RUN_TEST(test_numa_node_alloc);
+    RUN_TEST(test_numa_interleave_alloc);
+    RUN_TEST(test_numa_bind_thread_valid);
+    RUN_TEST(test_numa_bind_thread_invalid);
+    RUN_TEST(test_numa_cpu_count_valid);
+    RUN_TEST(test_numa_cpu_count_invalid);
+    RUN_TEST(test_numa_set_memory_policy_local);
 
     /* Scheduler integration */
     RUN_TEST(test_numa_spawn_on_node);

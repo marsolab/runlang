@@ -1,0 +1,27 @@
+package main
+
+import "fmt"
+import "numa"
+
+fun worker() {
+    let node = numa.current_node()
+    fmt.println("worker on node", node)
+}
+
+fun main() {
+    let nodes = numa.node_count()
+    let current = numa.current_node()
+    let avail = numa.available()
+
+    fmt.println("NUMA nodes:", nodes)
+    fmt.println("current node:", current)
+    fmt.println("NUMA available:", avail)
+
+    // Allocate on the current node
+    let p = numa.local_alloc(4096)
+    fmt.println("local_alloc:", p)
+    numa.free(p, 4096)
+
+    // Spawn a green thread with NUMA affinity
+    run(node: 0) worker()
+}
