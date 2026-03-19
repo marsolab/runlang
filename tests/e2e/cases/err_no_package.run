@@ -1,0 +1,6 @@
+// compile-error: missing package declaration
+use "fmt"
+
+pub fun main() {
+    fmt.println("hello")
+}

@@ -221,6 +221,67 @@ pub fn build(b: *std.Build) void {
     const runtime_test_step = b.step("test-runtime", "Run runtime C tests");
     runtime_test_step.dependOn(&run_runtime_tests.step);
 
+    // E2E compiler tests
+    const e2e_test_exe = b.addExecutable(.{
+        .name = "e2e-tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/e2e/runner.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_e2e_tests = b.addRunArtifact(e2e_test_exe);
+    run_e2e_tests.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_e2e_tests.addArgs(args);
+    }
+    const e2e_test_step = b.step("test-e2e", "Run end-to-end compiler tests");
+    e2e_test_step.dependOn(&run_e2e_tests.step);
+
+    // Fuzz targets
+    const fuzz_targets = .{
+        .{ "fuzz-lexer", "src/fuzz_lexer.zig", "Fuzz the lexer" },
+        .{ "fuzz-parser", "src/fuzz_parser.zig", "Fuzz the parser" },
+        .{ "fuzz-pipeline", "src/fuzz_pipeline.zig", "Fuzz the full pipeline" },
+    };
+    inline for (fuzz_targets) |entry| {
+        const fuzz_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(entry[1]),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        const run_fuzz = b.addRunArtifact(fuzz_test);
+        const fuzz_step = b.step(entry[0], entry[2]);
+        fuzz_step.dependOn(&run_fuzz.step);
+    }
+
+    // Benchmark suite
+    const bench_root = b.createModule(.{
+        .root_source_file = b.path("benchmarks/bench.zig"),
+        .target = target,
+        .optimize = .ReleaseFast,
+    });
+    // Provide compiler as a single module to avoid file-ownership conflicts
+    bench_root.addImport("compiler", b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = .ReleaseFast,
+    }));
+    const bench_exe = b.addExecutable(.{
+        .name = "bench",
+        .root_module = bench_root,
+    });
+    // Benchmark depends on compiler binary for pipeline benchmarks
+    const run_bench = b.addRunArtifact(bench_exe);
+    run_bench.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_bench.addArgs(args);
+    }
+    const bench_step = b.step("bench", "Run compiler benchmarks");
+    bench_step.dependOn(&run_bench.step);
+
     // WASM build for the web playground
     const wasm = b.addExecutable(.{
         .name = "run-playground",

@@ -1,0 +1,8 @@
+// expect: 42
+package main
+
+use "fmt"
+
+pub fun main() {
+    fmt.println(42)
+}

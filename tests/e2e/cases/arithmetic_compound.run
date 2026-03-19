@@ -1,0 +1,12 @@
+// expect: 13
+package main
+
+use "fmt"
+
+pub fun main() {
+    let a = 2
+    let b = 3
+    let c = 4
+    let result = a + b * c - 1
+    fmt.println(result)
+}

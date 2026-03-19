@@ -1,0 +1,9 @@
+// expect: hello world
+package main
+
+use "fmt"
+
+pub fun main() {
+    let msg = "hello world"
+    fmt.println(msg)
+}

@@ -1,0 +1,12 @@
+// expect: one
+// expect: two
+// expect: three
+package main
+
+use "fmt"
+
+pub fun main() {
+    fmt.println("one")
+    fmt.println("two")
+    fmt.println("three")
+}

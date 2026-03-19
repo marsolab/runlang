@@ -1,0 +1,14 @@
+// expect: 0
+// expect: 1
+// expect: 2
+package main
+
+use "fmt"
+
+pub fun main() {
+    var i = 0
+    for i < 3 {
+        fmt.println(i)
+        i = i + 1
+    }
+}

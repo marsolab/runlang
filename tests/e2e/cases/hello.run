@@ -1,0 +1,8 @@
+// expect: Hello, World!
+package main
+
+use "fmt"
+
+pub fun main() {
+    fmt.println("Hello, World!")
+}

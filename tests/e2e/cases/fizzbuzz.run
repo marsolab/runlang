@@ -1,0 +1,38 @@
+// expect: 1
+// expect: 2
+// expect: Fizz
+// expect: 4
+// expect: Buzz
+// expect: Fizz
+// expect: 7
+// expect: 8
+// expect: Fizz
+// expect: Buzz
+// expect: 11
+// expect: Fizz
+// expect: 13
+// expect: 14
+// expect: FizzBuzz
+package main
+
+use "fmt"
+
+pub fun main() {
+    var i = 1
+    for i < 16 {
+        if i % 15 == 0 {
+            fmt.println("FizzBuzz")
+        } else {
+            if i % 3 == 0 {
+                fmt.println("Fizz")
+            } else {
+                if i % 5 == 0 {
+                    fmt.println("Buzz")
+                } else {
+                    fmt.println(i)
+                }
+            }
+        }
+        i = i + 1
+    }
+}

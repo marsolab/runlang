@@ -1,0 +1,28 @@
+package main
+
+use "fmt"
+
+fun add(a int, b int) int {
+    return a + b
+}
+
+pub fun main() {
+    let x = 42
+    var y = 10
+    y = y + x
+
+    if y > 50 {
+        fmt.println("big")
+    } else {
+        fmt.println("small")
+    }
+
+    var i = 0
+    for i < 3 {
+        fmt.print_int(i)
+        i = i + 1
+    }
+
+    let result = add(3, 4)
+    fmt.print_int(result)
+}

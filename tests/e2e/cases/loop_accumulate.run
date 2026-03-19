@@ -1,0 +1,14 @@
+// expect: 55
+package main
+
+use "fmt"
+
+pub fun main() {
+    var sum = 0
+    var i = 1
+    for i < 11 {
+        sum = sum + i
+        i = i + 1
+    }
+    fmt.println(sum)
+}

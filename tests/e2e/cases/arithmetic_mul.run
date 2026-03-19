@@ -1,0 +1,9 @@
+// expect: 12
+package main
+
+use "fmt"
+
+pub fun main() {
+    let x = 3 * 4
+    fmt.println(x)
+}

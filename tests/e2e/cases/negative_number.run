@@ -1,0 +1,9 @@
+// expect: 4294967291
+package main
+
+use "fmt"
+
+pub fun main() {
+    let x = 0 - 5
+    fmt.println(x)
+}
