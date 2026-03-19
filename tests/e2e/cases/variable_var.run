@@ -1,0 +1,12 @@
+// expect: 10
+// expect: 15
+package main
+
+use "fmt"
+
+pub fun main() {
+    var x = 10
+    fmt.println(x)
+    x = x + 5
+    fmt.println(x)
+}

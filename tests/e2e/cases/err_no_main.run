@@ -1,0 +1,5 @@
+// compile-error: package main must contain `pub fun main`
+package main
+
+fun helper() {
+}

@@ -1,0 +1,21 @@
+// expect: deep
+package main
+
+use "fmt"
+
+pub fun main() {
+    let x = 10
+    if x > 0 {
+        if x > 5 {
+            if x > 8 {
+                fmt.println("deep")
+            } else {
+                fmt.println("mid")
+            }
+        } else {
+            fmt.println("low")
+        }
+    } else {
+        fmt.println("negative")
+    }
+}

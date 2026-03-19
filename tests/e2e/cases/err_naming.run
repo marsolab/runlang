@@ -1,0 +1,9 @@
+// compile-error: naming violation
+package main
+
+use "fmt"
+
+pub fun main() {
+    let BadName = 42
+    fmt.println(BadName)
+}

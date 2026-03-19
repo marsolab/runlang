@@ -1,0 +1,13 @@
+// expect: yes
+package main
+
+use "fmt"
+
+pub fun main() {
+    let x = 10
+    if x > 5 {
+        fmt.println("yes")
+    } else {
+        fmt.println("no")
+    }
+}

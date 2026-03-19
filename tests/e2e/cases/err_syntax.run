@@ -1,0 +1,5 @@
+// compile-error: expected token
+package main
+
+pub fun main() {
+    let x = 42
