@@ -1,22 +1,22 @@
 package errors
 
 // Error is the interface for all error values.
-pub type Error interface {
+pub interface Error {
     // message returns the error message.
     message() string
 }
 
 // Wrapper is the interface for errors that wrap other errors.
-pub type Wrapper interface {
+pub interface Wrapper {
     // unwrap returns the wrapped error, or null if none.
     unwrap() Error?
 }
 
 // SimpleError is a basic error with a message string.
 pub SimpleError struct {
-    implements {
-        Error
-    }
+    implements (
+        Error,
+    )
 
     msg string
 }
@@ -28,10 +28,10 @@ pub fun (e @SimpleError) message() string {
 
 // WrappedError is an error that wraps another error with additional context.
 pub WrappedError struct {
-    implements {
-        Error
-        Wrapper
-    }
+    implements (
+        Error,
+        Wrapper,
+    )
 
     msg   string
     cause Error
