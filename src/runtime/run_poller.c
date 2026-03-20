@@ -48,6 +48,7 @@ static volatile int32_t registered_fd_count = 0;
 #if defined(RUN_POLLER_IOURING)
 
 #include <linux/io_uring.h>
+#include <poll.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
 
