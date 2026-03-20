@@ -82,6 +82,13 @@ The milestones are ordered by dependency — each builds on the previous:
 
 M7 is the foundation (assembly provides the low-level escape hatch). M8 and M9 can proceed in parallel after M7.
 
+10. **M10: Stdlib Foundation** — errors package, fmt, io, os, strings, bytes (P0 — exercises interfaces, error unions, sum types, syscall builtins)
+11. **M11: Stdlib Utilities** — iter, slices, maps, cmp, math/bits, path, math, testing, time, log, sync, strconv, sort, bufio, unicode (P1 — mostly pure Run code)
+12. **M12: Stdlib Application** — encoding/json+yaml+toml+xml+csv, crypto/*, compress/*, io/fs, html, text/template, hash/*, net, net/http, archive/* (P2 — requires working networking and I/O)
+13. **M13: Stdlib Specialized** — context, flag, regex, unsafe, runtime, debug, embed, os/exec, os/signal, net/http2, net/grpc, encoding/proto, metrics, simd/numa/asm wrappers (P3 — advanced systems programming)
+
+M10-M13 implement the stdlib redesign (RFC #219). M10 is the foundation; M11-M12 build on it. M13 can proceed in parallel with M12 for independent packages.
+
 ### Long-term Goal: Self-Hosted Compiler (#188)
 
 Once the compiler and language are stable enough (post-M6 at minimum), the compiler will be rewritten in Run itself. The current Zig implementation becomes the bootstrap compiler (stage 0), the Run rewrite becomes stage 1, and self-hosting is proven when stage 1 can compile itself (stage 2) with matching output.
