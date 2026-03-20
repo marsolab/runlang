@@ -61,7 +61,7 @@ void run_debug_print_stack(void) {
         fprintf(stderr, "  %s\n", symbols[i]);
     }
 
-    free(symbols);
+    free((void *)symbols);
 #else
     fprintf(stderr, "<stack trace not supported on this platform>\n");
 #endif

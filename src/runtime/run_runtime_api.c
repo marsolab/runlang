@@ -103,7 +103,7 @@ run_string_t run_runtime_stack(void) {
 
     char *buf = malloc(total + 1);
     if (!buf) {
-        free(symbols);
+        free((void *)symbols);
         return run_string_from_cstr("<out of memory>");
     }
 
@@ -116,7 +116,7 @@ run_string_t run_runtime_stack(void) {
     }
     buf[pos] = '\0';
 
-    free(symbols);
+    free((void *)symbols);
 
     /* Return as run_string_t — caller owns the memory */
     return run_string_from_parts(buf, pos);
