@@ -221,7 +221,7 @@ pub const Resolver = struct {
     }
 
     fn collectInterfaceDecl(self: *Resolver, node: NodeIndex, is_pub: bool) ResolveError!void {
-        // interface_decl: main_token = kw_interface, name is next token
+        // interface_decl: main_token = kw_type, name is next token
         const main_tok = self.nodeMainToken(node);
         const name_tok = main_tok + 1;
         const name = self.tokenSlice(name_tok);

@@ -110,7 +110,7 @@ pub const Node = struct {
         /// lhs = extra_data start, rhs = field count
         /// extra_data layout: [implements_count, iface1, ..., ifaceN, field1, ..., fieldM]
         struct_decl,
-        /// `interface Name { method_sigs }`
+        /// `type Name interface { method_sigs }`
         /// lhs = extra_data start for method sigs, rhs = count
         interface_decl,
         /// Bare method signature in an interface: `name(params) ret_type`
