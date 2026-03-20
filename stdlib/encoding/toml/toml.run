@@ -1,0 +1,97 @@
+package toml
+
+use "io"
+
+// TomlError represents errors during TOML encoding/decoding.
+pub type TomlError = .syntax_error
+    | .type_mismatch
+    | .duplicate_key
+    | .invalid_datetime
+    | .mixed_array
+
+// Value represents a TOML value.
+pub type Value = .string(string)
+    | .int(int)
+    | .float(f64)
+    | .bool(bool)
+    | .datetime(string)
+    | .array([]Value)
+    | .table(map[string]Value)
+
+// parse parses TOML data into a dynamic Value tree.
+pub fun parse(data string) !Value {
+    return .table(alloc(map[string]Value, 0))
+}
+
+// parse_file reads and parses a TOML file.
+pub fun parse_file(path string) !Value {
+    return .table(alloc(map[string]Value, 0))
+}
+
+// marshal encodes a value as a TOML string.
+pub fun marshal(value any) !string {
+    return ""
+}
+
+// unmarshal decodes TOML data into the value pointed to by target.
+pub fun unmarshal(data string, target &any) !void {
+}
+
+// get retrieves a nested value by key from a Value.
+pub fun (v @Value) get(key string) Value? {
+    return null
+}
+
+// get_string returns the string value for the given key, or null.
+pub fun (v @Value) get_string(key string) string? {
+    return null
+}
+
+// get_int returns the integer value for the given key, or null.
+pub fun (v @Value) get_int(key string) int? {
+    return null
+}
+
+// get_bool returns the boolean value for the given key, or null.
+pub fun (v @Value) get_bool(key string) bool? {
+    return null
+}
+
+// get_table returns the table value for the given key, or null.
+pub fun (v @Value) get_table(key string) Value? {
+    return null
+}
+
+// get_array returns the array value for the given key as a slice, or null.
+pub fun (v @Value) get_array(key string) []Value? {
+    return null
+}
+
+// Encoder writes TOML to an output stream.
+pub Encoder struct {
+    writer io.Writer
+}
+
+// new_encoder returns a new Encoder that writes to w.
+pub fun new_encoder(w io.Writer) Encoder {
+    return Encoder{ writer: w }
+}
+
+// encode writes the TOML encoding of v to the stream.
+pub fun (enc &Encoder) encode(value any) !void {
+}
+
+// Decoder reads and decodes TOML from an input stream.
+pub Decoder struct {
+    reader io.Reader
+}
+
+// new_decoder returns a new Decoder that reads from r.
+pub fun new_decoder(r io.Reader) Decoder {
+    return Decoder{ reader: r }
+}
+
+// decode reads TOML from the stream and stores it in the value
+// pointed to by target.
+pub fun (dec &Decoder) decode(target &any) !void {
+}

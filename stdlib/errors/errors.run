@@ -1,0 +1,88 @@
+package errors
+
+// Error is the interface for all error values.
+pub type Error interface {
+    // message returns the error message.
+    message() string
+}
+
+// Wrapper is the interface for errors that wrap other errors.
+pub type Wrapper interface {
+    // unwrap returns the wrapped error, or null if none.
+    unwrap() Error?
+}
+
+// SimpleError is a basic error with a message string.
+pub SimpleError struct {
+    implements {
+        Error
+    }
+
+    msg string
+}
+
+// message returns the error message.
+pub fun (e @SimpleError) message() string {
+    return e.msg
+}
+
+// WrappedError is an error that wraps another error with additional context.
+pub WrappedError struct {
+    implements {
+        Error
+        Wrapper
+    }
+
+    msg   string
+    cause Error
+}
+
+// message returns the error message with context.
+pub fun (e @WrappedError) message() string {
+    return ""
+}
+
+// unwrap returns the wrapped inner error.
+pub fun (e @WrappedError) unwrap() Error? {
+    return null
+}
+
+// new creates a simple error with the given message.
+pub fun new(msg string) Error {
+    return SimpleError{ msg: msg }
+}
+
+// wrap wraps an error with additional context message.
+// The resulting error chain can be inspected with unwrap.
+pub fun wrap(err Error, msg string) Error {
+    return WrappedError{ msg: msg, cause: err }
+}
+
+// wrap_f wraps an error with a formatted context message.
+pub fun wrap_f(err Error, format string, args ...any) Error {
+    return WrappedError{ msg: "", cause: err }
+}
+
+// unwrap returns the error wrapped by err, or null if err does
+// not implement the Wrapper interface.
+pub fun unwrap(err Error) Error? {
+    return null
+}
+
+// is reports whether any error in err's chain matches target.
+// An error is considered a match if it is equal to the target.
+pub fun is(err Error, target Error) bool {
+    return false
+}
+
+// as attempts to find the first error in err's chain that matches
+// the target type and assigns it to target.
+pub fun as(err Error, target &any) bool {
+    return false
+}
+
+// join combines multiple errors into a single error.
+// Returns null if all errors are null.
+pub fun join(errs []Error) Error? {
+    return null
+}

@@ -88,6 +88,41 @@ pub fun (v Value) as_object() map[string]Value? {
     return null
 }
 
+// is_null reports whether the Value is null.
+pub fun (v @Value) is_null() bool {
+    return false
+}
+
+// is_bool reports whether the Value is a boolean.
+pub fun (v @Value) is_bool() bool {
+    return false
+}
+
+// is_int reports whether the Value is an integer.
+pub fun (v @Value) is_int() bool {
+    return false
+}
+
+// is_float reports whether the Value is a float.
+pub fun (v @Value) is_float() bool {
+    return false
+}
+
+// is_string reports whether the Value is a string.
+pub fun (v @Value) is_string() bool {
+    return false
+}
+
+// is_array reports whether the Value is an array.
+pub fun (v @Value) is_array() bool {
+    return false
+}
+
+// is_object reports whether the Value is an object.
+pub fun (v @Value) is_object() bool {
+    return false
+}
+
 // Encoder writes JSON values to an output stream.
 pub Encoder struct {
     writer io.Writer

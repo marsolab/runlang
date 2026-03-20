@@ -1,0 +1,105 @@
+package xml
+
+use "io"
+
+// XmlError represents errors during XML encoding/decoding.
+pub type XmlError = .syntax_error
+    | .unexpected_eof
+    | .invalid_character
+    | .unclosed_tag
+    | .mismatched_tag
+
+// Name represents an XML name with local and namespace parts.
+pub Name struct {
+    local string
+    space string
+}
+
+// Attr represents an XML attribute.
+pub Attr struct {
+    name  Name
+    value string
+}
+
+// StartElement represents an XML start element with its attributes.
+pub StartElement struct {
+    name Name
+    attr []Attr
+}
+
+// EndElement represents an XML end element.
+pub EndElement struct {
+    name Name
+}
+
+// ProcInst represents an XML processing instruction.
+pub ProcInst struct {
+    target string
+    inst   string
+}
+
+// Token represents an XML token returned by the Decoder.
+pub type Token = .start_element(StartElement)
+    | .end_element(EndElement)
+    | .char_data(string)
+    | .comment(string)
+    | .proc_inst(ProcInst)
+    | .directive(string)
+
+// marshal encodes a value as XML bytes.
+pub fun marshal(v any) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// marshal_indent encodes a value as indented XML bytes.
+pub fun marshal_indent(v any, prefix string, indent string) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// unmarshal decodes XML bytes into the value pointed to by target.
+pub fun unmarshal(data []byte, target &any) !void {
+}
+
+// Encoder writes XML to an output stream.
+pub Encoder struct {
+    writer io.Writer
+}
+
+// new_encoder returns a new Encoder that writes to w.
+pub fun new_encoder(w io.Writer) Encoder {
+    return Encoder{ writer: w }
+}
+
+// encode writes the XML encoding of v to the stream.
+pub fun (enc &Encoder) encode(v any) !void {
+}
+
+// flush flushes any buffered XML to the underlying writer.
+pub fun (enc &Encoder) flush() !void {
+}
+
+// Decoder reads XML tokens from an input stream.
+pub Decoder struct {
+    reader io.Reader
+}
+
+// new_decoder returns a new Decoder that reads from r.
+pub fun new_decoder(r io.Reader) Decoder {
+    return Decoder{ reader: r }
+}
+
+// token reads the next XML token from the stream.
+// Returns null at end of input.
+pub fun (dec &Decoder) token() !Token? {
+    return null
+}
+
+// decode reads an XML element from the stream and stores it
+// in the value pointed to by target.
+pub fun (dec &Decoder) decode(target &any) !void {
+}
+
+// skip reads tokens until it has consumed the end element
+// matching the most recently consumed start element.
+pub fun (dec &Decoder) skip() !void {
+}
