@@ -25,27 +25,28 @@ static char *string_to_cstr(run_string_t s) {
 /* ── Internal command struct ─────────────────────────────────────────────── */
 
 struct run_exec_cmd {
-    char *path;          /* NUL-terminated copy of program name/path */
-    char **argv;         /* NULL-terminated argument vector */
-    int argc;            /* number of args (excluding NULL sentinel) */
-    int argv_cap;        /* allocated capacity of argv array */
-    char *dir;           /* working directory, NULL = inherit */
-    char **envp;         /* environment, NULL = inherit */
-    int envc;            /* number of env entries */
-    pid_t child_pid;     /* 0 = not started */
-    int stdin_pipe[2];   /* [0]=read, [1]=write; -1 = not created */
+    char *path;        /* NUL-terminated copy of program name/path */
+    char **argv;       /* NULL-terminated argument vector */
+    int argc;          /* number of args (excluding NULL sentinel) */
+    int argv_cap;      /* allocated capacity of argv array */
+    char *dir;         /* working directory, NULL = inherit */
+    char **envp;       /* environment, NULL = inherit */
+    int envc;          /* number of env entries */
+    pid_t child_pid;   /* 0 = not started */
+    int stdin_pipe[2]; /* [0]=read, [1]=write; -1 = not created */
     int stdout_pipe[2];
     int stderr_pipe[2];
     bool started;
     bool waited;
-    int exit_status;     /* raw waitpid status */
+    int exit_status; /* raw waitpid status */
 };
 
 /* ── Public API ──────────────────────────────────────────────────────────── */
 
 run_exec_cmd_t *run_exec_command(run_string_t name) {
     run_exec_cmd_t *cmd = calloc(1, sizeof(*cmd));
-    if (!cmd) return NULL;
+    if (!cmd)
+        return NULL;
 
     cmd->path = string_to_cstr(name);
     if (!cmd->path) {
@@ -72,18 +73,21 @@ run_exec_cmd_t *run_exec_command(run_string_t name) {
 }
 
 void run_exec_add_args(run_exec_cmd_t *cmd, run_string_t *args, size_t nargs) {
-    if (!cmd || !args) return;
+    if (!cmd || !args)
+        return;
     for (size_t i = 0; i < nargs; i++) {
         /* Grow argv if needed (+1 for NULL sentinel) */
         if (cmd->argc + 1 >= cmd->argv_cap) {
             int new_cap = cmd->argv_cap * 2;
             char **new_argv = realloc(cmd->argv, (size_t)new_cap * sizeof(char *));
-            if (!new_argv) return;
+            if (!new_argv)
+                return;
             cmd->argv = new_argv;
             cmd->argv_cap = new_cap;
         }
         char *s = string_to_cstr(args[i]);
-        if (!s) return; /* OOM: stop adding args rather than corrupt argv */
+        if (!s)
+            return; /* OOM: stop adding args rather than corrupt argv */
         cmd->argv[cmd->argc] = s;
         cmd->argc++;
         cmd->argv[cmd->argc] = NULL; /* maintain NULL sentinel */
@@ -91,16 +95,19 @@ void run_exec_add_args(run_exec_cmd_t *cmd, run_string_t *args, size_t nargs) {
 }
 
 void run_exec_set_dir(run_exec_cmd_t *cmd, run_string_t dir) {
-    if (!cmd) return;
+    if (!cmd)
+        return;
     free(cmd->dir);
     cmd->dir = (dir.len > 0) ? string_to_cstr(dir) : NULL;
 }
 
 void run_exec_set_env(run_exec_cmd_t *cmd, run_string_t *env, size_t nenv) {
-    if (!cmd) return;
+    if (!cmd)
+        return;
     /* Free previous env */
     if (cmd->envp) {
-        for (int i = 0; i < cmd->envc; i++) free(cmd->envp[i]);
+        for (int i = 0; i < cmd->envc; i++)
+            free(cmd->envp[i]);
         free(cmd->envp);
     }
     if (nenv == 0 || !env) {
@@ -109,7 +116,8 @@ void run_exec_set_env(run_exec_cmd_t *cmd, run_string_t *env, size_t nenv) {
         return;
     }
     cmd->envp = calloc(nenv + 1, sizeof(char *));
-    if (!cmd->envp) return;
+    if (!cmd->envp)
+        return;
     for (size_t i = 0; i < nenv; i++) {
         cmd->envp[i] = string_to_cstr(env[i]);
     }
@@ -120,8 +128,10 @@ void run_exec_set_env(run_exec_cmd_t *cmd, run_string_t *env, size_t nenv) {
 /* ── Internal: fork + exec ───────────────────────────────────────────────── */
 
 static run_error_t do_start(run_exec_cmd_t *cmd) {
-    if (!cmd) return RUN_ERR("exec: null command");
-    if (cmd->started) return RUN_ERR("exec: already started");
+    if (!cmd)
+        return RUN_ERR("exec: null command");
+    if (cmd->started)
+        return RUN_ERR("exec: already started");
 
     pid_t pid = fork();
     if (pid < 0) {
@@ -148,7 +158,8 @@ static run_error_t do_start(run_exec_cmd_t *cmd) {
             dup2(cmd->stderr_pipe[1], STDERR_FILENO);
             /* Only close if stderr has its own pipe (not sharing with stdout) */
             if (cmd->stderr_pipe[1] != cmd->stdout_pipe[1]) {
-                if (cmd->stderr_pipe[0] != -1) close(cmd->stderr_pipe[0]);
+                if (cmd->stderr_pipe[0] != -1)
+                    close(cmd->stderr_pipe[0]);
                 close(cmd->stderr_pipe[1]);
             }
         }
@@ -192,9 +203,12 @@ static run_error_t do_start(run_exec_cmd_t *cmd) {
 }
 
 static run_error_t do_wait(run_exec_cmd_t *cmd) {
-    if (!cmd) return RUN_ERR("exec: null command");
-    if (!cmd->started) return RUN_ERR("exec: not started");
-    if (cmd->waited) return RUN_ERR("exec: already waited");
+    if (!cmd)
+        return RUN_ERR("exec: null command");
+    if (!cmd->started)
+        return RUN_ERR("exec: not started");
+    if (cmd->waited)
+        return RUN_ERR("exec: already waited");
 
     int status = 0;
     pid_t result;
@@ -226,7 +240,8 @@ static run_slice_t read_all_fd(int fd) {
     char buf[4096];
     for (;;) {
         ssize_t n = read(fd, buf, sizeof(buf));
-        if (n <= 0) break;
+        if (n <= 0)
+            break;
         for (ssize_t i = 0; i < n; i++) {
             run_slice_append(&result, &buf[i]);
         }
@@ -238,7 +253,8 @@ static run_slice_t read_all_fd(int fd) {
 
 run_error_t run_exec_run(run_exec_cmd_t *cmd) {
     run_error_t err = do_start(cmd);
-    if (err.is_error) return err;
+    if (err.is_error)
+        return err;
     return do_wait(cmd);
 }
 
@@ -336,7 +352,8 @@ int64_t run_exec_stderr_pipe(run_exec_cmd_t *cmd, run_error_t *err) {
 
 run_exec_process_state_t run_exec_process_state(run_exec_cmd_t *cmd) {
     run_exec_process_state_t ps = {0};
-    if (!cmd || !cmd->waited) return ps;
+    if (!cmd || !cmd->waited)
+        return ps;
 
     ps.pid = (int64_t)cmd->child_pid;
     if (WIFEXITED(cmd->exit_status)) {
@@ -417,7 +434,8 @@ run_string_t run_exec_look_path(run_string_t file, run_error_t *err) {
 /* ── Public: free ────────────────────────────────────────────────────────── */
 
 void run_exec_free(run_exec_cmd_t *cmd) {
-    if (!cmd) return;
+    if (!cmd)
+        return;
 
     /* argv[0] == cmd->path, don't double-free */
     for (int i = 1; i < cmd->argc; i++) {
@@ -428,17 +446,24 @@ void run_exec_free(run_exec_cmd_t *cmd) {
     free(cmd->dir);
 
     if (cmd->envp) {
-        for (int i = 0; i < cmd->envc; i++) free(cmd->envp[i]);
+        for (int i = 0; i < cmd->envc; i++)
+            free(cmd->envp[i]);
         free(cmd->envp);
     }
 
     /* Close any still-open pipe fds */
-    if (cmd->stdin_pipe[0] != -1) close(cmd->stdin_pipe[0]);
-    if (cmd->stdin_pipe[1] != -1) close(cmd->stdin_pipe[1]);
-    if (cmd->stdout_pipe[0] != -1) close(cmd->stdout_pipe[0]);
-    if (cmd->stdout_pipe[1] != -1) close(cmd->stdout_pipe[1]);
-    if (cmd->stderr_pipe[0] != -1) close(cmd->stderr_pipe[0]);
-    if (cmd->stderr_pipe[1] != -1) close(cmd->stderr_pipe[1]);
+    if (cmd->stdin_pipe[0] != -1)
+        close(cmd->stdin_pipe[0]);
+    if (cmd->stdin_pipe[1] != -1)
+        close(cmd->stdin_pipe[1]);
+    if (cmd->stdout_pipe[0] != -1)
+        close(cmd->stdout_pipe[0]);
+    if (cmd->stdout_pipe[1] != -1)
+        close(cmd->stdout_pipe[1]);
+    if (cmd->stderr_pipe[0] != -1)
+        close(cmd->stderr_pipe[0]);
+    if (cmd->stderr_pipe[1] != -1)
+        close(cmd->stderr_pipe[1]);
 
     free(cmd);
 }

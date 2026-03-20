@@ -7,18 +7,18 @@
 #include <stdint.h>
 
 /* Signal enum ordinals matching the Run sum type declaration order. */
-#define RUN_SIG_INTERRUPT 0  /* SIGINT  */
-#define RUN_SIG_TERMINATE 1  /* SIGTERM */
-#define RUN_SIG_HANGUP    2  /* SIGHUP  */
-#define RUN_SIG_USR1      3  /* SIGUSR1 */
-#define RUN_SIG_USR2      4  /* SIGUSR2 */
-#define RUN_SIG_PIPE      5  /* SIGPIPE */
-#define RUN_SIG_ALARM     6  /* SIGALRM */
-#define RUN_SIG_CHILD     7  /* SIGCHLD */
-#define RUN_SIG_CONT      8  /* SIGCONT */
-#define RUN_SIG_STOP      9  /* SIGTSTP (SIGSTOP cannot be caught) */
-#define RUN_SIG_QUIT     10  /* SIGQUIT */
-#define RUN_SIG_COUNT    11
+#define RUN_SIG_INTERRUPT 0 /* SIGINT  */
+#define RUN_SIG_TERMINATE 1 /* SIGTERM */
+#define RUN_SIG_HANGUP 2    /* SIGHUP  */
+#define RUN_SIG_USR1 3      /* SIGUSR1 */
+#define RUN_SIG_USR2 4      /* SIGUSR2 */
+#define RUN_SIG_PIPE 5      /* SIGPIPE */
+#define RUN_SIG_ALARM 6     /* SIGALRM */
+#define RUN_SIG_CHILD 7     /* SIGCHLD */
+#define RUN_SIG_CONT 8      /* SIGCONT */
+#define RUN_SIG_STOP 9      /* SIGTSTP (SIGSTOP cannot be caught) */
+#define RUN_SIG_QUIT 10     /* SIGQUIT */
+#define RUN_SIG_COUNT 11
 
 /* Register channel to receive signals.
  * signals: array of Run signal ordinals. nsignals: count (0 = all). */

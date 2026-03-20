@@ -10,23 +10,18 @@
 /* ── POSIX signal number mapping ─────────────────────────────────────────── */
 
 static const int sig_run_to_posix[RUN_SIG_COUNT] = {
-    [RUN_SIG_INTERRUPT] = SIGINT,
-    [RUN_SIG_TERMINATE] = SIGTERM,
-    [RUN_SIG_HANGUP]    = SIGHUP,
-    [RUN_SIG_USR1]      = SIGUSR1,
-    [RUN_SIG_USR2]      = SIGUSR2,
-    [RUN_SIG_PIPE]      = SIGPIPE,
-    [RUN_SIG_ALARM]     = SIGALRM,
-    [RUN_SIG_CHILD]     = SIGCHLD,
-    [RUN_SIG_CONT]      = SIGCONT,
-    [RUN_SIG_STOP]      = SIGTSTP, /* SIGSTOP cannot be caught */
-    [RUN_SIG_QUIT]      = SIGQUIT,
+    [RUN_SIG_INTERRUPT] = SIGINT, [RUN_SIG_TERMINATE] = SIGTERM, [RUN_SIG_HANGUP] = SIGHUP,
+    [RUN_SIG_USR1] = SIGUSR1,     [RUN_SIG_USR2] = SIGUSR2,      [RUN_SIG_PIPE] = SIGPIPE,
+    [RUN_SIG_ALARM] = SIGALRM,    [RUN_SIG_CHILD] = SIGCHLD,     [RUN_SIG_CONT] = SIGCONT,
+    [RUN_SIG_STOP] = SIGTSTP, /* SIGSTOP cannot be caught */
+    [RUN_SIG_QUIT] = SIGQUIT,
 };
 
 /* Reverse mapping: POSIX signal number → Run ordinal. Returns -1 if unknown. */
 static int posix_to_run(int signo) {
     for (int i = 0; i < RUN_SIG_COUNT; i++) {
-        if (sig_run_to_posix[i] == signo) return i;
+        if (sig_run_to_posix[i] == signo)
+            return i;
     }
     return -1;
 }
@@ -66,11 +61,13 @@ static void *dispatcher_fn(void *arg) {
     for (;;) {
         unsigned char byte;
         ssize_t n = read(self_pipe[0], &byte, 1);
-        if (n != 1) continue;
+        if (n != 1)
+            continue;
 
         int signo = (int)byte;
         int run_sig = posix_to_run(signo);
-        if (run_sig < 0) continue;
+        if (run_sig < 0)
+            continue;
 
         int64_t ordinal = (int64_t)run_sig;
 
@@ -86,7 +83,8 @@ static void *dispatcher_fn(void *arg) {
 }
 
 static void start_dispatcher(void) {
-    if (pipe(self_pipe) != 0) return;
+    if (pipe(self_pipe) != 0)
+        return;
     pthread_create(&dispatcher_thread, NULL, dispatcher_fn, NULL);
 }
 
@@ -107,7 +105,8 @@ static void install_handler(int posix_sig) {
 
 static bool signal_has_any_registration(int run_sig) {
     for (int i = 0; i < registry_count; i++) {
-        if (registry[i].signals[run_sig]) return true;
+        if (registry[i].signals[run_sig])
+            return true;
     }
     return false;
 }
@@ -115,7 +114,8 @@ static bool signal_has_any_registration(int run_sig) {
 /* ── Public API ──────────────────────────────────────────────────────────── */
 
 void run_signal_notify(run_chan_t *ch, const int64_t *signals, size_t nsignals) {
-    if (!ch) return;
+    if (!ch)
+        return;
 
     ensure_dispatcher();
     pthread_mutex_lock(&registry_mutex);
@@ -158,7 +158,8 @@ void run_signal_notify(run_chan_t *ch, const int64_t *signals, size_t nsignals) 
 }
 
 void run_signal_stop(run_chan_t *ch) {
-    if (!ch) return;
+    if (!ch)
+        return;
 
     pthread_mutex_lock(&registry_mutex);
 
@@ -228,10 +229,14 @@ void run_signal_reset(const int64_t *signals, size_t nsignals) {
         for (int r = 0; r < registry_count; r++) {
             bool has_any = false;
             for (int s = 0; s < RUN_SIG_COUNT; s++) {
-                if (registry[r].signals[s]) { has_any = true; break; }
+                if (registry[r].signals[s]) {
+                    has_any = true;
+                    break;
+                }
             }
             if (has_any) {
-                if (w != r) registry[w] = registry[r];
+                if (w != r)
+                    registry[w] = registry[r];
                 w++;
             }
         }
