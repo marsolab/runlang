@@ -4,3 +4,4 @@ main
 main.o
 /run
 /test
+.agents/

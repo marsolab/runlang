@@ -57,6 +57,24 @@ These differ from older Zig versions and are critical to get right:
 
 Lexer and parser are complete. No semantic analysis, type checking, or code generation yet.
 
+## Self-Improvement
+
+When you make a mistake or encounter an error during work, document it so future sessions can avoid the same pitfall.
+
+1. **Before starting work**, read all files in `.agents/memory/mistakes/` to learn from past mistakes
+2. **When a mistake happens** (build error you caused, wrong API usage, misunderstanding of codebase conventions, etc.), create a file:
+
+   ```
+   .agents/memory/mistakes/YYYY-MM-DD_short-name.md
+   ```
+
+   The file must contain:
+   - **What went wrong** — describe the mistake clearly
+   - **Why it happened** — root cause (wrong assumption, outdated knowledge, etc.)
+   - **How to avoid it** — the correct approach for next time
+
+3. Keep filenames descriptive (e.g., `2026-03-21_arraylist-init-api.md`, `2026-03-21_wrong-stdout-writer.md`)
+
 ## Project Management
 
 Before starting any work, always:
