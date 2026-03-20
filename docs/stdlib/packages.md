@@ -1433,29 +1433,70 @@ scan_bytes        SplitFunc    — split by byte
 
 ### `flag` — Command-Line Flag Parsing
 
-**Purpose:** Parse command-line flags and arguments.
+**Purpose:** Parse command-line flags and arguments with subcommand support.
 
 **Key types and functions:**
 ```
 FlagSet           struct       — set of defined flags
+FlagError         sum type     — .undefinedFlag | .invalidValue | .helpRequested | .missingRequired | .unknownCommand
+Command           struct       — subcommand with its own flag set
+FlagInfo          struct       — metadata about a defined flag
 
 new(name string) FlagSet
+new_with_description(name, description string) FlagSet
+
+// Flag definition (with defaults)
 (fs &FlagSet) string_flag(name, default, usage string) &string
 (fs &FlagSet) int_flag(name string, default int, usage string) &int
 (fs &FlagSet) bool_flag(name string, default bool, usage string) &bool
 (fs &FlagSet) float_flag(name string, default f64, usage string) &f64
+(fs &FlagSet) duration_flag(name string, default time.Duration, usage string) &time.Duration
+
+// Required flags (no default, parse fails if missing)
+(fs &FlagSet) string_flag_required(name, usage string) &string
+(fs &FlagSet) int_flag_required(name, usage string) &int
+(fs &FlagSet) bool_flag_required(name, usage string) &bool
+(fs &FlagSet) float_flag_required(name, usage string) &f64
+(fs &FlagSet) duration_flag_required(name, usage string) &time.Duration
+
+// Subcommands
+(fs &FlagSet) add_command(name, description string) &FlagSet
+(fs @FlagSet) command() &FlagSet?      — matched subcommand after parse
+(fs @FlagSet) command_name() string    — matched subcommand name
+
+// Parsing and inspection
 (fs &FlagSet) parse(args []string) !void
+(fs &FlagSet) set_description(desc string)
 (fs @FlagSet) args() []string          — non-flag arguments
-(fs @FlagSet) usage()                  — print usage
+(fs @FlagSet) n_arg() int
+(fs @FlagSet) arg(i int) string
+(fs @FlagSet) n_flag() int
+(fs @FlagSet) is_set(name string) bool
+(fs @FlagSet) usage()                  — print usage to stderr
+(fs @FlagSet) help_text() string       — return usage as string
+(fs @FlagSet) flag_info(name string) FlagInfo?
+(fs @FlagSet) visit_flags(visitor fun(info FlagInfo))
 
 // Package-level (default FlagSet)
 string_flag(name, default, usage) &string
 int_flag(name, default, usage) &int
 bool_flag(name, default, usage) &bool
+float_flag(name, default, usage) &f64
+duration_flag(name, default, usage) &time.Duration
+string_flag_required(name, usage) &string
+int_flag_required(name, usage) &int
+bool_flag_required(name, usage) &bool
+float_flag_required(name, usage) &f64
+duration_flag_required(name, usage) &time.Duration
+add_command(name, description) &FlagSet
 parse() !void
+args() []string
+usage()
+command() &FlagSet?
+command_name() string
 ```
 
-**Dependencies:** `os`, `fmt`, `strconv`
+**Dependencies:** `os`, `fmt`, `strconv`, `time`
 
 ---
 
