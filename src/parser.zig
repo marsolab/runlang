@@ -108,7 +108,6 @@ pub const Parser = struct {
         return switch (self.peekTag()) {
             .kw_pub => self.parsePubDecl(),
             .kw_fun => self.parseFnDecl(),
-            .kw_interface => self.parseInterfaceDecl(),
             .kw_type => self.parseTypeAlias(),
             .kw_package => self.parsePackageDecl(),
             .kw_import => self.parseImportDecl(),
@@ -133,7 +132,6 @@ pub const Parser = struct {
 
         const inner = switch (self.peekTag()) {
             .kw_fun => try self.parseFnDecl(),
-            .kw_interface => try self.parseInterfaceDecl(),
             .kw_type => try self.parseTypeAlias(),
             .kw_package => blk: {
                 try self.addError(.expected_expression, self.currentLoc(), null);
@@ -397,15 +395,10 @@ pub const Parser = struct {
         });
     }
 
-    fn parseInterfaceDecl(self: *Parser) Error!NodeIndex {
-        const tok = self.pos;
+    /// Parse interface body after `type Name` has already been consumed.
+    /// `type_tok` points to the `kw_type` token (name is at type_tok + 1).
+    fn parseInterfaceBody(self: *Parser, type_tok: u32) Error!NodeIndex {
         self.expect(.kw_interface);
-
-        if (self.peekTag() != .identifier) {
-            try self.addError(.expected_identifier, self.currentLoc(), null);
-            return null_node;
-        }
-        self.advance();
 
         self.skipNewlines();
         self.expectToken(.l_brace);
@@ -432,7 +425,7 @@ pub const Parser = struct {
 
         return self.tree.addNode(.{
             .tag = .interface_decl,
-            .main_token = tok,
+            .main_token = type_tok,
             .data = .{ .lhs = start, .rhs = @as(NodeIndex, @intCast(methods.items.len)) },
         });
     }
@@ -474,6 +467,11 @@ pub const Parser = struct {
             return null_node;
         }
         self.advance(); // type name
+
+        // Interface declaration: type Name interface { ... }
+        if (self.peekTag() == .kw_interface) {
+            return self.parseInterfaceBody(tok);
+        }
 
         // Disambiguate: `type Name = .variants` (sum type) vs `type Name <type>` (type decl)
         if (self.peekTag() == .equal) {
@@ -2187,7 +2185,7 @@ test "parse struct with implements and colons" {
 }
 
 test "parse interface" {
-    const source = "pub interface Stringer {\n    string() string\n}";
+    const source = "pub type Stringer interface {\n    string() string\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);
@@ -2210,7 +2208,7 @@ test "parse interface" {
 }
 
 test "parse interface with multiple methods" {
-    const source = "interface ReadWriter {\n    read(buf: []byte) !int\n    write(buf: []byte) !int\n}";
+    const source = "type ReadWriter interface {\n    read(buf: []byte) !int\n    write(buf: []byte) !int\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);

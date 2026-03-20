@@ -3776,7 +3776,7 @@ test "typecheck: struct field with struct type" {
 
 test "typecheck: struct satisfies interface" {
     const result = try testTypeCheck(
-        \\interface Stringer {
+        \\type Stringer interface {
         \\    to_string() string
         \\}
         \\Point struct {
@@ -3796,7 +3796,7 @@ test "typecheck: struct satisfies interface" {
 
 test "typecheck: struct missing method from interface" {
     const has_err = try testTypeCheckHasErrorContaining(
-        \\interface Stringer {
+        \\type Stringer interface {
         \\    to_string() string
         \\}
         \\Point struct {
@@ -3812,7 +3812,7 @@ test "typecheck: struct missing method from interface" {
 
 test "typecheck: method wrong parameter type" {
     const has_err = try testTypeCheckHasErrorContaining(
-        \\interface Adder {
+        \\type Adder interface {
         \\    add(x int) int
         \\}
         \\Calc struct {
@@ -3831,7 +3831,7 @@ test "typecheck: method wrong parameter type" {
 
 test "typecheck: method wrong return type" {
     const has_err = try testTypeCheckHasErrorContaining(
-        \\interface Stringer {
+        \\type Stringer interface {
         \\    to_string() string
         \\}
         \\Point struct {
@@ -3850,7 +3850,7 @@ test "typecheck: method wrong return type" {
 
 test "typecheck: method wrong parameter count" {
     const has_err = try testTypeCheckHasErrorContaining(
-        \\interface Adder {
+        \\type Adder interface {
         \\    add(x int) int
         \\}
         \\Calc struct {
@@ -3869,10 +3869,10 @@ test "typecheck: method wrong parameter count" {
 
 test "typecheck: struct satisfies multiple interfaces" {
     const result = try testTypeCheck(
-        \\interface Stringer {
+        \\type Stringer interface {
         \\    to_string() string
         \\}
-        \\interface Adder {
+        \\type Adder interface {
         \\    add(x int) int
         \\}
         \\Widget struct {
@@ -3895,10 +3895,10 @@ test "typecheck: struct satisfies multiple interfaces" {
 
 test "typecheck: one of multiple interfaces not satisfied" {
     const has_err = try testTypeCheckHasErrorContaining(
-        \\interface Stringer {
+        \\type Stringer interface {
         \\    to_string() string
         \\}
-        \\interface Adder {
+        \\type Adder interface {
         \\    add(x int) int
         \\}
         \\Widget struct {
@@ -3931,7 +3931,7 @@ test "typecheck: undefined interface in implements" {
 
 test "typecheck: interface type as function parameter" {
     const result = try testTypeCheck(
-        \\interface Stringer {
+        \\type Stringer interface {
         \\    to_string() string
         \\}
         \\fn print_it(s Stringer) {
