@@ -56,7 +56,7 @@ run_exec_cmd_t *run_exec_command(run_string_t name) {
 
     /* argv[0] = program name, argv[1] = NULL sentinel */
     cmd->argv_cap = 8;
-    cmd->argv = calloc((size_t)cmd->argv_cap, sizeof(char *));
+    cmd->argv = (char **)calloc((size_t)cmd->argv_cap, sizeof(char *));
     if (!cmd->argv) {
         free(cmd->path);
         free(cmd);
@@ -79,7 +79,7 @@ void run_exec_add_args(run_exec_cmd_t *cmd, run_string_t *args, size_t nargs) {
         /* Grow argv if needed (+1 for NULL sentinel) */
         if (cmd->argc + 1 >= cmd->argv_cap) {
             int new_cap = cmd->argv_cap * 2;
-            char **new_argv = realloc(cmd->argv, (size_t)new_cap * sizeof(char *));
+            char **new_argv = (char **)realloc((void *)cmd->argv, (size_t)new_cap * sizeof(char *));
             if (!new_argv)
                 return;
             cmd->argv = new_argv;
@@ -108,14 +108,14 @@ void run_exec_set_env(run_exec_cmd_t *cmd, run_string_t *env, size_t nenv) {
     if (cmd->envp) {
         for (int i = 0; i < cmd->envc; i++)
             free(cmd->envp[i]);
-        free(cmd->envp);
+        free((void *)cmd->envp);
     }
     if (nenv == 0 || !env) {
         cmd->envp = NULL;
         cmd->envc = 0;
         return;
     }
-    cmd->envp = calloc(nenv + 1, sizeof(char *));
+    cmd->envp = (char **)calloc(nenv + 1, sizeof(char *));
     if (!cmd->envp)
         return;
     for (size_t i = 0; i < nenv; i++) {
@@ -441,14 +441,14 @@ void run_exec_free(run_exec_cmd_t *cmd) {
     for (int i = 1; i < cmd->argc; i++) {
         free(cmd->argv[i]);
     }
-    free(cmd->argv);
+    free((void *)cmd->argv);
     free(cmd->path);
     free(cmd->dir);
 
     if (cmd->envp) {
         for (int i = 0; i < cmd->envc; i++)
             free(cmd->envp[i]);
-        free(cmd->envp);
+        free((void *)cmd->envp);
     }
 
     /* Close any still-open pipe fds */
