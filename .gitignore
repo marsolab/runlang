@@ -4,3 +4,8 @@ main
 main.o
 /run
 /test
+# Xcode
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
