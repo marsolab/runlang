@@ -79,8 +79,14 @@ The milestones are ordered by dependency — each builds on the previous:
 7. **M7: Universal Assembly Language** — Portable assembly syntax, inline asm blocks, platform-specific asm files, assembler integration with C codegen
 8. **M8: Native SIMD** — First-class vector types (`v4f32`, `v8i32`, etc.), SIMD operations, auto-vectorization hints, platform-specific intrinsic mapping
 9. **M9: NUMA-Aware Runtime** — Topology discovery, NUMA-aware allocators, thread/green-thread affinity, memory placement policies
+10. **M10: Stdlib Foundation** — Core stdlib packages (fmt, io, os, strings, bytes, unicode)
+11. **M11: Stdlib Utilities** — Utility stdlib packages (math, sort, hash, encoding, compress, crypto)
+12. **M12: Stdlib Application** — Application-level stdlib packages (net, http, json, testing, log, time)
+13. **M13: Stdlib Specialized** — Specialized stdlib packages (reflect, debug, plugin, unsafe)
+14. **M14: Package Manager Core** — TOML manifest, semver resolution, GitHub fetching, local cache, MVS dependency resolution, `run get`/`run mod` CLI commands
+15. **M15: Package Manager Integration** — External import resolution, scope-aware dependency checking, multi-module compilation, vendor mode, offline builds, private repo auth
 
-M7 is the foundation (assembly provides the low-level escape hatch). M8 and M9 can proceed in parallel after M7.
+M7 is the foundation (assembly provides the low-level escape hatch). M8 and M9 can proceed in parallel after M7. M10-M13 expand the stdlib from M4's core. M14 depends on M5 (Tooling). M15 depends on M14. See RFC #218 for the full package manager design.
 
 ### Long-term Goal: Self-Hosted Compiler (#188)
 
@@ -88,7 +94,7 @@ Once the compiler and language are stable enough (post-M6 at minimum), the compi
 
 ### Labels
 
-Component labels for categorizing issues: `type-system`, `runtime`, `stdlib`, `tooling`, `compiler`, `concurrency`, `memory`, `testing`, `assembly`, `simd`, `numa`
+Component labels for categorizing issues: `type-system`, `runtime`, `stdlib`, `tooling`, `compiler`, `concurrency`, `memory`, `testing`, `assembly`, `simd`, `numa`, `package-manager`
 
 ## Website
 
