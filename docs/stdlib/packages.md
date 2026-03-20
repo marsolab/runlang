@@ -1500,6 +1500,83 @@ command_name() string
 
 ---
 
+### `cli` — Command-Line Application Framework
+
+**Purpose:** Build CLI applications with command trees, lifecycle hooks, argument validation, and auto-generated help. Composes the `flag` package for flag parsing while providing higher-level orchestration — analogous to Cobra in Go.
+
+**Key types and functions:**
+```
+CliError          sum type     — .unknownCommand(string) | .invalidArgs(string) | .flagError(string) | .silentError
+RunFunc           type         — fun(cmd &Command, args []string) !void
+ArgsValidator     type         — fun(cmd @Command, args []string) !void
+Command           struct       — CLI command with flags, subcommands, and hooks
+
+new(name string) Command
+
+// Builder-style configuration (return &Command for chaining)
+(c &Command) set_short(desc string) &Command
+(c &Command) set_long(desc string) &Command
+(c &Command) set_example(example string) &Command
+(c &Command) set_version(version string) &Command
+(c &Command) set_deprecated(msg string) &Command
+(c &Command) set_hidden(hidden bool) &Command
+(c &Command) set_run(f RunFunc) &Command
+(c &Command) set_pre_run(f RunFunc) &Command
+(c &Command) set_post_run(f RunFunc) &Command
+(c &Command) set_args_validator(v ArgsValidator) &Command
+(c &Command) set_silence_errors(v bool) &Command
+(c &Command) set_silence_usage(v bool) &Command
+
+// Command tree
+(c &Command) add_command(sub &Command)
+(c &Command) add_commands(subs ...&Command)
+(c &Command) remove_command(name string)
+(c @Command) has_subcommands() bool
+(c @Command) parent() &Command?
+(c @Command) root() &Command
+(c @Command) find_command(args []string) struct { cmd &Command, remaining []string }
+
+// Flag access (local + persistent + inherited)
+(c &Command) flags() &flag.FlagSet
+(c &Command) persistent_flags() &flag.FlagSet
+(c @Command) inherited_flags() []flag.FlagInfo
+(c @Command) all_flags(visitor fun(info flag.FlagInfo))
+(c @Command) has_flags() bool
+(c @Command) has_persistent_flags() bool
+(c @Command) has_inherited_flags() bool
+
+// Execution
+(c &Command) execute() !void              — main entry point, parses os.args()
+(c &Command) execute_with(args []string) !void  — testable variant
+
+// Help and usage
+(c @Command) help()
+(c @Command) help_text() string
+(c @Command) usage()
+(c @Command) usage_text() string
+(c @Command) full_name() string
+(c @Command) name_and_aliases() string
+(c @Command) is_runnable() bool
+
+// Built-in argument validators
+no_args() ArgsValidator
+exact_args(n int) ArgsValidator
+min_args(n int) ArgsValidator
+max_args(n int) ArgsValidator
+range_args(min, max int) ArgsValidator
+arbitrary_args() ArgsValidator
+valid_args(valid []string) ArgsValidator
+
+// Package-level (default app)
+add_command(sub &Command)
+execute() !void
+set_version(version string)
+```
+
+**Dependencies:** `flag`, `fmt`, `os`, `strings`
+
+---
+
 ### `context` — Cancellation and Deadlines
 
 **Purpose:** Carry deadlines, cancellation signals, and request-scoped values across API boundaries and between green threads.
@@ -2424,6 +2501,7 @@ yield()                        — yield current green thread to scheduler
 | `url` | URL parsing and escaping | P2 | `strings`, `strconv` |
 | `mime` | MIME types | P2 | `strings` |
 | `flag` | CLI flag parsing | P2 | `os`, `fmt`, `strconv` |
+| `cli` | CLI application framework | P3 | `flag`, `fmt`, `os`, `strings` |
 | `os/exec` | Run external commands | P2 | `os`, `io`, `bytes` |
 | `os/signal` | OS signal handling | P2 | `os` |
 | `regex` | Regular expressions | P2 | `strings` |
