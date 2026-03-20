@@ -1234,6 +1234,32 @@ const LoweringContext = struct {
             return null;
         }
 
+        if (std.mem.eql(u8, package_name, "runtime")) {
+            if (std.mem.eql(u8, member_name, "num_cpu")) return "runtime.num_cpu";
+            if (std.mem.eql(u8, member_name, "num_goroutine")) return "runtime.num_goroutine";
+            if (std.mem.eql(u8, member_name, "gomaxprocs")) return "runtime.gomaxprocs";
+            if (std.mem.eql(u8, member_name, "mem_stats")) return "runtime.mem_stats";
+            if (std.mem.eql(u8, member_name, "version")) return "runtime.version";
+            if (std.mem.eql(u8, member_name, "gc_disable")) return "runtime.gc_disable";
+            if (std.mem.eql(u8, member_name, "gc_enable")) return "runtime.gc_enable";
+            if (std.mem.eql(u8, member_name, "yield")) return "runtime.yield";
+            if (std.mem.eql(u8, member_name, "caller")) return "runtime.caller";
+            if (std.mem.eql(u8, member_name, "stack")) return "runtime.stack";
+            return null;
+        }
+
+        if (std.mem.eql(u8, package_name, "debug")) {
+            if (std.mem.eql(u8, member_name, "stack_trace")) return "debug.stack_trace";
+            if (std.mem.eql(u8, member_name, "print_stack")) return "debug.print_stack";
+            if (std.mem.eql(u8, member_name, "format_stack")) return "debug.format_stack";
+            if (std.mem.eql(u8, member_name, "assert")) return "debug.assert";
+            if (std.mem.eql(u8, member_name, "assert_eq")) return "debug.assert_eq";
+            if (std.mem.eql(u8, member_name, "unreachable")) return "debug.unreachable";
+            if (std.mem.eql(u8, member_name, "todo")) return "debug.todo";
+            if (std.mem.eql(u8, member_name, "breakpoint")) return "debug.breakpoint";
+            return null;
+        }
+
         if (!std.mem.eql(u8, package_name, "simd")) return null;
         if (std.mem.eql(u8, member_name, "hadd")) return "simd.hadd";
         if (std.mem.eql(u8, member_name, "dot")) return "simd.dot";
@@ -1376,6 +1402,30 @@ const LoweringContext = struct {
             const target = mapBuiltinCall(builtin_name);
             const ret_type = numaReturnType(builtin_name);
             return self.emitTypedCall(target, numa_arg_refs.items, ret_type, false);
+        }
+
+        // Runtime builtins
+        if (std.mem.startsWith(u8, builtin_name, "runtime.")) {
+            var rt_arg_refs: std.ArrayList(ir.Ref) = .empty;
+            defer rt_arg_refs.deinit(self.allocator);
+            for (arg_nodes) |arg_node| {
+                try rt_arg_refs.append(self.allocator, try self.lowerExpr(arg_node));
+            }
+            const target = mapBuiltinCall(builtin_name);
+            const ret_type = runtimeReturnType(builtin_name);
+            return self.emitTypedCall(target, rt_arg_refs.items, ret_type, false);
+        }
+
+        // Debug builtins
+        if (std.mem.startsWith(u8, builtin_name, "debug.")) {
+            var dbg_arg_refs: std.ArrayList(ir.Ref) = .empty;
+            defer dbg_arg_refs.deinit(self.allocator);
+            for (arg_nodes) |arg_node| {
+                try dbg_arg_refs.append(self.allocator, try self.lowerExpr(arg_node));
+            }
+            const target = mapBuiltinCall(builtin_name);
+            const ret_type = debugReturnType(builtin_name);
+            return self.emitTypedCall(target, dbg_arg_refs.items, ret_type, false);
         }
 
         // Broadcast: first arg is type, second is scalar value
@@ -1548,7 +1598,16 @@ const LoweringContext = struct {
             std.mem.eql(u8, name, "run_fmt_print_int") or
             std.mem.eql(u8, name, "run_fmt_print_float") or
             std.mem.eql(u8, name, "run_fmt_print_bool") or
-            std.mem.eql(u8, name, "run_chan_close");
+            std.mem.eql(u8, name, "run_chan_close") or
+            std.mem.eql(u8, name, "run_runtime_gc_disable") or
+            std.mem.eql(u8, name, "run_runtime_gc_enable") or
+            std.mem.eql(u8, name, "run_runtime_yield") or
+            std.mem.eql(u8, name, "run_debug_print_stack") or
+            std.mem.eql(u8, name, "run_debug_assert") or
+            std.mem.eql(u8, name, "run_debug_assert_eq") or
+            std.mem.eql(u8, name, "run_debug_unreachable") or
+            std.mem.eql(u8, name, "run_debug_todo") or
+            std.mem.eql(u8, name, "run_debug_breakpoint");
     }
 
     fn isVariadicFmtCall(name: []const u8) bool {
@@ -1583,6 +1642,26 @@ const LoweringContext = struct {
         if (std.mem.eql(u8, name, "numa.bind_green_thread")) return "run_numa_pin";
         if (std.mem.eql(u8, name, "numa.set_memory_policy")) return "run_numa_set_memory_policy";
         if (std.mem.eql(u8, name, "numa.cpu_count")) return "run_numa_cpu_count";
+        // Runtime package
+        if (std.mem.eql(u8, name, "runtime.num_cpu")) return "run_runtime_num_cpu";
+        if (std.mem.eql(u8, name, "runtime.num_goroutine")) return "run_runtime_num_goroutine";
+        if (std.mem.eql(u8, name, "runtime.gomaxprocs")) return "run_runtime_gomaxprocs";
+        if (std.mem.eql(u8, name, "runtime.mem_stats")) return "run_runtime_mem_stats";
+        if (std.mem.eql(u8, name, "runtime.version")) return "run_runtime_version";
+        if (std.mem.eql(u8, name, "runtime.gc_disable")) return "run_runtime_gc_disable";
+        if (std.mem.eql(u8, name, "runtime.gc_enable")) return "run_runtime_gc_enable";
+        if (std.mem.eql(u8, name, "runtime.yield")) return "run_runtime_yield";
+        if (std.mem.eql(u8, name, "runtime.caller")) return "run_runtime_caller";
+        if (std.mem.eql(u8, name, "runtime.stack")) return "run_runtime_stack";
+        // Debug package
+        if (std.mem.eql(u8, name, "debug.stack_trace")) return "run_debug_stack_trace";
+        if (std.mem.eql(u8, name, "debug.print_stack")) return "run_debug_print_stack";
+        if (std.mem.eql(u8, name, "debug.format_stack")) return "run_debug_format_stack";
+        if (std.mem.eql(u8, name, "debug.assert")) return "run_debug_assert";
+        if (std.mem.eql(u8, name, "debug.assert_eq")) return "run_debug_assert_eq";
+        if (std.mem.eql(u8, name, "debug.unreachable")) return "run_debug_unreachable";
+        if (std.mem.eql(u8, name, "debug.todo")) return "run_debug_todo";
+        if (std.mem.eql(u8, name, "debug.breakpoint")) return "run_debug_breakpoint";
         return name;
     }
 
@@ -1604,6 +1683,36 @@ const LoweringContext = struct {
         if (std.mem.eql(u8, builtin_name, "numa.memory_on_node"))
             return "uint64_t";
         return "uint32_t"; // node_count, current_node, distance, cpu_count
+    }
+
+    fn runtimeReturnType(builtin_name: []const u8) []const u8 {
+        if (std.mem.eql(u8, builtin_name, "runtime.gc_disable") or
+            std.mem.eql(u8, builtin_name, "runtime.gc_enable") or
+            std.mem.eql(u8, builtin_name, "runtime.yield"))
+            return "void";
+        if (std.mem.eql(u8, builtin_name, "runtime.version") or
+            std.mem.eql(u8, builtin_name, "runtime.stack"))
+            return "run_string_t";
+        if (std.mem.eql(u8, builtin_name, "runtime.mem_stats"))
+            return "run_mem_stats_t";
+        if (std.mem.eql(u8, builtin_name, "runtime.caller"))
+            return "run_caller_info_t";
+        return "int64_t"; // num_cpu, num_goroutine, gomaxprocs
+    }
+
+    fn debugReturnType(builtin_name: []const u8) []const u8 {
+        if (std.mem.eql(u8, builtin_name, "debug.print_stack") or
+            std.mem.eql(u8, builtin_name, "debug.assert") or
+            std.mem.eql(u8, builtin_name, "debug.assert_eq") or
+            std.mem.eql(u8, builtin_name, "debug.unreachable") or
+            std.mem.eql(u8, builtin_name, "debug.todo") or
+            std.mem.eql(u8, builtin_name, "debug.breakpoint"))
+            return "void";
+        if (std.mem.eql(u8, builtin_name, "debug.format_stack"))
+            return "run_string_t";
+        if (std.mem.eql(u8, builtin_name, "debug.stack_trace"))
+            return "run_slice_t";
+        return "void";
     }
 
     fn emit(self: *LoweringContext, inst: ir.Inst) LowerError!void {

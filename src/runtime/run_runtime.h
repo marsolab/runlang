@@ -13,6 +13,8 @@
 #include "run_slice.h"
 #include "run_string.h"
 #include "run_vmem.h"
+#include "run_runtime_api.h"
+#include "run_debug_api.h"
 
 #include <stdbool.h>
 #include <stddef.h>
