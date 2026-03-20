@@ -83,7 +83,13 @@ pub fun (f &File) close() !void {
 
 // seek sets the offset for the next read or write on the file.
 pub fun (f &File) seek(offset int, whence io.SeekWhence) !int {
-    return 0
+    var w = 0
+    switch whence {
+        .start :: { w = 0 },
+        .current :: { w = 1 },
+        .end :: { w = 2 },
+    }
+    return try @syscall.lseek(f.fd, offset, w)
 }
 
 // stdin is the standard input file.
@@ -97,172 +103,424 @@ pub var stderr = File{ fd: 2, path: "<stderr>" }
 
 // args returns the command-line arguments, starting with the program name.
 pub fun args() []string {
-    return alloc([]string, 0)
+    return @syscall.args()
 }
 
 // getenv returns the value of the environment variable named by key,
 // or null if the variable is not set.
 pub fun getenv(key string) string? {
-    return null
+    return @syscall.getenv(key)
 }
 
 // setenv sets the value of the environment variable named by key.
 pub fun setenv(key string, value string) !void {
+    try @syscall.setenv(key, value)
 }
 
 // unsetenv removes the environment variable named by key.
 pub fun unsetenv(key string) !void {
+    try @syscall.unsetenv(key)
 }
 
 // environ returns all environment variables as a slice of "KEY=VALUE" strings.
 pub fun environ() []string {
-    return alloc([]string, 0)
+    return @syscall.environ()
 }
 
 // exit terminates the program with the given exit code.
 pub fun exit(code int) {
+    @syscall.exit(code)
 }
 
 // getpid returns the process ID of the current process.
 pub fun getpid() int {
-    return 0
+    return @syscall.getpid()
 }
 
 // hostname returns the hostname of the machine.
 pub fun hostname() !string {
-    return ""
+    var buf = alloc([]byte, 256)
+    let n = try @syscall.gethostname(buf, 256)
+    return string(buf[0..n])
 }
 
 // user_home_dir returns the home directory of the current user.
 pub fun user_home_dir() !string {
-    return ""
+    let home = getenv("HOME")
+    switch home {
+        .some(val) :: { return val },
+        null :: { return FileError.notFound },
+    }
 }
 
-// mkdir creates a directory at the given path.
+// mkdir creates a directory at the given path with permission 0755.
 pub fun mkdir(path string) !void {
+    try @syscall.mkdir(path, 493)
 }
 
 // mkdir_all creates a directory path, including any missing parents.
 pub fun mkdir_all(path string) !void {
+    if len(path) == 0 {
+        return
+    }
+    let parent = dir(path)
+    if len(parent) > 0 and parent != path {
+        mkdir_all(parent)
+    }
+    @syscall.mkdir(path, 493)
 }
 
 // remove removes the named file or empty directory.
 pub fun remove(path string) !void {
+    try @syscall.unlink(path)
 }
 
 // remove_all removes the path and any children it contains.
 pub fun remove_all(path string) !void {
+    let info = try stat(path)
+    if info.is_dir {
+        let entries = try read_dir(path)
+        for entry in entries {
+            let child = join_path([path, entry.name])
+            try remove_all(child)
+        }
+        try @syscall.rmdir(path)
+    } else {
+        try @syscall.unlink(path)
+    }
 }
 
 // rename renames (moves) a file or directory from old_path to new_path.
 pub fun rename(old_path string, new_path string) !void {
+    try @syscall.rename(old_path, new_path)
 }
 
 // symlink creates a symbolic link that points to target.
 pub fun symlink(target string, link string) !void {
+    try @syscall.symlink(target, link)
 }
 
 // read_link returns the destination of the named symbolic link.
 pub fun read_link(path string) !string {
-    return ""
+    var buf = alloc([]byte, 1024)
+    let n = try @syscall.readlink(path, buf, 1024)
+    return string(buf[0..n])
 }
 
 // chmod changes the permission bits of the named file.
 pub fun chmod(path string, mode int) !void {
+    try @syscall.chmod(path, mode)
 }
 
 // chown changes the numeric uid and gid of the named file.
 pub fun chown(path string, uid int, gid int) !void {
+    try @syscall.chown(path, uid, gid)
 }
 
 // stat returns file info for the named path.
 pub fun stat(path string) !FileInfo {
-    return FileInfo{ name: "", size: 0, is_dir: false, mode: .regular, mod_time: 0 }
+    let raw = try @syscall.stat(path)
+    return FileInfo{
+        name: base(path),
+        size: raw.size,
+        is_dir: raw.mode_type == 1,
+        mode: mode_from_raw(raw.mode_type),
+        mod_time: raw.mod_time,
+    }
 }
 
 // lstat returns file info for the named path without following symlinks.
 pub fun lstat(path string) !FileInfo {
-    return FileInfo{ name: "", size: 0, is_dir: false, mode: .regular, mod_time: 0 }
+    let raw = try @syscall.lstat(path)
+    return FileInfo{
+        name: base(path),
+        size: raw.size,
+        is_dir: raw.mode_type == 1,
+        mode: mode_from_raw(raw.mode_type),
+        mod_time: raw.mod_time,
+    }
 }
 
 // read_dir reads the named directory and returns a list of directory entries.
 pub fun read_dir(path string) ![]DirEntry {
-    return alloc([]DirEntry, 0)
+    let raw_entries = try @syscall.readdir(path)
+    var entries = alloc([]DirEntry, len(raw_entries))
+    var i = 0
+    for raw in raw_entries {
+        entries[i] = DirEntry{
+            name: raw.name,
+            is_dir: raw.type == 1,
+            file_type: mode_from_raw(raw.type),
+        }
+        i = i + 1
+    }
+    return entries
 }
 
 // temp_dir returns the default directory for temporary files.
 pub fun temp_dir() string {
-    return ""
+    let tmp = getenv("TMPDIR")
+    switch tmp {
+        .some(val) :: { return val },
+        null :: { return "/tmp" },
+    }
 }
 
 // temp_file creates a new temporary file with the given prefix in the
 // default temp directory. The caller is responsible for closing and
 // removing the file.
 pub fun temp_file(prefix string) !File {
-    return File{ fd: 0, path: "" }
+    let path = join_path([temp_dir(), prefix])
+    let fd = try @syscall.mkstemp(path)
+    return File{ fd: fd, path: path }
 }
 
 // cwd returns the current working directory.
 pub fun cwd() !string {
-    return ""
+    return try @syscall.getcwd()
 }
 
 // chdir changes the current working directory.
 pub fun chdir(path string) !void {
+    try @syscall.chdir(path)
 }
 
 // read_file reads the entire contents of a file.
 pub fun read_file(path string) ![]byte {
-    return alloc([]byte, 0)
+    let f = try open(path)
+    defer f.close()
+    let info = try stat(path)
+    var buf = alloc([]byte, info.size)
+    var total = 0
+    for total < info.size {
+        let n = try f.read(buf[total..])
+        if n == 0 {
+            break
+        }
+        total = total + n
+    }
+    return buf[0..total]
 }
 
 // write_file writes data to a file, creating it if necessary.
 pub fun write_file(path string, data []byte) !void {
+    let f = try create(path)
+    defer f.close()
+    var written = 0
+    for written < len(data) {
+        let n = try f.write(data[written..])
+        written = written + n
+    }
 }
 
 // join_path joins any number of path elements into a single path,
 // separating them with the OS-specific path separator.
 pub fun join_path(parts []string) string {
-    return ""
+    var result = ""
+    for part in parts {
+        if len(part) == 0 {
+            continue
+        }
+        if len(result) == 0 {
+            result = part
+        } else {
+            if result[len(result) - 1] == 47 {
+                result = result + part
+            } else {
+                result = result + "/" + part
+            }
+        }
+    }
+    return result
 }
 
 // base returns the last element of path.
 pub fun base(path string) string {
-    return ""
+    if len(path) == 0 {
+        return "."
+    }
+    var end = len(path)
+    for end > 0 and path[end - 1] == 47 {
+        end = end - 1
+    }
+    if end == 0 {
+        return "/"
+    }
+    var i = end - 1
+    for i > 0 and path[i - 1] != 47 {
+        i = i - 1
+    }
+    return path[i..end]
 }
 
 // dir returns all but the last element of path.
 pub fun dir(path string) string {
-    return ""
+    if len(path) == 0 {
+        return "."
+    }
+    var end = len(path)
+    for end > 0 and path[end - 1] == 47 {
+        end = end - 1
+    }
+    if end == 0 {
+        return "/"
+    }
+    var i = end - 1
+    for i >= 0 and path[i] != 47 {
+        i = i - 1
+    }
+    if i < 0 {
+        return "."
+    }
+    for i > 0 and path[i - 1] == 47 {
+        i = i - 1
+    }
+    if i == 0 and path[0] == 47 {
+        return "/"
+    }
+    return path[0..i]
 }
 
 // ext returns the file name extension used by path.
 pub fun ext(path string) string {
+    var i = len(path) - 1
+    for i >= 0 {
+        if path[i] == 46 {
+            return path[i..]
+        }
+        if path[i] == 47 {
+            break
+        }
+        i = i - 1
+    }
     return ""
 }
 
 // clean returns the shortest path name equivalent to path by purely
 // lexical processing.
 pub fun clean(path string) string {
-    return ""
+    if len(path) == 0 {
+        return "."
+    }
+    let rooted = path[0] == 47
+    var parts = alloc([]string, 0)
+    var start = 0
+    if rooted {
+        start = 1
+    }
+    var pos = start
+    for pos <= len(path) {
+        if pos == len(path) or path[pos] == 47 {
+            let seg = path[start..pos]
+            if seg == "." or len(seg) == 0 {
+                // skip empty segments and "."
+            } else {
+                if seg == ".." {
+                    if len(parts) > 0 and parts[len(parts) - 1] != ".." {
+                        parts = parts[0..len(parts) - 1]
+                    } else {
+                        if not rooted {
+                            parts = append(parts, seg)
+                        }
+                    }
+                } else {
+                    parts = append(parts, seg)
+                }
+            }
+            start = pos + 1
+        }
+        pos = pos + 1
+    }
+    var result = ""
+    if rooted {
+        result = "/"
+    }
+    var idx = 0
+    for part in parts {
+        if idx > 0 {
+            result = result + "/"
+        }
+        result = result + part
+        idx = idx + 1
+    }
+    if len(result) == 0 {
+        return "."
+    }
+    return result
 }
 
 // abs returns an absolute representation of path.
 pub fun abs(path string) !string {
-    return ""
+    if is_abs(path) {
+        return clean(path)
+    }
+    let wd = try cwd()
+    return clean(join_path([wd, path]))
 }
 
 // is_abs reports whether the path is absolute.
 pub fun is_abs(path string) bool {
-    return false
+    return len(path) > 0 and path[0] == 47
 }
 
 // split_path splits path into a directory and file component.
 pub fun split_path(path string) struct { dir string, file string } {
-    return .{ dir: "", file: "" }
+    return .{ dir: dir(path), file: base(path) }
 }
 
 // glob returns the names of all files matching the given pattern.
 pub fun glob(pattern string) ![]string {
-    return alloc([]string, 0)
+    let dir_path = dir(pattern)
+    let file_pattern = base(pattern)
+    let entries = try read_dir(dir_path)
+    var matches = alloc([]string, 0)
+    for entry in entries {
+        if glob_match(file_pattern, entry.name) {
+            matches = append(matches, join_path([dir_path, entry.name]))
+        }
+    }
+    return matches
+}
+
+// mode_from_raw converts a raw mode type integer from @syscall.stat
+// to a FileMode sum type value.
+fun mode_from_raw(raw_type int) FileMode {
+    switch raw_type {
+        1 :: { return .directory },
+        2 :: { return .symlink },
+        3 :: { return .socket },
+        4 :: { return .pipe },
+        5 :: { return .device },
+        _ :: { return .regular },
+    }
+}
+
+// glob_match reports whether name matches a shell file name pattern.
+// Supports * (any sequence of characters) and ? (any single character).
+fun glob_match(pattern string, name string) bool {
+    var pi = 0
+    var ni = 0
+    var star_pi = 0 - 1
+    var star_ni = 0 - 1
+    for ni < len(name) or pi < len(pattern) {
+        if pi < len(pattern) and pattern[pi] == 42 {
+            star_pi = pi
+            star_ni = ni
+            pi = pi + 1
+        } else {
+            if pi < len(pattern) and ni < len(name) and (pattern[pi] == 63 or pattern[pi] == name[ni]) {
+                pi = pi + 1
+                ni = ni + 1
+            } else {
+                if star_pi >= 0 {
+                    pi = star_pi + 1
+                    star_ni = star_ni + 1
+                    ni = star_ni
+                } else {
+                    return false
+                }
+            }
+        }
+    }
+    return true
 }
