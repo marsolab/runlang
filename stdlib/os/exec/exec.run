@@ -10,95 +10,85 @@ pub type ProcessError = .notFound
     | .signaled
     | .timeout
 
-// Cmd represents an external command being prepared or run.
+// Cmd is an opaque handle to an external command being prepared or run.
+// Create with command(), configure with set_dir_cmd/set_env_cmd/add_args_cmd,
+// then execute with run_cmd/start_cmd+wait_cmd.
 pub Cmd struct {
-    path   string
-    args   []string
-    dir    string
-    env    []string
-    stdin  io.Reader?
-    stdout io.Writer?
-    stderr io.Writer?
+    handle int
 }
 
-// command returns a Cmd struct to execute the named program with
-// the given arguments.
-pub fun command(name string, args ...string) Cmd {
-    return Cmd{
-        path: name,
-        args: alloc([]string, 0),
-        dir: "",
-        env: alloc([]string, 0),
-        stdin: null,
-        stdout: null,
-        stderr: null,
-    }
-}
-
-// run starts the command and waits for it to complete.
-pub fun (c &Cmd) run() !void {
-}
-
-// output runs the command and returns its standard output.
-pub fun (c &Cmd) output() ![]byte {
-    return alloc([]byte, 0)
-}
-
-// combined_output runs the command and returns its combined
-// standard output and standard error.
-pub fun (c &Cmd) combined_output() ![]byte {
-    return alloc([]byte, 0)
-}
-
-// start starts the command but does not wait for it to complete.
-pub fun (c &Cmd) start() !void {
-}
-
-// wait waits for the command to exit and releases any resources.
-pub fun (c &Cmd) wait() !void {
-}
-
-// stdin_pipe returns a pipe that will be connected to the
-// command's standard input when the command starts.
-pub fun (c &Cmd) stdin_pipe() !io.WriteCloser {
-    return null
-}
-
-// stdout_pipe returns a pipe that will be connected to the
-// command's standard output when the command starts.
-pub fun (c &Cmd) stdout_pipe() !io.ReadCloser {
-    return null
-}
-
-// stderr_pipe returns a pipe that will be connected to the
-// command's standard error when the command starts.
-pub fun (c &Cmd) stderr_pipe() !io.ReadCloser {
-    return null
-}
-
-// set_dir sets the working directory of the command.
-pub fun (c &Cmd) set_dir(dir string) {
-}
-
-// set_env sets the environment variables for the command.
-pub fun (c &Cmd) set_env(env []string) {
-}
-
-// process_state contains information about an exited process.
+// ProcessState contains information about an exited process.
 pub ProcessState struct {
     pid       int
     exit_code int
     success   bool
 }
 
-// exit_code returns the exit code of the exited process.
-pub fun (ps @ProcessState) exit_code() int {
-    return ps.exit_code
+// command returns a Cmd handle to execute the named program.
+pub fun command(name string) Cmd {
+    return Cmd{ handle: 0 }
 }
 
-// success reports whether the program exited successfully.
-pub fun (ps @ProcessState) success() bool {
-    return ps.success
+// add_args_cmd adds arguments to the command.
+pub fun add_args_cmd(c Cmd, args ...string) {
+}
+
+// set_dir_cmd sets the working directory of the command.
+pub fun set_dir_cmd(c Cmd, dir string) {
+}
+
+// set_env_cmd sets the environment variables for the command.
+pub fun set_env_cmd(c Cmd, env []string) {
+}
+
+// run_cmd starts the command and waits for it to complete.
+pub fun run_cmd(c Cmd) !void {
+}
+
+// output_cmd runs the command and returns its standard output.
+pub fun output_cmd(c Cmd) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// combined_output_cmd runs the command and returns its combined
+// standard output and standard error.
+pub fun combined_output_cmd(c Cmd) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// start_cmd starts the command but does not wait for it to complete.
+pub fun start_cmd(c Cmd) !void {
+}
+
+// wait_cmd waits for the command to exit and releases any resources.
+pub fun wait_cmd(c Cmd) !void {
+}
+
+// stdin_pipe_cmd returns a pipe file descriptor that will be connected
+// to the command's standard input when the command starts.
+pub fun stdin_pipe_cmd(c Cmd) !int {
+    return 0
+}
+
+// stdout_pipe_cmd returns a pipe file descriptor that will be connected
+// to the command's standard output when the command starts.
+pub fun stdout_pipe_cmd(c Cmd) !int {
+    return 0
+}
+
+// stderr_pipe_cmd returns a pipe file descriptor that will be connected
+// to the command's standard error when the command starts.
+pub fun stderr_pipe_cmd(c Cmd) !int {
+    return 0
+}
+
+// process_state_cmd returns the process state after wait_cmd completes.
+pub fun process_state_cmd(c Cmd) ProcessState {
+    return ProcessState{ pid: 0, exit_code: 0, success: false }
+}
+
+// free_cmd releases all resources associated with a command handle.
+pub fun free_cmd(c Cmd) {
 }
 
 // look_path searches for an executable named file in the directories

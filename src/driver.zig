@@ -473,6 +473,8 @@ pub fn invokeZigCC(
                 "run_map.c",
                 "run_simd.c",
                 "run_numa.c",
+                "run_exec.c",
+                "run_signal.c",
             };
 
             for (&runtime_sources) |name| {

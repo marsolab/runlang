@@ -1234,6 +1234,33 @@ const LoweringContext = struct {
             return null;
         }
 
+        if (std.mem.eql(u8, package_name, "exec")) {
+            if (std.mem.eql(u8, member_name, "command")) return "exec.command";
+            if (std.mem.eql(u8, member_name, "run_cmd")) return "exec.run_cmd";
+            if (std.mem.eql(u8, member_name, "output_cmd")) return "exec.output_cmd";
+            if (std.mem.eql(u8, member_name, "combined_output_cmd")) return "exec.combined_output_cmd";
+            if (std.mem.eql(u8, member_name, "start_cmd")) return "exec.start_cmd";
+            if (std.mem.eql(u8, member_name, "wait_cmd")) return "exec.wait_cmd";
+            if (std.mem.eql(u8, member_name, "stdin_pipe_cmd")) return "exec.stdin_pipe_cmd";
+            if (std.mem.eql(u8, member_name, "stdout_pipe_cmd")) return "exec.stdout_pipe_cmd";
+            if (std.mem.eql(u8, member_name, "stderr_pipe_cmd")) return "exec.stderr_pipe_cmd";
+            if (std.mem.eql(u8, member_name, "set_dir_cmd")) return "exec.set_dir_cmd";
+            if (std.mem.eql(u8, member_name, "set_env_cmd")) return "exec.set_env_cmd";
+            if (std.mem.eql(u8, member_name, "add_args_cmd")) return "exec.add_args_cmd";
+            if (std.mem.eql(u8, member_name, "process_state_cmd")) return "exec.process_state_cmd";
+            if (std.mem.eql(u8, member_name, "free_cmd")) return "exec.free_cmd";
+            if (std.mem.eql(u8, member_name, "look_path")) return "exec.look_path";
+            return null;
+        }
+
+        if (std.mem.eql(u8, package_name, "signal")) {
+            if (std.mem.eql(u8, member_name, "notify")) return "signal.notify";
+            if (std.mem.eql(u8, member_name, "stop")) return "signal.stop";
+            if (std.mem.eql(u8, member_name, "ignore")) return "signal.ignore";
+            if (std.mem.eql(u8, member_name, "reset")) return "signal.reset";
+            return null;
+        }
+
         if (!std.mem.eql(u8, package_name, "simd")) return null;
         if (std.mem.eql(u8, member_name, "hadd")) return "simd.hadd";
         if (std.mem.eql(u8, member_name, "dot")) return "simd.dot";
@@ -1376,6 +1403,29 @@ const LoweringContext = struct {
             const target = mapBuiltinCall(builtin_name);
             const ret_type = numaReturnType(builtin_name);
             return self.emitTypedCall(target, numa_arg_refs.items, ret_type, false);
+        }
+
+        // exec builtins
+        if (std.mem.startsWith(u8, builtin_name, "exec.")) {
+            var exec_arg_refs: std.ArrayList(ir.Ref) = .empty;
+            defer exec_arg_refs.deinit(self.allocator);
+            for (arg_nodes) |arg_node| {
+                try exec_arg_refs.append(self.allocator, try self.lowerExpr(arg_node));
+            }
+            const target = mapBuiltinCall(builtin_name);
+            const ret_type = execReturnType(builtin_name);
+            return self.emitTypedCall(target, exec_arg_refs.items, ret_type, false);
+        }
+
+        // signal builtins
+        if (std.mem.startsWith(u8, builtin_name, "signal.")) {
+            var sig_arg_refs: std.ArrayList(ir.Ref) = .empty;
+            defer sig_arg_refs.deinit(self.allocator);
+            for (arg_nodes) |arg_node| {
+                try sig_arg_refs.append(self.allocator, try self.lowerExpr(arg_node));
+            }
+            const target = mapBuiltinCall(builtin_name);
+            return self.emitTypedCall(target, sig_arg_refs.items, "void", false);
         }
 
         // Broadcast: first arg is type, second is scalar value
@@ -1548,7 +1598,15 @@ const LoweringContext = struct {
             std.mem.eql(u8, name, "run_fmt_print_int") or
             std.mem.eql(u8, name, "run_fmt_print_float") or
             std.mem.eql(u8, name, "run_fmt_print_bool") or
-            std.mem.eql(u8, name, "run_chan_close");
+            std.mem.eql(u8, name, "run_chan_close") or
+            std.mem.eql(u8, name, "run_exec_set_dir") or
+            std.mem.eql(u8, name, "run_exec_set_env") or
+            std.mem.eql(u8, name, "run_exec_add_args") or
+            std.mem.eql(u8, name, "run_exec_free") or
+            std.mem.eql(u8, name, "run_signal_notify") or
+            std.mem.eql(u8, name, "run_signal_stop") or
+            std.mem.eql(u8, name, "run_signal_ignore") or
+            std.mem.eql(u8, name, "run_signal_reset");
     }
 
     fn isVariadicFmtCall(name: []const u8) bool {
@@ -1583,6 +1641,27 @@ const LoweringContext = struct {
         if (std.mem.eql(u8, name, "numa.bind_green_thread")) return "run_numa_pin";
         if (std.mem.eql(u8, name, "numa.set_memory_policy")) return "run_numa_set_memory_policy";
         if (std.mem.eql(u8, name, "numa.cpu_count")) return "run_numa_cpu_count";
+        // exec builtins
+        if (std.mem.eql(u8, name, "exec.command")) return "run_exec_command";
+        if (std.mem.eql(u8, name, "exec.run_cmd")) return "run_exec_run";
+        if (std.mem.eql(u8, name, "exec.output_cmd")) return "run_exec_output";
+        if (std.mem.eql(u8, name, "exec.combined_output_cmd")) return "run_exec_combined_output";
+        if (std.mem.eql(u8, name, "exec.start_cmd")) return "run_exec_start";
+        if (std.mem.eql(u8, name, "exec.wait_cmd")) return "run_exec_wait";
+        if (std.mem.eql(u8, name, "exec.stdin_pipe_cmd")) return "run_exec_stdin_pipe";
+        if (std.mem.eql(u8, name, "exec.stdout_pipe_cmd")) return "run_exec_stdout_pipe";
+        if (std.mem.eql(u8, name, "exec.stderr_pipe_cmd")) return "run_exec_stderr_pipe";
+        if (std.mem.eql(u8, name, "exec.set_dir_cmd")) return "run_exec_set_dir";
+        if (std.mem.eql(u8, name, "exec.set_env_cmd")) return "run_exec_set_env";
+        if (std.mem.eql(u8, name, "exec.add_args_cmd")) return "run_exec_add_args";
+        if (std.mem.eql(u8, name, "exec.process_state_cmd")) return "run_exec_process_state";
+        if (std.mem.eql(u8, name, "exec.free_cmd")) return "run_exec_free";
+        if (std.mem.eql(u8, name, "exec.look_path")) return "run_exec_look_path";
+        // signal builtins
+        if (std.mem.eql(u8, name, "signal.notify")) return "run_signal_notify";
+        if (std.mem.eql(u8, name, "signal.stop")) return "run_signal_stop";
+        if (std.mem.eql(u8, name, "signal.ignore")) return "run_signal_ignore";
+        if (std.mem.eql(u8, name, "signal.reset")) return "run_signal_reset";
         return name;
     }
 
@@ -1604,6 +1683,32 @@ const LoweringContext = struct {
         if (std.mem.eql(u8, builtin_name, "numa.memory_on_node"))
             return "uint64_t";
         return "uint32_t"; // node_count, current_node, distance, cpu_count
+    }
+
+    fn execReturnType(builtin_name: []const u8) []const u8 {
+        if (std.mem.eql(u8, builtin_name, "exec.command"))
+            return "run_exec_cmd_t*";
+        if (std.mem.eql(u8, builtin_name, "exec.run_cmd") or
+            std.mem.eql(u8, builtin_name, "exec.start_cmd") or
+            std.mem.eql(u8, builtin_name, "exec.wait_cmd"))
+            return "run_error_t";
+        if (std.mem.eql(u8, builtin_name, "exec.output_cmd") or
+            std.mem.eql(u8, builtin_name, "exec.combined_output_cmd"))
+            return "run_slice_t";
+        if (std.mem.eql(u8, builtin_name, "exec.look_path"))
+            return "run_string_t";
+        if (std.mem.eql(u8, builtin_name, "exec.stdin_pipe_cmd") or
+            std.mem.eql(u8, builtin_name, "exec.stdout_pipe_cmd") or
+            std.mem.eql(u8, builtin_name, "exec.stderr_pipe_cmd"))
+            return "int64_t";
+        if (std.mem.eql(u8, builtin_name, "exec.process_state_cmd"))
+            return "run_exec_process_state_t";
+        if (std.mem.eql(u8, builtin_name, "exec.set_dir_cmd") or
+            std.mem.eql(u8, builtin_name, "exec.set_env_cmd") or
+            std.mem.eql(u8, builtin_name, "exec.add_args_cmd") or
+            std.mem.eql(u8, builtin_name, "exec.free_cmd"))
+            return "void";
+        return "int64_t";
     }
 
     fn emit(self: *LoweringContext, inst: ir.Inst) LowerError!void {
