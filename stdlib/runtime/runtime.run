@@ -27,8 +27,9 @@ pub fun gomaxprocs(n int) int {
     return 0
 }
 
-// mem_stats populates the given MemStats with current memory statistics.
-pub fun mem_stats(stats &MemStats) {
+// mem_stats returns current memory allocation statistics.
+pub fun mem_stats() MemStats {
+    return .{ alloc_count: 0, free_count: 0, bytes_allocated: 0, bytes_freed: 0, generation_checks: 0, generation_failures: 0 }
 }
 
 // version returns the Run runtime version string.

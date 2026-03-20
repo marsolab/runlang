@@ -15,6 +15,8 @@ extern void run_test_map(void);
 extern void run_test_fmt(void);
 extern void run_test_simd(void);
 extern void run_test_numa(void);
+extern void run_test_runtime_api(void);
+extern void run_test_debug_api(void);
 
 int main(void) {
     printf("Run Runtime Test Suite\n");
@@ -32,6 +34,8 @@ int main(void) {
     run_test_fmt();
     run_test_simd();
     run_test_numa();
+    run_test_runtime_api();
+    run_test_debug_api();
     run_test_scheduler();
     run_test_chan();
 

@@ -1267,3 +1267,23 @@ void run_debug_dump_goroutines(char *buf, size_t buf_size) {
     buf[pos++] = ']';
     buf[pos] = '\0';
 }
+
+/* ========================================================================
+ * Runtime Introspection API
+ * ======================================================================== */
+
+int64_t run_scheduler_goroutine_count(void) {
+    return live_g_count;
+}
+
+uint32_t run_scheduler_get_maxprocs(void) {
+    return num_ps;
+}
+
+uint32_t run_scheduler_set_maxprocs(uint32_t n) {
+    uint32_t prev = num_ps;
+    if (n >= 1 && n <= RUN_MAX_P_COUNT) {
+        num_ps = n;
+    }
+    return prev;
+}

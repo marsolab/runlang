@@ -221,4 +221,10 @@ void run_stack_growth_init(void);
  * Called by the DAP adapter via GDB's expression evaluation. */
 void run_debug_dump_goroutines(char *buf, size_t buf_size);
 
+/* ---------- Runtime introspection API ---------- */
+
+int64_t run_scheduler_goroutine_count(void);
+uint32_t run_scheduler_get_maxprocs(void);
+uint32_t run_scheduler_set_maxprocs(uint32_t n);
+
 #endif

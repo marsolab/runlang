@@ -1,8 +1,20 @@
 #include "run_alloc.h"
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Allocation tracking counters */
+static _Atomic int64_t run_alloc_total_count = 0;
+static _Atomic int64_t run_free_total_count = 0;
+static _Atomic int64_t run_bytes_total_allocated = 0;
+static _Atomic int64_t run_bytes_total_freed = 0;
+static _Atomic int64_t run_gen_check_count = 0;
+static _Atomic int64_t run_gen_failure_count = 0;
+
+/* Runtime-controllable generation check flag */
+_Atomic bool run_gen_checks_enabled = true;
 
 typedef struct {
     uint64_t generation;
@@ -49,6 +61,10 @@ void *run_gen_alloc_aligned(size_t size, size_t alignment) {
 
     void *user_ptr = (void *)user_addr;
     memset(user_ptr, 0, size);
+
+    atomic_fetch_add_explicit(&run_alloc_total_count, 1, memory_order_relaxed);
+    atomic_fetch_add_explicit(&run_bytes_total_allocated, (int64_t)size, memory_order_relaxed);
+
     return user_ptr;
 }
 
@@ -60,22 +76,34 @@ void run_gen_free(void *ptr) {
         fprintf(stderr, "run: double free detected\n");
         abort();
     }
+    atomic_fetch_add_explicit(&run_free_total_count, 1, memory_order_relaxed);
+    atomic_fetch_add_explicit(&run_bytes_total_freed, (int64_t)header->alloc_size,
+                              memory_order_relaxed);
+
     header->generation = RUN_GEN_FREED;
     free(header->base_ptr);
 }
 
 void run_gen_check(void *ptr, uint64_t expected_gen) {
 #ifndef RUN_NO_GEN_CHECKS
+    if (!atomic_load_explicit(&run_gen_checks_enabled, memory_order_relaxed))
+        return;
+
+    atomic_fetch_add_explicit(&run_gen_check_count, 1, memory_order_relaxed);
+
     if (!ptr) {
+        atomic_fetch_add_explicit(&run_gen_failure_count, 1, memory_order_relaxed);
         fprintf(stderr, "run: null pointer dereference\n");
         abort();
     }
     run_alloc_header_t *header = get_header(ptr);
     if (header->generation == RUN_GEN_FREED) {
+        atomic_fetch_add_explicit(&run_gen_failure_count, 1, memory_order_relaxed);
         fprintf(stderr, "run: use-after-free detected (memory has been freed)\n");
         abort();
     }
     if (header->generation != expected_gen) {
+        atomic_fetch_add_explicit(&run_gen_failure_count, 1, memory_order_relaxed);
         fprintf(stderr, "run: generation check failed (expected %llu, got %llu)\n",
                 (unsigned long long)expected_gen, (unsigned long long)header->generation);
         abort();
@@ -104,4 +132,29 @@ run_gen_ref_t run_gen_ref_create(void *ptr) {
 void *run_gen_ref_deref(run_gen_ref_t ref) {
     run_gen_check(ref.ptr, ref.generation);
     return ref.ptr;
+}
+
+/* Allocation stats getters */
+int64_t run_alloc_get_count(void) {
+    return atomic_load_explicit(&run_alloc_total_count, memory_order_relaxed);
+}
+
+int64_t run_alloc_get_free_count(void) {
+    return atomic_load_explicit(&run_free_total_count, memory_order_relaxed);
+}
+
+int64_t run_alloc_get_bytes_allocated(void) {
+    return atomic_load_explicit(&run_bytes_total_allocated, memory_order_relaxed);
+}
+
+int64_t run_alloc_get_bytes_freed(void) {
+    return atomic_load_explicit(&run_bytes_total_freed, memory_order_relaxed);
+}
+
+int64_t run_alloc_get_gen_checks(void) {
+    return atomic_load_explicit(&run_gen_check_count, memory_order_relaxed);
+}
+
+int64_t run_alloc_get_gen_failures(void) {
+    return atomic_load_explicit(&run_gen_failure_count, memory_order_relaxed);
 }
