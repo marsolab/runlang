@@ -1,0 +1,5 @@
+package flag
+
+use "testing"
+
+// Tests for flag parsing will go here.

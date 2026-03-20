@@ -2,35 +2,138 @@ package http
 
 use "io"
 use "net"
+use "url"
+use "fmt"
+use "strings"
 use "time"
 use "context"
+use "log"
+use "metrics"
 
-// Method constants for HTTP request methods.
-pub let method_get = "GET"
-pub let method_post = "POST"
-pub let method_put = "PUT"
-pub let method_delete = "DELETE"
-pub let method_patch = "PATCH"
-pub let method_head = "HEAD"
-pub let method_options = "OPTIONS"
+// Method represents an HTTP request method.
+pub type Method = .get
+    | .head
+    | .post
+    | .put
+    | .delete
+    | .patch
+    | .options
+    | .trace
+    | .connect
 
-// StatusCode constants.
-pub let status_ok = 200
-pub let status_created = 201
-pub let status_no_content = 204
-pub let status_moved_permanently = 301
-pub let status_found = 302
-pub let status_not_modified = 304
-pub let status_bad_request = 400
-pub let status_unauthorized = 401
-pub let status_forbidden = 403
-pub let status_not_found = 404
-pub let status_method_not_allowed = 405
-pub let status_conflict = 409
-pub let status_internal_server_error = 500
-pub let status_bad_gateway = 502
-pub let status_service_unavailable = 503
-pub let status_gateway_timeout = 504
+// string returns the wire-format string for the method (e.g. "GET").
+pub fun (m @Method) string() string {
+    return ""
+}
+
+// parse_method parses a method string into a Method.
+pub fun parse_method(s string) !Method {
+    return .get
+}
+
+// Status represents an HTTP response status code.
+pub type Status = .continue
+    | .switchingProtocols
+    | .processing
+    | .ok
+    | .created
+    | .accepted
+    | .nonAuthoritativeInfo
+    | .noContent
+    | .resetContent
+    | .partialContent
+    | .multiStatus
+    | .multipleChoices
+    | .movedPermanently
+    | .found
+    | .seeOther
+    | .notModified
+    | .temporaryRedirect
+    | .permanentRedirect
+    | .badRequest
+    | .unauthorized
+    | .paymentRequired
+    | .forbidden
+    | .notFound
+    | .methodNotAllowed
+    | .notAcceptable
+    | .requestTimeout
+    | .conflict
+    | .gone
+    | .lengthRequired
+    | .preconditionFailed
+    | .requestEntityTooLarge
+    | .requestUriTooLong
+    | .unsupportedMediaType
+    | .rangeNotSatisfiable
+    | .expectationFailed
+    | .imATeapot
+    | .misdirectedRequest
+    | .unprocessableEntity
+    | .tooEarly
+    | .upgradeRequired
+    | .preconditionRequired
+    | .tooManyRequests
+    | .requestHeaderFieldsTooLarge
+    | .unavailableForLegalReasons
+    | .internalServerError
+    | .notImplemented
+    | .badGateway
+    | .serviceUnavailable
+    | .gatewayTimeout
+    | .httpVersionNotSupported
+    | .insufficientStorage
+    | .loopDetected
+    | .networkAuthenticationRequired
+
+// code returns the numeric HTTP status code (e.g. 200).
+pub fun (s @Status) code() int {
+    return 0
+}
+
+// text returns the reason phrase for the status (e.g. "OK").
+pub fun (s @Status) text() string {
+    return ""
+}
+
+// is_informational reports whether the status is in the 1xx range.
+pub fun (s @Status) is_informational() bool {
+    return false
+}
+
+// is_success reports whether the status is in the 2xx range.
+pub fun (s @Status) is_success() bool {
+    return false
+}
+
+// is_redirect reports whether the status is in the 3xx range.
+pub fun (s @Status) is_redirect() bool {
+    return false
+}
+
+// is_client_error reports whether the status is in the 4xx range.
+pub fun (s @Status) is_client_error() bool {
+    return false
+}
+
+// is_server_error reports whether the status is in the 5xx range.
+pub fun (s @Status) is_server_error() bool {
+    return false
+}
+
+// parse_status returns the Status for the given numeric code.
+pub fun parse_status(code int) !Status {
+    return .ok
+}
+
+// Content-type constants for common MIME types.
+pub let content_type_json = "application/json"
+pub let content_type_xml = "application/xml"
+pub let content_type_form = "application/x-www-form-urlencoded"
+pub let content_type_multipart = "multipart/form-data"
+pub let content_type_text = "text/plain"
+pub let content_type_html = "text/html"
+pub let content_type_octet_stream = "application/octet-stream"
 
 // HttpError represents HTTP-related errors.
 pub type HttpError = .timeout
@@ -40,90 +143,322 @@ pub type HttpError = .timeout
     | .tooManyRedirects
     | .requestCancelled
     | .bodyTooLarge
+    | .protocolError
+    | .headerTooLarge
+    | .bodyReadError
+    | .unexpectedEof
+    | .writeFailed
 
-// Header represents HTTP headers as a map of string keys to string slices.
-pub Header struct {
-    data map[string][]string
-}
+// SameSite controls whether a cookie is sent with cross-site requests.
+pub type SameSite = .defaultMode
+    | .lax
+    | .strict
+    | .none
 
-// get returns the first value associated with the given key.
-pub fun (h @Header) get(key string) string {
-    return ""
-}
+// HandlerFunc is a function type that can serve HTTP requests.
+pub type HandlerFunc = fun(w &ResponseWriter, r @Request)
 
-// set sets the header entries associated with key to the single value.
-pub fun (h &Header) set(key string, value string) {
-}
-
-// add adds the key-value pair to the header. It appends to any existing values.
-pub fun (h &Header) add(key string, value string) {
-}
-
-// del deletes the values associated with key.
-pub fun (h &Header) del(key string) {
-}
-
-// values returns all values associated with the given key.
-pub fun (h @Header) values(key string) []string {
-    return alloc([]string, 0)
-}
-
-// Cookie represents an HTTP cookie.
-pub Cookie struct {
-    name     string
-    value    string
-    path     string
-    domain   string
-    expires  time.Time
-    max_age  int
-    secure   bool
-    http_only bool
-    same_site string
-}
-
-// Request represents an HTTP request.
-pub Request struct {
-    method  string
-    url     string
-    header  Header
-    body    io.ReadCloser?
-    host    string
-    proto   string
-    content_length int
-    ctx     context.Context?
-}
-
-// Response represents an HTTP response.
-pub Response struct {
-    status      string
-    status_code int
-    header      Header
-    body        io.ReadCloser?
-    proto       string
-    content_length int
-}
+// Middleware is a function that wraps a Handler to add behavior.
+pub type Middleware = fun(next Handler) Handler
 
 // Handler is the interface for HTTP request handlers.
 pub type Handler interface {
     serve_http(w &ResponseWriter, r @Request)
 }
 
-// HandlerFunc is an adapter to allow the use of ordinary functions as HTTP handlers.
-pub type HandlerFunc = fun(w &ResponseWriter, r @Request)
+// RoundTripper is the interface for executing a single HTTP transaction.
+pub type RoundTripper interface {
+    round_trip(req @Request) !Response
+}
 
-// Middleware is a function that wraps a Handler to add behavior.
-pub type Middleware = fun(next Handler) Handler
+// CookieJar manages storage and use of cookies in HTTP requests.
+pub type CookieJar interface {
+    set_cookies(u string, cookies []Cookie)
+    cookies(u string) []Cookie
+}
 
-// ResponseWriter is the interface used by an HTTP handler to construct a response.
+// Header represents HTTP headers as a map of string keys to string slices.
+// All key lookups are case-insensitive via canonical key folding.
+pub Header struct {
+    data map[string][]string
+}
+
+// get returns the first value associated with the given key.
+// Key lookup is case-insensitive.
+pub fun (h @Header) get(key string) string {
+    return ""
+}
+
+// set sets the header entries associated with key to the single value.
+// Key lookup is case-insensitive.
+pub fun (h &Header) set(key string, value string) {
+}
+
+// add adds the key-value pair to the header. It appends to any existing values.
+// Key lookup is case-insensitive.
+pub fun (h &Header) add(key string, value string) {
+}
+
+// del deletes the values associated with key.
+// Key lookup is case-insensitive.
+pub fun (h &Header) del(key string) {
+}
+
+// has reports whether the header contains the given key.
+// Key lookup is case-insensitive.
+pub fun (h @Header) has(key string) bool {
+    return false
+}
+
+// values returns all values associated with the given key.
+// Key lookup is case-insensitive.
+pub fun (h @Header) values(key string) []string {
+    return alloc([]string, 0)
+}
+
+// keys returns all header keys.
+pub fun (h @Header) keys() []string {
+    return alloc([]string, 0)
+}
+
+// clone returns a deep copy of the header.
+pub fun (h @Header) clone() Header {
+    return Header{ data: alloc(map[string][]string) }
+}
+
+// write writes the headers in HTTP wire format to w.
+pub fun (h @Header) write(w io.Writer) !void {
+}
+
+// Cookie represents an HTTP cookie.
+pub Cookie struct {
+    name      string
+    value     string
+    path      string
+    domain    string
+    expires   time.Time
+    max_age   int
+    secure    bool
+    http_only bool
+    same_site SameSite
+}
+
+// string returns the serialized Set-Cookie header value for the cookie.
+pub fun (c @Cookie) string() string {
+    return ""
+}
+
+// valid reports whether the cookie is well-formed.
+pub fun (c @Cookie) valid() !void {
+}
+
+// parse_cookie parses a Cookie header value into a Cookie.
+pub fun parse_cookie(line string) !Cookie {
+    return Cookie{
+        name: "",
+        value: "",
+        path: "",
+        domain: "",
+        expires: time.Time{},
+        max_age: 0,
+        secure: false,
+        http_only: false,
+        same_site: .defaultMode,
+    }
+}
+
+// parse_set_cookie parses a Set-Cookie header value into a Cookie.
+pub fun parse_set_cookie(line string) !Cookie {
+    return Cookie{
+        name: "",
+        value: "",
+        path: "",
+        domain: "",
+        expires: time.Time{},
+        max_age: 0,
+        secure: false,
+        http_only: false,
+        same_site: .defaultMode,
+    }
+}
+
+// FormFile represents a file part in a multipart form.
+pub FormFile struct {
+    filename string
+    header   Header
+    size     int
+    content  io.Reader
+}
+
+// MultipartForm represents a parsed multipart form.
+pub MultipartForm struct {
+    values map[string][]string
+    files  map[string][]FormFile
+}
+
+// Request represents an HTTP request.
+pub Request struct {
+    method            Method
+    url               url.Url
+    header            Header
+    body              io.ReadCloser?
+    host              string
+    proto             string
+    content_length    int
+    transfer_encoding []string
+    close             bool
+    form              url.Values?
+    remote_addr       string
+    request_uri       string
+    ctx               context.Context?
+}
+
+// cookie returns the named cookie from the request, or an error if not found.
+pub fun (r @Request) cookie(name string) !Cookie {
+    return Cookie{
+        name: "",
+        value: "",
+        path: "",
+        domain: "",
+        expires: time.Time{},
+        max_age: 0,
+        secure: false,
+        http_only: false,
+        same_site: .defaultMode,
+    }
+}
+
+// cookies parses and returns all cookies sent with the request.
+pub fun (r @Request) cookies() []Cookie {
+    return alloc([]Cookie, 0)
+}
+
+// add_cookie adds a cookie to the request.
+pub fun (r &Request) add_cookie(c @Cookie) {
+}
+
+// with_context returns a shallow copy of the request with its context changed to ctx.
+pub fun (r @Request) with_context(ctx context.Context) Request {
+    return Request{
+        method: r.method,
+        url: r.url,
+        header: r.header,
+        body: r.body,
+        host: r.host,
+        proto: r.proto,
+        content_length: r.content_length,
+        transfer_encoding: r.transfer_encoding,
+        close: r.close,
+        form: r.form,
+        remote_addr: r.remote_addr,
+        request_uri: r.request_uri,
+        ctx: ctx,
+    }
+}
+
+// context returns the request's context.
+pub fun (r @Request) context() context.Context? {
+    return r.ctx
+}
+
+// parse_form populates r.form with query parameters and POST body form data.
+pub fun (r &Request) parse_form() !void {
+}
+
+// form_value returns the first value for the named form field.
+pub fun (r @Request) form_value(key string) string {
+    return ""
+}
+
+// form_file returns the first file for the named form field in a multipart form.
+pub fun (r @Request) form_file(key string) !FormFile {
+    return FormFile{
+        filename: "",
+        header: Header{ data: alloc(map[string][]string) },
+        size: 0,
+        content: null,
+    }
+}
+
+// user_agent returns the client's User-Agent header value.
+pub fun (r @Request) user_agent() string {
+    return ""
+}
+
+// referer returns the referring URL, if sent in the request.
+pub fun (r @Request) referer() string {
+    return ""
+}
+
+// basic_auth returns the username and password provided in the request's
+// Authorization header, if the request uses HTTP Basic Authentication.
+pub fun (r @Request) basic_auth() struct { username string, password string, ok bool } {
+    return .{ username: "", password: "", ok: false }
+}
+
+// set_basic_auth sets the request's Authorization header for HTTP Basic Authentication.
+pub fun (r &Request) set_basic_auth(username string, password string) {
+}
+
+// clone returns a deep copy of the request.
+pub fun (r @Request) clone() Request {
+    return Request{
+        method: r.method,
+        url: r.url,
+        header: r.header.clone(),
+        body: r.body,
+        host: r.host,
+        proto: r.proto,
+        content_length: r.content_length,
+        transfer_encoding: r.transfer_encoding,
+        close: r.close,
+        form: r.form,
+        remote_addr: r.remote_addr,
+        request_uri: r.request_uri,
+        ctx: r.ctx,
+    }
+}
+
+// Response represents an HTTP response.
+pub Response struct {
+    status         Status
+    header         Header
+    body           io.ReadCloser?
+    proto          string
+    content_length int
+    request        @Request?
+    uncompressed   bool
+}
+
+// cookies parses and returns the cookies set in the Set-Cookie headers.
+pub fun (r @Response) cookies() []Cookie {
+    return alloc([]Cookie, 0)
+}
+
+// location returns the URL of the response's Location header.
+pub fun (r @Response) location() !string {
+    return ""
+}
+
+// close closes the response body.
+pub fun (r &Response) close() !void {
+}
+
+// ResponseWriter is used by an HTTP handler to construct a response.
+// Implements io.Writer.
 pub ResponseWriter struct {
-    header      Header
-    status_code int
-    written     bool
+    implements {
+        io.Writer
+    }
+
+    header  Header
+    status  Status
+    written bool
 }
 
 // header returns the header map that will be sent by write_header.
 pub fun (w &ResponseWriter) header() &Header {
-    return null
+    return &w.header
 }
 
 // write writes the data to the connection as part of an HTTP reply.
@@ -131,8 +466,8 @@ pub fun (w &ResponseWriter) write(data []byte) !int {
     return 0
 }
 
-// write_header sends an HTTP response header with the provided status code.
-pub fun (w &ResponseWriter) write_header(status_code int) {
+// write_header sends an HTTP response header with the provided status.
+pub fun (w &ResponseWriter) write_header(status Status) {
 }
 
 // write_string writes a string to the response body.
@@ -140,64 +475,135 @@ pub fun (w &ResponseWriter) write_string(s string) !int {
     return 0
 }
 
+// set_header sets a header key to a single value. Convenience for header().set(key, value).
+pub fun (w &ResponseWriter) set_header(key string, value string) {
+}
+
+// write_json sets the Content-Type to application/json, writes the status,
+// and writes the JSON-encoded value to the response.
+pub fun (w &ResponseWriter) write_json(status Status, v any) !void {
+}
+
+// redirect sends an HTTP redirect to the client with the given URL and status.
+pub fun (w &ResponseWriter) redirect(u string, status Status) {
+}
+
+// flush sends any buffered data to the client.
+pub fun (w &ResponseWriter) flush() !void {
+}
+
+// set_cookie adds a Set-Cookie header to the response.
+pub fun (w &ResponseWriter) set_cookie(c @Cookie) {
+}
+
 // Router is a Patricia trie (radix tree) HTTP request router.
+// Implements the Handler interface. Supports path parameters ({name})
+// and wildcard catch-all ({name...}) segments.
 pub Router struct {
-    middlewares []Middleware
+    implements {
+        Handler
+    }
+
+    middlewares         []Middleware
+    not_found           HandlerFunc?
+    method_not_allowed  HandlerFunc?
 }
 
 // new_router returns a new Router.
 pub fun new_router() Router {
-    return Router{ middlewares: alloc([]Middleware, 0) }
+    return Router{
+        middlewares: alloc([]Middleware, 0),
+        not_found: null,
+        method_not_allowed: null,
+    }
+}
+
+// serve_http dispatches the request to the matching route handler.
+pub fun (r @Router) serve_http(w &ResponseWriter, req @Request) {
 }
 
 // get registers a handler for GET requests at the given pattern.
-pub fun (r &Router) get(pattern string, handler HandlerFunc) {
+pub fun (r &Router) get(pattern string, handler Handler) {
+}
+
+// head registers a handler for HEAD requests at the given pattern.
+pub fun (r &Router) head(pattern string, handler Handler) {
 }
 
 // post registers a handler for POST requests at the given pattern.
-pub fun (r &Router) post(pattern string, handler HandlerFunc) {
+pub fun (r &Router) post(pattern string, handler Handler) {
 }
 
 // put registers a handler for PUT requests at the given pattern.
-pub fun (r &Router) put(pattern string, handler HandlerFunc) {
+pub fun (r &Router) put(pattern string, handler Handler) {
 }
 
 // delete registers a handler for DELETE requests at the given pattern.
-pub fun (r &Router) delete(pattern string, handler HandlerFunc) {
+pub fun (r &Router) delete(pattern string, handler Handler) {
 }
 
 // patch registers a handler for PATCH requests at the given pattern.
-pub fun (r &Router) patch(pattern string, handler HandlerFunc) {
+pub fun (r &Router) patch(pattern string, handler Handler) {
 }
 
-// handle registers a handler for the given method and pattern.
-pub fun (r &Router) handle(method string, pattern string, handler Handler) {
+// options registers a handler for OPTIONS requests at the given pattern.
+pub fun (r &Router) options(pattern string, handler Handler) {
 }
 
-// use appends a middleware to the router's middleware stack.
-pub fun (r &Router) use(mw Middleware) {
+// handle registers a handler for requests matching any method at the given pattern.
+pub fun (r &Router) handle(pattern string, handler Handler) {
 }
 
-// group creates a new route group with the given prefix.
-pub fun (r &Router) group(prefix string) Router {
-    return Router{ middlewares: alloc([]Middleware, 0) }
+// handle_func registers a function as a handler at the given pattern for any method.
+pub fun (r &Router) handle_func(pattern string, handler HandlerFunc) {
 }
 
-// mount attaches another Router at the given pattern.
-pub fun (r &Router) mount(pattern string, sub @Router) {
+// method registers a handler for requests matching the given method at the pattern.
+pub fun (r &Router) method(method Method, pattern string, handler Handler) {
+}
+
+// use appends middleware to the router's middleware stack.
+pub fun (r &Router) use(mw ...Middleware) {
+}
+
+// with returns a new Router that applies the given middleware to all routes.
+pub fun (r @Router) with(mw ...Middleware) Router {
+    return Router{
+        middlewares: alloc([]Middleware, 0),
+        not_found: null,
+        method_not_allowed: null,
+    }
+}
+
+// group creates an inline route group. The provided function receives a
+// sub-router that inherits the parent's middleware stack.
+pub fun (r &Router) group(fn fun(sub &Router)) {
+}
+
+// route mounts a sub-handler at the given prefix pattern.
+pub fun (r &Router) route(prefix string, sub Handler) {
+}
+
+// not_found_handler sets a custom handler for requests that match no route.
+pub fun (r &Router) not_found_handler(handler HandlerFunc) {
+}
+
+// method_not_allowed_handler sets a custom handler for method-not-allowed responses.
+pub fun (r &Router) method_not_allowed_handler(handler HandlerFunc) {
 }
 
 // Server represents an HTTP server.
 pub Server struct {
-    addr            string
-    handler         Handler
-    read_timeout    time.Duration
-    write_timeout   time.Duration
-    idle_timeout    time.Duration
+    addr             string
+    handler          Handler
+    read_timeout     time.Duration
+    write_timeout    time.Duration
+    idle_timeout     time.Duration
     max_header_bytes int
+    base_context     context.Context?
 }
 
-// new_server creates a new Server.
+// new_server creates a new Server with the given address and handler.
 pub fun new_server(addr string, handler Handler) Server {
     return Server{
         addr: addr,
@@ -206,99 +612,356 @@ pub fun new_server(addr string, handler Handler) Server {
         write_timeout: 0,
         idle_timeout: 0,
         max_header_bytes: 0,
+        base_context: null,
     }
 }
 
-// listen_and_serve listens on the server's address and serves HTTP.
+// listen_and_serve listens on the server's address and serves HTTP requests.
 pub fun (s &Server) listen_and_serve() !void {
 }
 
-// listen_and_serve_tls listens and serves HTTPS.
+// listen_and_serve_tls listens and serves HTTPS using the provided certificate and key files.
 pub fun (s &Server) listen_and_serve_tls(cert_file string, key_file string) !void {
 }
 
-// shutdown gracefully shuts down the server.
+// serve accepts incoming connections on the listener and serves HTTP for each.
+pub fun (s &Server) serve(listener net.Listener) !void {
+}
+
+// shutdown gracefully shuts down the server without interrupting active connections.
 pub fun (s &Server) shutdown(ctx context.Context) !void {
 }
 
-// Client is an HTTP client.
-pub Client struct {
-    timeout   time.Duration
-    transport Transport?
+// close immediately closes all active connections and the listener.
+pub fun (s &Server) close() !void {
 }
 
-// Transport controls HTTP client connection behavior.
+// register_on_shutdown registers a function to call on server shutdown.
+pub fun (s &Server) register_on_shutdown(f fun()) {
+}
+
+// Transport controls HTTP client connection pooling, timeouts, and TLS behavior.
 pub Transport struct {
-    max_idle_conns        int
-    idle_conn_timeout     time.Duration
-    tls_handshake_timeout time.Duration
-    disable_keep_alives   bool
+    implements {
+        RoundTripper
+    }
+
+    max_idle_conns           int
+    max_idle_conns_per_host  int
+    max_conns_per_host       int
+    idle_conn_timeout        time.Duration
+    tls_handshake_timeout    time.Duration
+    dial_timeout             time.Duration
+    response_header_timeout  time.Duration
+    disable_keep_alives      bool
+    force_attempt_http2      bool
 }
 
-// default_client is the default HTTP client used by package-level functions.
-pub var default_client = Client{ timeout: 0, transport: null }
-
-// get issues a GET request to the specified URL.
-pub fun get(url string) !Response {
+// round_trip executes a single HTTP transaction and returns a Response.
+pub fun (t &Transport) round_trip(req @Request) !Response {
     return Response{
-        status: "",
-        status_code: 0,
+        status: .ok,
         header: Header{ data: alloc(map[string][]string) },
         body: null,
         proto: "",
         content_length: 0,
+        request: null,
+        uncompressed: false,
     }
 }
 
-// post issues a POST request to the specified URL with the given body.
-pub fun post(url string, content_type string, body io.Reader) !Response {
-    return Response{
-        status: "",
-        status_code: 0,
-        header: Header{ data: alloc(map[string][]string) },
-        body: null,
-        proto: "",
-        content_length: 0,
+// close_idle_connections closes any idle connections in the transport's pool.
+pub fun (t &Transport) close_idle_connections() {
+}
+
+// Client is an HTTP client with timeout, redirect, and cookie support.
+pub Client struct {
+    timeout        time.Duration
+    transport      Transport?
+    jar            CookieJar?
+    check_redirect fun(req @Request, via []@Request) !void
+    max_redirects  int
+}
+
+// default_client is the default HTTP client used by package-level functions.
+pub var default_client = Client{
+    timeout: 0,
+    transport: null,
+    jar: null,
+    check_redirect: null,
+    max_redirects: 10,
+}
+
+// new_client creates a new Client with sensible defaults.
+pub fun new_client() Client {
+    return Client{
+        timeout: 0,
+        transport: null,
+        jar: null,
+        check_redirect: null,
+        max_redirects: 10,
     }
 }
 
 // do sends an HTTP request and returns an HTTP response.
 pub fun (c &Client) do(req @Request) !Response {
     return Response{
-        status: "",
-        status_code: 0,
+        status: .ok,
         header: Header{ data: alloc(map[string][]string) },
         body: null,
         proto: "",
         content_length: 0,
+        request: null,
+        uncompressed: false,
     }
 }
 
+// get issues a GET request to the specified URL.
+pub fun (c &Client) get(u string) !Response {
+    return Response{
+        status: .ok,
+        header: Header{ data: alloc(map[string][]string) },
+        body: null,
+        proto: "",
+        content_length: 0,
+        request: null,
+        uncompressed: false,
+    }
+}
+
+// post issues a POST request to the specified URL with the given content type and body.
+pub fun (c &Client) post(u string, content_type string, body io.Reader) !Response {
+    return Response{
+        status: .ok,
+        header: Header{ data: alloc(map[string][]string) },
+        body: null,
+        proto: "",
+        content_length: 0,
+        request: null,
+        uncompressed: false,
+    }
+}
+
+// head issues a HEAD request to the specified URL.
+pub fun (c &Client) head(u string) !Response {
+    return Response{
+        status: .ok,
+        header: Header{ data: alloc(map[string][]string) },
+        body: null,
+        proto: "",
+        content_length: 0,
+        request: null,
+        uncompressed: false,
+    }
+}
+
+// post_form issues a POST request with the data's keys and values URL-encoded
+// as the request body with content type application/x-www-form-urlencoded.
+pub fun (c &Client) post_form(u string, data url.Values) !Response {
+    return Response{
+        status: .ok,
+        header: Header{ data: alloc(map[string][]string) },
+        body: null,
+        proto: "",
+        content_length: 0,
+        request: null,
+        uncompressed: false,
+    }
+}
+
+// close_idle_connections closes any idle connections in the client's transport.
+pub fun (c &Client) close_idle_connections() {
+}
+
+// CorsOptions configures Cross-Origin Resource Sharing (CORS) behavior.
+pub CorsOptions struct {
+    allowed_origins   []string
+    allowed_methods   []string
+    allowed_headers   []string
+    exposed_headers   []string
+    allow_credentials bool
+    max_age           int
+}
+
+// MetricsOptions configures HTTP metrics collection.
+// Labels (method, path, status) are added automatically per route.
+pub MetricsOptions struct {
+    set                &metrics.Set?
+    request_counter    string
+    duration_histogram string
+    in_flight_gauge    string
+    response_size      string
+}
+
+// log_middleware returns middleware that logs each request.
+pub fun log_middleware() Middleware {
+    return fun(next Handler) Handler { return next }
+}
+
+// recover_middleware returns middleware that recovers from panics
+// and responds with 500 Internal Server Error.
+pub fun recover_middleware() Middleware {
+    return fun(next Handler) Handler { return next }
+}
+
+// timeout_middleware returns middleware that cancels the request context
+// after the given duration and responds with 503 Service Unavailable.
+pub fun timeout_middleware(d time.Duration) Middleware {
+    return fun(next Handler) Handler { return next }
+}
+
+// cors_middleware returns middleware that handles CORS preflight and headers.
+pub fun cors_middleware(opts CorsOptions) Middleware {
+    return fun(next Handler) Handler { return next }
+}
+
+// metrics_middleware returns middleware that records Prometheus-style HTTP
+// metrics (request count, duration, in-flight, response size) per route.
+pub fun metrics_middleware(opts MetricsOptions) Middleware {
+    return fun(next Handler) Handler { return next }
+}
+
+// get issues a GET request to the specified URL using the default client.
+pub fun get(u string) !Response {
+    return Response{
+        status: .ok,
+        header: Header{ data: alloc(map[string][]string) },
+        body: null,
+        proto: "",
+        content_length: 0,
+        request: null,
+        uncompressed: false,
+    }
+}
+
+// post issues a POST request to the specified URL with the given body
+// using the default client.
+pub fun post(u string, content_type string, body io.Reader) !Response {
+    return Response{
+        status: .ok,
+        header: Header{ data: alloc(map[string][]string) },
+        body: null,
+        proto: "",
+        content_length: 0,
+        request: null,
+        uncompressed: false,
+    }
+}
+
+// head issues a HEAD request to the specified URL using the default client.
+pub fun head(u string) !Response {
+    return Response{
+        status: .ok,
+        header: Header{ data: alloc(map[string][]string) },
+        body: null,
+        proto: "",
+        content_length: 0,
+        request: null,
+        uncompressed: false,
+    }
+}
+
+// post_form issues a POST request with URL-encoded form data using the default client.
+pub fun post_form(u string, data url.Values) !Response {
+    return Response{
+        status: .ok,
+        header: Header{ data: alloc(map[string][]string) },
+        body: null,
+        proto: "",
+        content_length: 0,
+        request: null,
+        uncompressed: false,
+    }
+}
+
+// listen_and_serve creates a new Server and listens on the given address.
+pub fun listen_and_serve(addr string, handler Handler) !void {
+}
+
+// listen_and_serve_tls creates a new Server and listens for HTTPS on the given address.
+pub fun listen_and_serve_tls(addr string, cert_file string, key_file string, handler Handler) !void {
+}
+
 // new_request creates a new Request with the given method, URL, and optional body.
-pub fun new_request(method string, url string, body io.Reader?) !Request {
+pub fun new_request(method Method, raw_url string, body io.Reader?) !Request {
     return Request{
         method: method,
-        url: url,
+        url: url.Url{
+            scheme: "",
+            host: "",
+            port: "",
+            path: "",
+            raw_path: "",
+            query: "",
+            fragment: "",
+            user: "",
+            password: "",
+        },
         header: Header{ data: alloc(map[string][]string) },
         body: null,
         host: "",
         proto: "HTTP/1.1",
         content_length: 0,
+        transfer_encoding: alloc([]string, 0),
+        close: false,
+        form: null,
+        remote_addr: "",
+        request_uri: "",
         ctx: null,
     }
 }
 
-// new_request_with_context creates a new Request with a context.
-pub fun new_request_with_context(ctx context.Context, method string, url string, body io.Reader?) !Request {
-    return new_request(method, url, body)
+// new_request_with_context creates a new Request with the given context.
+pub fun new_request_with_context(ctx context.Context, method Method, raw_url string, body io.Reader?) !Request {
+    return new_request(method, raw_url, body)
 }
 
-// status_text returns a text for the HTTP status code.
-pub fun status_text(code int) string {
-    return ""
-}
-
-// url_param extracts a URL parameter by name from the request (set by router).
+// url_param extracts a URL parameter by name from the request, as set by the router.
+// Returns "" if the parameter is not present.
 pub fun url_param(r @Request, name string) string {
     return ""
+}
+
+// detect_content_type implements the MIME sniffing algorithm to determine
+// the Content-Type of the given data. It considers at most the first
+// 512 bytes. Returns "application/octet-stream" if the type cannot be determined.
+pub fun detect_content_type(data []byte) string {
+    return "application/octet-stream"
+}
+
+// redirect_handler returns a Handler that redirects each request to the
+// given URL using the given status.
+pub fun redirect_handler(u string, status Status) Handler? {
+    return null
+}
+
+// not_found_handler returns a HandlerFunc that replies with a 404 Not Found.
+pub fun not_found_handler() HandlerFunc {
+    return fun(w &ResponseWriter, r @Request) {}
+}
+
+// file_server returns a Handler that serves HTTP requests with the
+// contents of the file system rooted at root.
+pub fun file_server(root string) Handler? {
+    return null
+}
+
+// strip_prefix returns a Handler that serves HTTP requests by stripping
+// the given prefix from the request URL path and invoking the handler.
+pub fun strip_prefix(prefix string, handler Handler) Handler? {
+    return null
+}
+
+// serve_file replies to the request with the contents of the named file.
+pub fun serve_file(w &ResponseWriter, r @Request, path string) {
+}
+
+// error_response replies to the request with the given error message and status.
+pub fun error_response(w &ResponseWriter, message string, status Status) {
+}
+
+// max_bytes_reader returns a Reader that reads from r but stops with an
+// error after n bytes. This is useful for limiting the size of incoming request bodies.
+pub fun max_bytes_reader(w &ResponseWriter, r io.ReadCloser, n int) io.ReadCloser {
+    return r
 }
