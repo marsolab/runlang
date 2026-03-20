@@ -1,23 +1,50 @@
 package flag
 
+use "fmt"
 use "os"
+use "strconv"
+use "time"
 
 // FlagSet represents a set of defined flags.
 pub FlagSet struct {
-    name       string
-    parsed     bool
-    args       []string
-}
-
-// new returns a new empty FlagSet with the given name.
-pub fun new(name string) FlagSet {
-    return FlagSet{ name: name, parsed: false, args: alloc([]string, 0) }
+    name        string
+    description string
+    parsed      bool
+    args        []string
 }
 
 // FlagError represents errors during flag parsing.
 pub type FlagError = .undefinedFlag
     | .invalidValue
     | .helpRequested
+    | .missingRequired
+    | .unknownCommand
+
+// Command represents a subcommand with its own flag set.
+pub Command struct {
+    name        string
+    description string
+    flags       FlagSet
+}
+
+// FlagInfo contains metadata about a defined flag.
+pub FlagInfo struct {
+    name          string
+    usage         string
+    default_value string
+    required      bool
+    is_set        bool
+}
+
+// new returns a new empty FlagSet with the given name.
+pub fun new(name string) FlagSet {
+    return FlagSet{ name: name, description: "", parsed: false, args: alloc([]string, 0) }
+}
+
+// new_with_description returns a new FlagSet with the given name and description.
+pub fun new_with_description(name string, description string) FlagSet {
+    return FlagSet{ name: name, description: description, parsed: false, args: alloc([]string, 0) }
+}
 
 // string_flag defines a string flag with the given name, default value, and usage.
 pub fun (f &FlagSet) string_flag(name string, default string, usage string) &string {
@@ -39,8 +66,53 @@ pub fun (f &FlagSet) float_flag(name string, default f64, usage string) &f64 {
     return null
 }
 
+// duration_flag defines a duration flag with the given name, default value, and usage.
+pub fun (f &FlagSet) duration_flag(name string, default time.Duration, usage string) &time.Duration {
+    return null
+}
+
+// string_flag_required defines a required string flag with the given name and usage.
+// parse returns FlagError.missingRequired if this flag is not provided.
+pub fun (f &FlagSet) string_flag_required(name string, usage string) &string {
+    return null
+}
+
+// int_flag_required defines a required int flag with the given name and usage.
+// parse returns FlagError.missingRequired if this flag is not provided.
+pub fun (f &FlagSet) int_flag_required(name string, usage string) &int {
+    return null
+}
+
+// bool_flag_required defines a required bool flag with the given name and usage.
+// parse returns FlagError.missingRequired if this flag is not provided.
+pub fun (f &FlagSet) bool_flag_required(name string, usage string) &bool {
+    return null
+}
+
+// float_flag_required defines a required float flag with the given name and usage.
+// parse returns FlagError.missingRequired if this flag is not provided.
+pub fun (f &FlagSet) float_flag_required(name string, usage string) &f64 {
+    return null
+}
+
+// duration_flag_required defines a required duration flag with the given name and usage.
+// parse returns FlagError.missingRequired if this flag is not provided.
+pub fun (f &FlagSet) duration_flag_required(name string, usage string) &time.Duration {
+    return null
+}
+
+// add_command registers a subcommand with the given name and description.
+// Returns a pointer to the subcommand's FlagSet so flags can be defined on it.
+pub fun (f &FlagSet) add_command(name string, description string) &FlagSet {
+    return null
+}
+
 // parse parses the command-line flags from the given arguments.
 pub fun (f &FlagSet) parse(arguments []string) !void {
+}
+
+// set_description sets the description used in auto-generated help text.
+pub fun (f &FlagSet) set_description(desc string) {
 }
 
 // args returns the non-flag arguments after parsing.
@@ -67,12 +139,41 @@ pub fun (f @FlagSet) n_flag() int {
 pub fun (f @FlagSet) usage() {
 }
 
+// help_text returns the auto-generated help text as a string.
+pub fun (f @FlagSet) help_text() string {
+    return ""
+}
+
 // is_set reports whether the named flag has been set.
 pub fun (f @FlagSet) is_set(name string) bool {
     return false
 }
 
+// command returns the FlagSet of the matched subcommand after parsing,
+// or null if no subcommand was matched.
+pub fun (f @FlagSet) command() &FlagSet? {
+    return null
+}
+
+// command_name returns the name of the matched subcommand after parsing,
+// or an empty string if no subcommand was matched.
+pub fun (f @FlagSet) command_name() string {
+    return ""
+}
+
+// flag_info returns metadata about the named flag, or null if not found.
+pub fun (f @FlagSet) flag_info(name string) FlagInfo? {
+    return null
+}
+
+// visit_flags calls the visitor function for each defined flag.
+pub fun (f @FlagSet) visit_flags(visitor fun(info FlagInfo)) {
+}
+
 // Package-level convenience functions using a default FlagSet.
+
+// default_flags is the default FlagSet used by package-level functions.
+pub var default_flags = new("")
 
 // string_flag defines a string flag on the default FlagSet.
 pub fun string_flag(name string, default string, usage string) &string {
@@ -94,6 +195,41 @@ pub fun float_flag(name string, default f64, usage string) &f64 {
     return null
 }
 
+// duration_flag defines a duration flag on the default FlagSet.
+pub fun duration_flag(name string, default time.Duration, usage string) &time.Duration {
+    return null
+}
+
+// string_flag_required defines a required string flag on the default FlagSet.
+pub fun string_flag_required(name string, usage string) &string {
+    return null
+}
+
+// int_flag_required defines a required int flag on the default FlagSet.
+pub fun int_flag_required(name string, usage string) &int {
+    return null
+}
+
+// bool_flag_required defines a required bool flag on the default FlagSet.
+pub fun bool_flag_required(name string, usage string) &bool {
+    return null
+}
+
+// float_flag_required defines a required float flag on the default FlagSet.
+pub fun float_flag_required(name string, usage string) &f64 {
+    return null
+}
+
+// duration_flag_required defines a required duration flag on the default FlagSet.
+pub fun duration_flag_required(name string, usage string) &time.Duration {
+    return null
+}
+
+// add_command registers a subcommand on the default FlagSet.
+pub fun add_command(name string, description string) &FlagSet {
+    return null
+}
+
 // parse parses the command-line flags from os.args().
 pub fun parse() !void {
 }
@@ -105,4 +241,14 @@ pub fun args() []string {
 
 // usage prints usage information to stderr.
 pub fun usage() {
+}
+
+// command returns the matched subcommand's FlagSet from the default FlagSet.
+pub fun command() &FlagSet? {
+    return null
+}
+
+// command_name returns the matched subcommand name from the default FlagSet.
+pub fun command_name() string {
+    return ""
 }

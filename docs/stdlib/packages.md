@@ -1433,29 +1433,147 @@ scan_bytes        SplitFunc    — split by byte
 
 ### `flag` — Command-Line Flag Parsing
 
-**Purpose:** Parse command-line flags and arguments.
+**Purpose:** Parse command-line flags and arguments with subcommand support.
 
 **Key types and functions:**
 ```
 FlagSet           struct       — set of defined flags
+FlagError         sum type     — .undefinedFlag | .invalidValue | .helpRequested | .missingRequired | .unknownCommand
+Command           struct       — subcommand with its own flag set
+FlagInfo          struct       — metadata about a defined flag
 
 new(name string) FlagSet
+new_with_description(name, description string) FlagSet
+
+// Flag definition (with defaults)
 (fs &FlagSet) string_flag(name, default, usage string) &string
 (fs &FlagSet) int_flag(name string, default int, usage string) &int
 (fs &FlagSet) bool_flag(name string, default bool, usage string) &bool
 (fs &FlagSet) float_flag(name string, default f64, usage string) &f64
+(fs &FlagSet) duration_flag(name string, default time.Duration, usage string) &time.Duration
+
+// Required flags (no default, parse fails if missing)
+(fs &FlagSet) string_flag_required(name, usage string) &string
+(fs &FlagSet) int_flag_required(name, usage string) &int
+(fs &FlagSet) bool_flag_required(name, usage string) &bool
+(fs &FlagSet) float_flag_required(name, usage string) &f64
+(fs &FlagSet) duration_flag_required(name, usage string) &time.Duration
+
+// Subcommands
+(fs &FlagSet) add_command(name, description string) &FlagSet
+(fs @FlagSet) command() &FlagSet?      — matched subcommand after parse
+(fs @FlagSet) command_name() string    — matched subcommand name
+
+// Parsing and inspection
 (fs &FlagSet) parse(args []string) !void
+(fs &FlagSet) set_description(desc string)
 (fs @FlagSet) args() []string          — non-flag arguments
-(fs @FlagSet) usage()                  — print usage
+(fs @FlagSet) n_arg() int
+(fs @FlagSet) arg(i int) string
+(fs @FlagSet) n_flag() int
+(fs @FlagSet) is_set(name string) bool
+(fs @FlagSet) usage()                  — print usage to stderr
+(fs @FlagSet) help_text() string       — return usage as string
+(fs @FlagSet) flag_info(name string) FlagInfo?
+(fs @FlagSet) visit_flags(visitor fun(info FlagInfo))
 
 // Package-level (default FlagSet)
 string_flag(name, default, usage) &string
 int_flag(name, default, usage) &int
 bool_flag(name, default, usage) &bool
+float_flag(name, default, usage) &f64
+duration_flag(name, default, usage) &time.Duration
+string_flag_required(name, usage) &string
+int_flag_required(name, usage) &int
+bool_flag_required(name, usage) &bool
+float_flag_required(name, usage) &f64
+duration_flag_required(name, usage) &time.Duration
+add_command(name, description) &FlagSet
 parse() !void
+args() []string
+usage()
+command() &FlagSet?
+command_name() string
 ```
 
-**Dependencies:** `os`, `fmt`, `strconv`
+**Dependencies:** `os`, `fmt`, `strconv`, `time`
+
+---
+
+### `cli` — Command-Line Application Framework
+
+**Purpose:** Build CLI applications with command trees, lifecycle hooks, argument validation, and auto-generated help. Composes the `flag` package for flag parsing while providing higher-level orchestration — analogous to Cobra in Go.
+
+**Key types and functions:**
+```
+CliError          sum type     — .unknownCommand(string) | .invalidArgs(string) | .flagError(string) | .silentError
+RunFunc           type         — fun(cmd &Command, args []string) !void
+ArgsValidator     type         — fun(cmd @Command, args []string) !void
+Command           struct       — CLI command with flags, subcommands, and hooks
+
+new(name string) Command
+
+// Builder-style configuration (return &Command for chaining)
+(c &Command) set_short(desc string) &Command
+(c &Command) set_long(desc string) &Command
+(c &Command) set_example(example string) &Command
+(c &Command) set_version(version string) &Command
+(c &Command) set_deprecated(msg string) &Command
+(c &Command) set_hidden(hidden bool) &Command
+(c &Command) set_run(f RunFunc) &Command
+(c &Command) set_pre_run(f RunFunc) &Command
+(c &Command) set_post_run(f RunFunc) &Command
+(c &Command) set_args_validator(v ArgsValidator) &Command
+(c &Command) set_silence_errors(v bool) &Command
+(c &Command) set_silence_usage(v bool) &Command
+
+// Command tree
+(c &Command) add_command(sub &Command)
+(c &Command) add_commands(subs ...&Command)
+(c &Command) remove_command(name string)
+(c @Command) has_subcommands() bool
+(c @Command) parent() &Command?
+(c @Command) root() &Command
+(c @Command) find_command(args []string) struct { cmd &Command, remaining []string }
+
+// Flag access (local + persistent + inherited)
+(c &Command) flags() &flag.FlagSet
+(c &Command) persistent_flags() &flag.FlagSet
+(c @Command) inherited_flags() []flag.FlagInfo
+(c @Command) all_flags(visitor fun(info flag.FlagInfo))
+(c @Command) has_flags() bool
+(c @Command) has_persistent_flags() bool
+(c @Command) has_inherited_flags() bool
+
+// Execution
+(c &Command) execute() !void              — main entry point, parses os.args()
+(c &Command) execute_with(args []string) !void  — testable variant
+
+// Help and usage
+(c @Command) help()
+(c @Command) help_text() string
+(c @Command) usage()
+(c @Command) usage_text() string
+(c @Command) full_name() string
+(c @Command) name_and_aliases() string
+(c @Command) is_runnable() bool
+
+// Built-in argument validators
+no_args() ArgsValidator
+exact_args(n int) ArgsValidator
+min_args(n int) ArgsValidator
+max_args(n int) ArgsValidator
+range_args(min, max int) ArgsValidator
+arbitrary_args() ArgsValidator
+valid_args(valid []string) ArgsValidator
+
+// Package-level (default app)
+add_command(sub &Command)
+execute() !void
+set_version(version string)
+```
+
+**Dependencies:** `flag`, `fmt`, `os`, `strings`
 
 ---
 
@@ -2383,6 +2501,7 @@ yield()                        — yield current green thread to scheduler
 | `url` | URL parsing and escaping | P2 | `strings`, `strconv` |
 | `mime` | MIME types | P2 | `strings` |
 | `flag` | CLI flag parsing | P2 | `os`, `fmt`, `strconv` |
+| `cli` | CLI application framework | P3 | `flag`, `fmt`, `os`, `strings` |
 | `os/exec` | Run external commands | P2 | `os`, `io`, `bytes` |
 | `os/signal` | OS signal handling | P2 | `os` |
 | `regex` | Regular expressions | P2 | `strings` |

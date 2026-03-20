@@ -1,0 +1,331 @@
+package cli
+
+use "flag"
+use "fmt"
+use "os"
+use "strings"
+
+// CliError represents errors during CLI execution.
+pub type CliError = .unknownCommand(string)
+    | .invalidArgs(string)
+    | .flagError(string)
+    | .silentError
+
+// RunFunc is the function signature for command execution hooks.
+// It receives a mutable pointer to the command and the positional arguments.
+pub type RunFunc = fun(cmd &Command, args []string) !void
+
+// ArgsValidator is the function signature for positional argument validation.
+// It receives a read-only pointer to the command and the positional arguments.
+pub type ArgsValidator = fun(cmd @Command, args []string) !void
+
+// Command represents a CLI command with flags, subcommands, and lifecycle hooks.
+pub Command struct {
+    name             string
+    aliases          []string
+    short            string
+    long             string
+    example          string
+    version          string
+    deprecated       string
+    hidden           bool
+    pre_run          RunFunc?
+    run              RunFunc?
+    post_run         RunFunc?
+    args_validator   ArgsValidator?
+    flags            flag.FlagSet
+    persistent_flags flag.FlagSet
+    parent           &Command?
+    commands         []&Command
+    use_stderr       bool
+    silence_errors   bool
+    silence_usage    bool
+}
+
+// new creates a new Command with the given name.
+pub fun new(name string) Command {
+    return Command{
+        name: name,
+        aliases: alloc([]string, 0),
+        short: "",
+        long: "",
+        example: "",
+        version: "",
+        deprecated: "",
+        hidden: false,
+        pre_run: null,
+        run: null,
+        post_run: null,
+        args_validator: null,
+        flags: flag.new(name),
+        persistent_flags: flag.new(name),
+        parent: null,
+        commands: alloc([]&Command, 0),
+        use_stderr: false,
+        silence_errors: false,
+        silence_usage: false,
+    }
+}
+
+// --- Command configuration (builder-style, return &Command for chaining) ---
+
+// set_short sets the short description shown in the parent command's help.
+pub fun (c &Command) set_short(desc string) &Command {
+    c.short = desc
+    return c
+}
+
+// set_long sets the long description shown in this command's own help.
+pub fun (c &Command) set_long(desc string) &Command {
+    c.long = desc
+    return c
+}
+
+// set_example sets the example usage text for this command.
+pub fun (c &Command) set_example(example string) &Command {
+    c.example = example
+    return c
+}
+
+// set_version sets the version string. When set on the root command,
+// a --version flag is automatically added.
+pub fun (c &Command) set_version(version string) &Command {
+    c.version = version
+    return c
+}
+
+// set_deprecated marks this command as deprecated with the given message.
+// Deprecated commands show a warning when executed.
+pub fun (c &Command) set_deprecated(msg string) &Command {
+    c.deprecated = msg
+    return c
+}
+
+// set_hidden hides this command from help output.
+// The command remains executable but will not appear in listings.
+pub fun (c &Command) set_hidden(hidden bool) &Command {
+    c.hidden = hidden
+    return c
+}
+
+// set_run sets the main execution function for this command.
+pub fun (c &Command) set_run(f RunFunc) &Command {
+    c.run = f
+    return c
+}
+
+// set_pre_run sets a function that runs before the main run function.
+pub fun (c &Command) set_pre_run(f RunFunc) &Command {
+    c.pre_run = f
+    return c
+}
+
+// set_post_run sets a function that runs after the main run function.
+pub fun (c &Command) set_post_run(f RunFunc) &Command {
+    c.post_run = f
+    return c
+}
+
+// set_args_validator sets the positional argument validation function.
+pub fun (c &Command) set_args_validator(v ArgsValidator) &Command {
+    c.args_validator = v
+    return c
+}
+
+// set_silence_errors prevents the command from printing errors on failure.
+pub fun (c &Command) set_silence_errors(v bool) &Command {
+    c.silence_errors = v
+    return c
+}
+
+// set_silence_usage prevents the command from printing usage on error.
+pub fun (c &Command) set_silence_usage(v bool) &Command {
+    c.silence_usage = v
+    return c
+}
+
+// --- Command tree management ---
+
+// add_command registers a subcommand under this command.
+// The subcommand's parent is set to this command.
+pub fun (c &Command) add_command(sub &Command) {
+}
+
+// add_commands registers multiple subcommands at once.
+pub fun (c &Command) add_commands(subs ...&Command) {
+}
+
+// remove_command removes a subcommand by name.
+pub fun (c &Command) remove_command(name string) {
+}
+
+// has_subcommands reports whether this command has any subcommands.
+pub fun (c @Command) has_subcommands() bool {
+    return false
+}
+
+// parent returns the parent command, or null if this is the root.
+pub fun (c @Command) parent() &Command? {
+    return c.parent
+}
+
+// root walks up the parent chain and returns the root command.
+pub fun (c @Command) root() &Command {
+    return null
+}
+
+// find_command walks the command tree to find the command matching
+// the given argument path. Returns the matched command and any
+// remaining (non-command) arguments.
+pub fun (c @Command) find_command(args []string) struct { cmd &Command, remaining []string } {
+    return .{ cmd: null, remaining: alloc([]string, 0) }
+}
+
+// --- Flag access ---
+
+// flags returns the local FlagSet for this command only.
+pub fun (c &Command) flags() &flag.FlagSet {
+    return null
+}
+
+// persistent_flags returns the persistent FlagSet for this command.
+// Persistent flags are inherited by all subcommands.
+pub fun (c &Command) persistent_flags() &flag.FlagSet {
+    return null
+}
+
+// inherited_flags returns metadata for all persistent flags inherited
+// from parent commands (not including this command's own persistent flags).
+pub fun (c @Command) inherited_flags() []flag.FlagInfo {
+    return alloc([]flag.FlagInfo, 0)
+}
+
+// all_flags calls the visitor for every flag available to this command,
+// including local flags and all inherited persistent flags.
+pub fun (c @Command) all_flags(visitor fun(info flag.FlagInfo)) {
+}
+
+// has_flags reports whether this command has any local flags defined.
+pub fun (c @Command) has_flags() bool {
+    return false
+}
+
+// has_persistent_flags reports whether this command has persistent flags.
+pub fun (c @Command) has_persistent_flags() bool {
+    return false
+}
+
+// has_inherited_flags reports whether this command inherits any flags.
+pub fun (c @Command) has_inherited_flags() bool {
+    return false
+}
+
+// --- Execution ---
+
+// execute parses os.args() and runs the appropriate command in the tree.
+// This is the primary entry point for CLI applications.
+pub fun (c &Command) execute() !void {
+}
+
+// execute_with parses the given arguments and runs the appropriate command.
+// Useful for testing without relying on os.args().
+pub fun (c &Command) execute_with(args []string) !void {
+}
+
+// --- Help and usage ---
+
+// help prints the auto-generated help text to stdout.
+pub fun (c @Command) help() {
+}
+
+// help_text returns the auto-generated help text as a string.
+pub fun (c @Command) help_text() string {
+    return ""
+}
+
+// usage prints the short usage line to stderr.
+pub fun (c @Command) usage() {
+}
+
+// usage_text returns the short usage line as a string.
+pub fun (c @Command) usage_text() string {
+    return ""
+}
+
+// full_name returns the full command path from root (e.g., "app server start").
+pub fun (c @Command) full_name() string {
+    return ""
+}
+
+// name_and_aliases returns the command name with aliases (e.g., "list (ls, l)").
+pub fun (c @Command) name_and_aliases() string {
+    return ""
+}
+
+// is_runnable reports whether this command has a run function set.
+pub fun (c @Command) is_runnable() bool {
+    return false
+}
+
+// --- Built-in argument validators ---
+
+// no_args returns a validator that rejects any positional arguments.
+pub fun no_args() ArgsValidator {
+    return fun(cmd @Command, args []string) !void {
+    }
+}
+
+// exact_args returns a validator that requires exactly n positional arguments.
+pub fun exact_args(n int) ArgsValidator {
+    return fun(cmd @Command, args []string) !void {
+    }
+}
+
+// min_args returns a validator that requires at least n positional arguments.
+pub fun min_args(n int) ArgsValidator {
+    return fun(cmd @Command, args []string) !void {
+    }
+}
+
+// max_args returns a validator that requires at most n positional arguments.
+pub fun max_args(n int) ArgsValidator {
+    return fun(cmd @Command, args []string) !void {
+    }
+}
+
+// range_args returns a validator that requires between min and max
+// positional arguments (inclusive).
+pub fun range_args(min int, max int) ArgsValidator {
+    return fun(cmd @Command, args []string) !void {
+    }
+}
+
+// arbitrary_args returns a validator that accepts any arguments.
+pub fun arbitrary_args() ArgsValidator {
+    return fun(cmd @Command, args []string) !void {
+    }
+}
+
+// valid_args returns a validator that only accepts arguments from the
+// provided list of valid values.
+pub fun valid_args(valid []string) ArgsValidator {
+    return fun(cmd @Command, args []string) !void {
+    }
+}
+
+// --- Package-level convenience ---
+
+// default_app is the default root command used by package-level functions.
+pub var default_app = new("")
+
+// add_command adds a subcommand to the default app.
+pub fun add_command(sub &Command) {
+}
+
+// execute runs the default app with os.args().
+pub fun execute() !void {
+}
+
+// set_version sets the version on the default app.
+pub fun set_version(version string) {
+}
