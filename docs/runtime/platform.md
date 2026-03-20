@@ -12,7 +12,7 @@
 | CPU count | `sysconf(_SC_NPROCESSORS_ONLN)` | `sysconf(_SC_NPROCESSORS_ONLN)` | `GetSystemInfo` |
 | Stack guard fault | `SIGSEGV` handler | `SIGSEGV` handler | SEH (Structured Exception Handling) |
 | Preemption signal | `SIGURG` | `SIGURG` | `SuspendThread` / `GetThreadContext` |
-| Network polling | `epoll` | `kqueue` | IOCP |
+| Network polling | `io_uring` | `kqueue` | IOCP |
 | Context switch | System V ABI asm | System V ABI asm | Windows ABI asm |
 | TLS | `__thread` / `pthread_key` | `__thread` / `pthread_key` | `__declspec(thread)` / `TlsAlloc` |
 
@@ -267,46 +267,75 @@ ResumeThread(m->thread);
 
 ## Network Polling
 
-Network polling integrates with the scheduler to efficiently handle I/O-bound Gs.
+Network polling integrates with the scheduler to efficiently handle I/O-bound Gs. The poller is invoked from `find_runnable()` on every scheduling pass (non-blocking), and falls back to a blocking poll when all Gs are waiting on I/O and no other work is available.
 
-### Linux: epoll
+Implementation: `src/runtime/run_poller.c` / `run_poller.h`
+
+### Linux: io_uring (kernel 5.1+)
+
+io_uring is a completion-based async I/O interface that uses shared-memory submission (SQ) and completion (CQ) queues between user space and the kernel. Unlike epoll (readiness-based), io_uring minimizes syscalls and supports batched submissions.
+
+**Why io_uring over epoll:**
+- Completion-based model matches the runtime's "park G, wake on completion" pattern naturally
+- Shared-memory rings eliminate per-event syscall overhead (epoll_ctl + epoll_wait)
+- Multishot poll (kernel 5.13+, `IORING_POLL_ADD_MULTI`) avoids re-arm after each event
+- `IORING_FEAT_FAST_POLL` (kernel 5.7+) handles poll directly in the submission path
+- Extensible to async read/write/accept/connect — not limited to readiness notification
 
 ```c
-int epfd = epoll_create1(0);
+// Setup: one ring per scheduler
+struct io_uring_params params = {0};
+int ring_fd = io_uring_setup(256, &params);
+// Map SQ, CQ, and SQE arrays via mmap (IORING_OFF_SQ_RING, IORING_OFF_SQES, IORING_OFF_CQ_RING)
 
-// Register interest
-struct epoll_event ev = { .events = EPOLLIN, .data.ptr = g };
-epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
+// Register interest: submit POLL_ADD SQE
+struct io_uring_sqe *sqe = get_next_sqe();
+sqe->opcode = IORING_OP_POLL_ADD;
+sqe->fd = socket_fd;
+sqe->user_data = (uint64_t)poll_desc;  // points back to the waiting G
+sqe->poll32_events = POLLIN;           // or POLLOUT
+sqe->len = IORING_POLL_ADD_MULTI;      // multishot: stays armed
+io_uring_enter(ring_fd, 1, 0, 0, NULL, 0);
 
-// Poll (non-blocking check from scheduler)
-struct epoll_event events[64];
-int n = epoll_wait(epfd, events, 64, 0);  // timeout=0 for non-blocking
-for (int i = 0; i < n; i++) {
-    run_g_t *g = events[i].data.ptr;
-    g->status = G_RUNNABLE;
-    push_to_run_queue(g);
+// Reap completions (non-blocking, called from scheduler)
+while (cq_head != cq_tail) {
+    struct io_uring_cqe *cqe = &cqes[cq_head & mask];
+    run_poll_desc_t *pd = (run_poll_desc_t *)cqe->user_data;
+    if (cqe->res & POLLIN && pd->read_g)  { run_g_ready(pd->read_g); pd->read_g = NULL; }
+    if (cqe->res & POLLOUT && pd->write_g) { run_g_ready(pd->write_g); pd->write_g = NULL; }
+    cq_head++;
 }
+
+// Blocking poll (when scheduler has no runnable Gs)
+io_uring_enter(ring_fd, 0, 1, IORING_ENTER_GETEVENTS, NULL, 0);
 ```
 
+**Future extensions:** io_uring can directly perform `IORING_OP_ACCEPT`, `IORING_OP_CONNECT`, `IORING_OP_READ`, `IORING_OP_WRITE` — avoiding the readiness→syscall round-trip entirely. The current implementation uses `IORING_OP_POLL_ADD` as the baseline, with direct I/O ops as a future optimization.
+
 ### macOS: kqueue
+
+kqueue is a readiness-based event system, but used in completion style with `EV_CLEAR` (edge-triggered). It is the most capable I/O multiplexer on macOS.
 
 ```c
 int kq = kqueue();
 
-// Register interest
+// Register interest with EV_CLEAR (edge-triggered, no re-arm needed)
 struct kevent ev;
-EV_SET(&ev, fd, EVFILT_READ, EV_ADD, 0, 0, g);
+EV_SET(&ev, fd, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, poll_desc);
 kevent(kq, &ev, 1, NULL, 0, NULL);
 
-// Poll (non-blocking)
+// Reap (non-blocking, called from scheduler)
 struct kevent events[64];
-struct timespec ts = {0, 0};  // no wait
+struct timespec ts = {0, 0};
 int n = kevent(kq, NULL, 0, events, 64, &ts);
 for (int i = 0; i < n; i++) {
-    run_g_t *g = events[i].udata;
-    g->status = G_RUNNABLE;
-    push_to_run_queue(g);
+    run_poll_desc_t *pd = events[i].udata;
+    if (events[i].filter == EVFILT_READ && pd->read_g)  { run_g_ready(pd->read_g); }
+    if (events[i].filter == EVFILT_WRITE && pd->write_g) { run_g_ready(pd->write_g); }
 }
+
+// Blocking poll (when scheduler has no runnable Gs)
+kevent(kq, NULL, 0, events, 64, NULL);  // NULL timeout = block indefinitely
 ```
 
 ### Windows: IOCP
@@ -315,16 +344,15 @@ for (int i = 0; i < n; i++) {
 HANDLE iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
 
 // Associate a socket
-CreateIoCompletionPort((HANDLE)socket, iocp, (ULONG_PTR)g, 0);
+CreateIoCompletionPort((HANDLE)socket, iocp, (ULONG_PTR)poll_desc, 0);
 
 // Poll (non-blocking)
 OVERLAPPED_ENTRY entries[64];
 ULONG count;
 GetQueuedCompletionStatusEx(iocp, entries, 64, &count, 0, FALSE);
 for (ULONG i = 0; i < count; i++) {
-    run_g_t *g = (run_g_t *)entries[i].lpCompletionKey;
-    g->status = G_RUNNABLE;
-    push_to_run_queue(g);
+    run_poll_desc_t *pd = (run_poll_desc_t *)entries[i].lpCompletionKey;
+    run_g_ready(pd->read_g);
 }
 ```
 

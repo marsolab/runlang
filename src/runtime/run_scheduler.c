@@ -1,6 +1,7 @@
 #include "run_scheduler.h"
 
 #include "run_numa.h"
+#include "run_poller.h"
 #include "run_vmem.h"
 
 #include <signal.h>
@@ -535,7 +536,7 @@ void run_wake_m(void) {
  * Scheduling Core
  * ======================================================================== */
 
-/* find_runnable: try local queue -> global queue -> work stealing */
+/* find_runnable: try local queue -> global queue -> poll I/O -> work stealing */
 static run_g_t *find_runnable(run_p_t *p) {
     /* 1. Local queue */
     run_g_t *g = run_g_queue_pop(&p->local_queue);
@@ -547,7 +548,18 @@ static run_g_t *find_runnable(run_p_t *p) {
     if (g)
         return g;
 
-    /* 3. Work stealing */
+    /* 3. Poll for I/O completions (non-blocking).
+     * This may make Gs runnable by pushing them to run queues. */
+    if (run_poller_poll() > 0) {
+        g = run_g_queue_pop(&p->local_queue);
+        if (g)
+            return g;
+        g = run_global_queue_pop();
+        if (g)
+            return g;
+    }
+
+    /* 4. Work stealing */
     g = try_steal(p);
     if (g)
         return g;
@@ -590,6 +602,14 @@ static void schedule_loop(run_m_t *m) {
                 return;
             }
 
+            /* Before parking or aborting, check if Gs are waiting on I/O.
+             * If so, do a blocking poll to wait for completions. */
+            if (run_poller_has_waiters()) {
+                if (run_poller_poll_blocking(-1) > 0) {
+                    continue; /* Gs were woken — re-enter find_runnable */
+                }
+            }
+
             /* For multi-threaded: release P and park.
              * For single-threaded: just return (all Gs must be waiting). */
             if (num_ps > 1) {
@@ -598,8 +618,8 @@ static void schedule_loop(run_m_t *m) {
                 park_m(m);
                 continue;
             } else {
-                /* Single-threaded: if there are live Gs but none runnable,
-                 * they must be in G_WAITING. This is a deadlock. */
+                /* Single-threaded: if there are live Gs but none runnable
+                 * and no I/O waiters, they are deadlocked. */
                 fprintf(stderr, "run: all green threads are deadlocked\n");
                 abort();
             }
@@ -696,6 +716,9 @@ void run_scheduler_init(void) {
     /* Pin M0 to its P's NUMA node */
     pin_m_to_node(m0, all_ps[0].numa_node);
 
+    /* Initialize the network poller (io_uring on Linux, kqueue on macOS) */
+    run_poller_init();
+
     /* Check for growable stacks */
     const char *stack_env = getenv("RUN_STACK_MAX");
     if (stack_env) {
@@ -737,6 +760,7 @@ void run_scheduler_run(void) {
     schedule_loop(m);
 
     /* Cleanup */
+    run_poller_close();
     if (use_preemption) {
         run_preemption_stop();
         if (signal_preemption_active) {
