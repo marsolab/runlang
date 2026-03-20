@@ -65,6 +65,7 @@ pub fn build(b: *std.Build) void {
         "src/runtime/run_map.c",
         "src/runtime/run_simd.c",
         "src/runtime/run_numa.c",
+        "src/runtime/run_poller.c",
     };
 
     // Build sanitizer flags
