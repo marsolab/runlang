@@ -84,7 +84,46 @@ pub fun new_buffered_reader(reader Reader) BufferedReader {
 
 // read reads from the internal buffer, refilling it as needed.
 pub fun (br &BufferedReader) read(buf []byte) !int {
-    return 0
+    // If the internal buffer has unread data, serve from it.
+    if br.pos < br.end {
+        var n = br.end - br.pos
+        if n > len(buf) {
+            n = len(buf)
+        }
+        var i = 0
+        for i < n {
+            buf[i] = br.buf[br.pos + i]
+            i = i + 1
+        }
+        br.pos = br.pos + n
+        return n
+    }
+
+    // Buffer is empty. If the caller wants more than our buffer size,
+    // read directly into their buffer to avoid an extra copy.
+    if len(buf) >= len(br.buf) {
+        return try br.reader.read(buf)
+    }
+
+    // Refill the internal buffer.
+    br.pos = 0
+    br.end = try br.reader.read(br.buf)
+    if br.end == 0 {
+        return 0
+    }
+
+    // Copy from the freshly filled buffer.
+    var n = br.end
+    if n > len(buf) {
+        n = len(buf)
+    }
+    var i = 0
+    for i < n {
+        buf[i] = br.buf[i]
+        i = i + 1
+    }
+    br.pos = n
+    return n
 }
 
 // BufferedWriter wraps a Writer with an internal buffer for efficiency.
@@ -109,11 +148,53 @@ pub fun new_buffered_writer(writer Writer) BufferedWriter {
 
 // write writes to the internal buffer, flushing when full.
 pub fun (bw &BufferedWriter) write(buf []byte) !int {
-    return 0
+    var remaining = len(bw.buf) - bw.pos
+    if len(buf) <= remaining {
+        // Data fits in buffer.
+        var i = 0
+        for i < len(buf) {
+            bw.buf[bw.pos + i] = buf[i]
+            i = i + 1
+        }
+        bw.pos = bw.pos + len(buf)
+        return len(buf)
+    }
+
+    // Flush existing buffered data.
+    try bw.flush()
+
+    // If the incoming data is larger than the buffer, write directly.
+    if len(buf) >= len(bw.buf) {
+        return try bw.writer.write(buf)
+    }
+
+    // Buffer the new data.
+    var i = 0
+    for i < len(buf) {
+        bw.buf[i] = buf[i]
+        i = i + 1
+    }
+    bw.pos = len(buf)
+    return len(buf)
 }
 
 // flush writes any buffered data to the underlying Writer.
 pub fun (bw &BufferedWriter) flush() !void {
+    if bw.pos == 0 {
+        return
+    }
+    var written = 0
+    for written < bw.pos {
+        var tmp = alloc([]byte, bw.pos - written)
+        var i = 0
+        for i < len(tmp) {
+            tmp[i] = bw.buf[written + i]
+            i = i + 1
+        }
+        var n = try bw.writer.write(tmp)
+        written = written + n
+    }
+    bw.pos = 0
 }
 
 // Discard is a Writer that discards all data written to it.
@@ -131,24 +212,279 @@ fun (d &Discard) write(buf []byte) !int {
 // discard is a Writer that discards all data written to it.
 pub var discard = Discard{}
 
+// LimitReader wraps a Reader and stops after a given number of bytes.
+LimitReader struct {
+    implements {
+        Reader
+    }
+
+    reader Reader
+    remain int
+}
+
+// read reads up to the remaining byte limit from the underlying reader.
+fun (lr &LimitReader) read(buf []byte) !int {
+    if lr.remain <= 0 {
+        return 0
+    }
+    // Cap the read to the remaining limit.
+    var read_buf = buf
+    if len(buf) > lr.remain {
+        read_buf = alloc([]byte, lr.remain)
+    }
+    var n = try lr.reader.read(read_buf)
+    // Copy back if we used a temporary buffer.
+    if len(buf) > lr.remain {
+        var i = 0
+        for i < n {
+            buf[i] = read_buf[i]
+            i = i + 1
+        }
+    }
+    lr.remain = lr.remain - n
+    return n
+}
+
+// MultiReader concatenates multiple readers into a single logical Reader.
+// Each reader is read in sequence; when one returns EOF, the next begins.
+MultiReader struct {
+    implements {
+        Reader
+    }
+
+    readers []Reader
+    current int
+}
+
+// read reads from the current reader, advancing to the next on EOF.
+fun (mr &MultiReader) read(buf []byte) !int {
+    for mr.current < len(mr.readers) {
+        var n = try mr.readers[mr.current].read(buf)
+        if n > 0 {
+            return n
+        }
+        mr.current = mr.current + 1
+    }
+    return 0
+}
+
+// MultiWriter duplicates writes to all underlying writers.
+MultiWriter struct {
+    implements {
+        Writer
+    }
+
+    writers []Writer
+}
+
+// write writes buf to every underlying writer. Returns an error if any
+// writer fails or performs a short write.
+fun (mw &MultiWriter) write(buf []byte) !int {
+    for w in mw.writers {
+        var n = try w.write(buf)
+        if n != len(buf) {
+            return IoError.unexpectedEof
+        }
+    }
+    return len(buf)
+}
+
+// PipeReader is the read half of an in-process pipe.
+// Data written to the corresponding PipeWriter becomes available for reading.
+pub PipeReader struct {
+    implements {
+        Reader
+        Closer
+    }
+
+    buf    []byte
+    pos    int
+    end    int
+    closed bool
+    done   bool
+}
+
+// read reads data that was written to the pipe by the PipeWriter.
+pub fun (pr &PipeReader) read(buf []byte) !int {
+    if pr.closed {
+        return IoError.closed
+    }
+    if pr.pos < pr.end {
+        var n = pr.end - pr.pos
+        if n > len(buf) {
+            n = len(buf)
+        }
+        var i = 0
+        for i < n {
+            buf[i] = pr.buf[pr.pos + i]
+            i = i + 1
+        }
+        pr.pos = pr.pos + n
+        return n
+    }
+    if pr.done {
+        return 0
+    }
+    return 0
+}
+
+// close closes the PipeReader. Subsequent writes to the PipeWriter
+// will return IoError.brokenPipe.
+pub fun (pr &PipeReader) close() !void {
+    pr.closed = true
+}
+
+// PipeWriter is the write half of an in-process pipe.
+// Data written here becomes available to the corresponding PipeReader.
+pub PipeWriter struct {
+    implements {
+        Writer
+        Closer
+    }
+
+    reader &PipeReader
+    closed bool
+}
+
+// write copies data into the PipeReader's buffer so it can be read.
+pub fun (pw &PipeWriter) write(buf []byte) !int {
+    if pw.closed {
+        return IoError.closed
+    }
+    if pw.reader.closed {
+        return IoError.brokenPipe
+    }
+    // Copy data into the reader's buffer.
+    if len(buf) > len(pw.reader.buf) {
+        pw.reader.buf = alloc([]byte, len(buf))
+    }
+    var i = 0
+    for i < len(buf) {
+        pw.reader.buf[i] = buf[i]
+        i = i + 1
+    }
+    pw.reader.pos = 0
+    pw.reader.end = len(buf)
+    return len(buf)
+}
+
+// close closes the PipeWriter. The PipeReader will return EOF
+// once all buffered data has been read.
+pub fun (pw &PipeWriter) close() !void {
+    pw.closed = true
+    pw.reader.done = true
+}
+
 // read_all reads all bytes from a Reader until EOF.
 pub fun read_all(reader Reader) ![]byte {
-    return alloc([]byte, 0)
+    var result = alloc([]byte, 0)
+    var tmp = alloc([]byte, 4096)
+    for {
+        var n = try reader.read(tmp)
+        if n == 0 {
+            break
+        }
+        var i = 0
+        for i < n {
+            result = append(result, tmp[i])
+            i = i + 1
+        }
+    }
+    return result
 }
 
 // copy copies from src to dst until EOF is reached on src.
 // Returns the number of bytes copied.
 pub fun copy(dst Writer, src Reader) !int {
-    return 0
+    var buf = alloc([]byte, 4096)
+    var total = 0
+    for {
+        var n = try src.read(buf)
+        if n == 0 {
+            break
+        }
+        var written = 0
+        for written < n {
+            var tmp = alloc([]byte, n - written)
+            var i = 0
+            for i < len(tmp) {
+                tmp[i] = buf[written + i]
+                i = i + 1
+            }
+            var w = try dst.write(tmp)
+            written = written + w
+        }
+        total = total + n
+    }
+    return total
 }
 
 // copy_n copies exactly n bytes from src to dst.
 // Returns the number of bytes copied.
 pub fun copy_n(dst Writer, src Reader, n int) !int {
-    return 0
+    var limited = limit_reader(src, n)
+    return try copy(dst, limited)
 }
 
-// limit_reader returns a Reader that reads from r but stops after n bytes.
+// read_full reads exactly len(buf) bytes from reader into buf.
+// Returns IoError.unexpectedEof if EOF is reached before buf is full.
+pub fun read_full(reader Reader, buf []byte) !int {
+    var total = 0
+    for total < len(buf) {
+        var tmp = alloc([]byte, len(buf) - total)
+        var i = 0
+        for i < len(tmp) {
+            tmp[i] = buf[total + i]
+            i = i + 1
+        }
+        var n = try reader.read(tmp)
+        if n == 0 {
+            return IoError.unexpectedEof
+        }
+        var j = 0
+        for j < n {
+            buf[total + j] = tmp[j]
+            j = j + 1
+        }
+        total = total + n
+    }
+    return total
+}
+
+// limit_reader returns a Reader that reads from reader but stops after n bytes.
 pub fun limit_reader(reader Reader, n int) Reader {
-    return reader
+    return LimitReader{ reader: reader, remain: n }
+}
+
+// multi_reader returns a Reader that is the logical concatenation of the
+// provided readers. They are read sequentially; once all inputs have
+// returned EOF, read will return 0.
+pub fun multi_reader(readers ...Reader) Reader {
+    return MultiReader{ readers: readers, current: 0 }
+}
+
+// multi_writer returns a Writer that duplicates its writes to all the
+// provided writers. Each write is sent to each writer in order.
+// If any writer returns an error, that error is returned.
+pub fun multi_writer(writers ...Writer) Writer {
+    return MultiWriter{ writers: writers }
+}
+
+// pipe creates an in-process pipe. Data written to the PipeWriter becomes
+// available for reading from the PipeReader. Closing the PipeWriter sends
+// EOF to the PipeReader. Closing the PipeReader causes subsequent writes
+// to the PipeWriter to return IoError.brokenPipe.
+pub fun pipe() struct { reader PipeReader, writer PipeWriter } {
+    var r = PipeReader{
+        buf: alloc([]byte, 4096),
+        pos: 0,
+        end: 0,
+        closed: false,
+        done: false,
+    }
+    var w = PipeWriter{
+        reader: &r,
+        closed: false,
+    }
+    return .{ reader: r, writer: w }
 }
