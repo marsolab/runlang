@@ -81,12 +81,11 @@ run_string_t run_debug_format_stack(run_slice_t frames) {
 
     size_t pos = 0;
     for (size_t i = 0; i < frames.len; i++) {
-        run_stack_frame_t *f = (run_stack_frame_t *)((char *)frames.ptr + i * sizeof(run_stack_frame_t));
-        int written = snprintf(buf + pos, buf_size - pos,
-                               "%.*s\n    %.*s:%lld\n",
-                               (int)f->function.len, f->function.ptr,
-                               (int)f->file.len, f->file.ptr,
-                               (long long)f->line);
+        run_stack_frame_t *f =
+            (run_stack_frame_t *)((char *)frames.ptr + i * sizeof(run_stack_frame_t));
+        int written =
+            snprintf(buf + pos, buf_size - pos, "%.*s\n    %.*s:%lld\n", (int)f->function.len,
+                     f->function.ptr, (int)f->file.len, f->file.ptr, (long long)f->line);
         if (written > 0)
             pos += (size_t)written;
     }
@@ -130,18 +129,17 @@ void run_debug_assert_eq(run_any_t expected, run_any_t actual) {
                     (long long)expected.val.i, (long long)actual.val.i);
             break;
         case RUN_ANY_FLOAT:
-            fprintf(stderr, "run: assert_eq failed: expected %g, got %g\n",
-                    expected.val.f, actual.val.f);
+            fprintf(stderr, "run: assert_eq failed: expected %g, got %g\n", expected.val.f,
+                    actual.val.f);
             break;
         case RUN_ANY_STRING:
             fprintf(stderr, "run: assert_eq failed: expected \"%.*s\", got \"%.*s\"\n",
-                    (int)expected.val.s.len, expected.val.s.ptr,
-                    (int)actual.val.s.len, actual.val.s.ptr);
+                    (int)expected.val.s.len, expected.val.s.ptr, (int)actual.val.s.len,
+                    actual.val.s.ptr);
             break;
         case RUN_ANY_BOOL:
             fprintf(stderr, "run: assert_eq failed: expected %s, got %s\n",
-                    expected.val.b ? "true" : "false",
-                    actual.val.b ? "true" : "false");
+                    expected.val.b ? "true" : "false", actual.val.b ? "true" : "false");
             break;
         }
         abort();

@@ -97,7 +97,7 @@ run_string_t run_runtime_stack(void) {
 
     /* Calculate total buffer size */
     size_t total = 0;
-    for (int i = 1; i < count; i++) { /* skip frame 0 (this function) */
+    for (int i = 1; i < count; i++) {    /* skip frame 0 (this function) */
         total += strlen(symbols[i]) + 1; /* +1 for newline */
     }
 

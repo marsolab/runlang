@@ -50,8 +50,8 @@ run_gen_ref_t run_gen_ref_create(void *ptr);
 void *run_gen_ref_deref(run_gen_ref_t ref);
 
 /* Runtime-controllable generation check flag (can be toggled by runtime.gc_disable/gc_enable). */
-#include <stdbool.h>
 #include <stdatomic.h>
+#include <stdbool.h>
 extern _Atomic bool run_gen_checks_enabled;
 
 /* Allocation statistics getters. */

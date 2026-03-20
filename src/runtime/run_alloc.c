@@ -77,7 +77,8 @@ void run_gen_free(void *ptr) {
         abort();
     }
     atomic_fetch_add_explicit(&run_free_total_count, 1, memory_order_relaxed);
-    atomic_fetch_add_explicit(&run_bytes_total_freed, (int64_t)header->alloc_size, memory_order_relaxed);
+    atomic_fetch_add_explicit(&run_bytes_total_freed, (int64_t)header->alloc_size,
+                              memory_order_relaxed);
 
     header->generation = RUN_GEN_FREED;
     free(header->base_ptr);
