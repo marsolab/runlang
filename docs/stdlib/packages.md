@@ -16,10 +16,10 @@ This document defines the complete set of standard library packages for Run, the
 
 | Tier | Meaning | Milestone |
 |------|---------|-----------|
-| **P0** | Core — everything depends on these | M4 |
-| **P1** | Essential utilities — needed by most programs | M4 |
-| **P2** | Important ecosystem — needed for real applications | M4 |
-| **P3** | Advanced/specialized — systems programming power | M7–M9 |
+| **P0** | Core — everything depends on these | M10 |
+| **P1** | Essential utilities — needed by most programs | M11 |
+| **P2** | Important ecosystem — needed for real applications | M12 |
+| **P3** | Advanced/specialized — systems programming power | M13 |
 
 ---
 
@@ -140,6 +140,31 @@ user_home_dir() !string        — user home directory
 ```
 
 **Dependencies:** `io`
+**Status:** Stub exists
+
+---
+
+### `errors` — Error Creation, Wrapping, Inspection
+
+**Purpose:** Create, wrap, and inspect error chains. Run has `!T` error unions but needs a standard way to build and traverse error values.
+
+**Key types and functions:**
+```
+Error             interface    — message() string
+Wrapper           interface    — unwrap() Error?
+SimpleError       struct       — basic error with message string
+WrappedError      struct       — error that wraps another with context
+
+new(msg string) Error                     — create a simple error
+wrap(err Error, msg string) Error         — wrap error with context
+wrap_f(err Error, fmt string, args...) Error — wrap with formatted context
+unwrap(err Error) Error?                  — get inner error
+is(err Error, target Error) bool          — walk chain checking match
+as(err Error, target &any) bool           — type-narrow within chain
+join(errs []Error) Error?                 — combine multiple errors
+```
+
+**Dependencies:** None (leaf package)
 **Status:** Stub exists
 
 ---
@@ -423,6 +448,164 @@ JsonHandler       struct       — structured JSON output
 ```
 
 **Dependencies:** `io`, `time`, `fmt`
+
+---
+
+### `iter` — Iterator Protocol and Combinators
+
+**Purpose:** Lazy iteration abstraction with functional combinators. Uses `any` types; see `run gen` for type-safe specializations.
+
+**Key types and functions:**
+```
+Iterator          interface    — next() any?
+
+from_slice(s []any) Iterator              — iterate over slice elements
+range(start, end int) Iterator            — iterate over integer range
+map(it Iterator, f fun(any) any) Iterator — apply f to each element
+filter(it Iterator, f fun(any) bool) Iterator — yield only matching elements
+reduce(it Iterator, init any, f fun(acc, item any) any) any — fold
+take(it Iterator, n int) Iterator         — yield at most n elements
+skip(it Iterator, n int) Iterator         — skip first n elements
+zip(a, b Iterator) Iterator              — combine element-wise
+chain(a, b Iterator) Iterator            — concatenate sequentially
+enumerate(it Iterator) Iterator          — yield (index, item) pairs
+collect(it Iterator) []any               — consume into slice
+count(it Iterator) int                   — count remaining elements
+any_match(it Iterator, f fun(any) bool) bool — true if any match
+all_match(it Iterator, f fun(any) bool) bool — true if all match
+for_each(it Iterator, f fun(any))        — apply f for side effects
+flat_map(it Iterator, f fun(any) Iterator) Iterator — map and flatten
+take_while(it Iterator, f fun(any) bool) Iterator
+skip_while(it Iterator, f fun(any) bool) Iterator
+```
+
+**Dependencies:** None
+**Status:** Stub exists
+
+---
+
+### `slices` — Slice Utilities
+
+**Purpose:** Common operations on slices: search, sort, transform, compare.
+
+**Key types and functions:**
+```
+contains(s []any, v any) bool             — membership test
+index(s []any, v any) int?               — first index of v
+last_index(s []any, v any) int?          — last index of v
+compact(s []any) []any                   — remove consecutive duplicates
+sort_func(s []any, cmp fun(a, b any) int) — sort in-place
+is_sorted_func(s []any, cmp fun(a, b any) int) bool
+reverse(s []any)                         — reverse in place
+grow(s []any, n int) []any               — increase capacity
+insert(s []any, i int, v any) []any      — insert at index
+delete(s []any, i int) []any             — remove at index
+clone(s []any) []any                     — shallow copy
+equal(a, b []any) bool                   — element-wise equality
+min_func(s []any, cmp fun) any           — minimum by comparator
+max_func(s []any, cmp fun) any           — maximum by comparator
+binary_search_func(s []any, target any, cmp fun) int?
+chunk(s []any, size int) [][]any         — split into chunks
+concat(slices [][]any) []any             — concatenate slices
+```
+
+**Dependencies:** None
+**Status:** Stub exists
+
+---
+
+### `maps` — Map Utilities
+
+**Purpose:** Common operations on maps: key/value extraction, comparison, copying.
+
+**Key types and functions:**
+```
+keys(m map[any]any) []any                — all keys as slice
+values(m map[any]any) []any              — all values as slice
+clone(m map[any]any) map[any]any         — shallow copy
+equal(a, b map[any]any) bool             — key/value equality
+equal_func(a, b map[any]any, eq fun) bool — equality with custom comparator
+delete_func(m map[any]any, f fun(key, value any) bool) — conditional delete
+copy(dst, src map[any]any)               — copy all entries from src to dst
+has(m map[any]any, key any) bool         — key membership test
+```
+
+**Dependencies:** None
+**Status:** Stub exists
+
+---
+
+### `cmp` — Comparison and Ordering
+
+**Purpose:** Comparison interfaces and ordering utilities.
+
+**Key types and functions:**
+```
+Ordering          sum type     — .less | .equal | .greater
+Ordered           interface    — compare(other any) Ordering
+
+compare(a, b any) Ordering               — generic comparison
+min(a, b any) any                        — smaller of two values
+max(a, b any) any                        — larger of two values
+clamp(val, lo, hi any) any               — constrain to range
+min_int(a, b int) int                    — integer min
+max_int(a, b int) int                    — integer max
+clamp_int(val, lo, hi int) int           — integer clamp
+min_float(a, b f64) f64                  — float min
+max_float(a, b f64) f64                  — float max
+```
+
+**Dependencies:** None
+**Status:** Stub exists
+
+---
+
+### `math/bits` — Bit Manipulation
+
+**Purpose:** Bit counting, rotation, reversal, and extended arithmetic operations.
+
+**Key types and functions:**
+```
+leading_zeros(x int) int                 — count leading zeros
+trailing_zeros(x int) int               — count trailing zeros
+ones_count(x int) int                   — population count
+rotate_left(x int, k int) int           — rotate left by k bits
+rotate_right(x int, k int) int          — rotate right by k bits
+reverse(x int) int                      — reverse bit order
+reverse_bytes(x int) int                — byte swap
+len(x int) int                          — bit length
+add(x, y, carry int) int               — extended add with carry
+sub(x, y, borrow int) int              — extended sub with borrow
+mul(x, y int) int                      — full-width multiply
+leading_zeros32(x int) int             — 32-bit leading zeros
+trailing_zeros32(x int) int            — 32-bit trailing zeros
+ones_count32(x int) int                — 32-bit popcount
+```
+
+**Dependencies:** None
+**Status:** Stub exists
+
+---
+
+### `path` — OS-Independent Path Manipulation
+
+**Purpose:** Clean path manipulation using forward slashes, independent of OS. For OS-specific paths use `os` package path functions.
+
+**Key types and functions:**
+```
+join(parts ...string) string             — join path elements
+base(p string) string                    — last path element
+dir(p string) string                     — all but last element
+ext(p string) string                     — file extension
+clean(p string) string                   — shortest equivalent path
+is_abs(p string) bool                    — absolute path check
+split(p string) string                   — directory + file components
+match(pattern, name string) !bool        — shell pattern match
+rel(base, target string) !string         — relative path
+```
+
+**Dependencies:** None
+**Status:** Stub exists
 
 ---
 
@@ -1626,6 +1809,249 @@ reset(signals ...Signal)                   — reset to default behavior
 
 ---
 
+### `encoding/toml` — TOML Parsing and Serialization
+
+**Purpose:** Parse and generate TOML configuration files. Required by the package manager (`run.toml`).
+
+**Key types and functions:**
+```
+TomlError         sum type     — .syntax_error | .type_mismatch | .duplicate_key | .invalid_datetime | .mixed_array
+Value             sum type     — .string | .int | .float | .bool | .datetime | .array | .table
+
+parse(data string) !Value                — parse TOML string to Value tree
+parse_file(path string) !Value           — read and parse TOML file
+marshal(value any) !string               — encode to TOML string
+unmarshal(data string, target &any) !void — decode into target
+
+(v Value) get(key string) Value?         — lookup by key
+(v Value) get_string(key string) string? — get string value
+(v Value) get_int(key string) int?       — get integer value
+(v Value) get_bool(key string) bool?     — get boolean value
+(v Value) get_table(key string) Value?   — get table value
+(v Value) get_array(key string) []Value? — get array value
+
+Encoder           struct       — streaming TOML encoder
+Decoder           struct       — streaming TOML decoder
+```
+
+**Dependencies:** `io`
+**Status:** Stub exists
+
+---
+
+### `encoding/yaml` — YAML Parsing and Serialization
+
+**Purpose:** Parse and generate YAML, the most common configuration format (Kubernetes, CI/CD, Docker Compose).
+
+**Key types and functions:**
+```
+YamlError         sum type     — .syntax_error | .duplicate_key | .invalid_anchor | .circular_reference | .type_mismatch | .unsupported_tag
+Value             sum type     — .null | .bool | .int | .float | .string | .sequence | .mapping
+
+marshal(value any) ![]byte              — encode to YAML bytes
+unmarshal(data []byte, target &any) !void — decode YAML bytes
+marshal_string(value any) !string       — encode to YAML string
+parse(data []byte) !Value               — parse to Value tree
+parse_string(s string) !Value           — parse string to Value tree
+
+(v Value) get(key string) Value?        — lookup by key
+(v Value) index(i int) Value?           — lookup by index in sequence
+(v Value) as_string() string?           — extract string value
+(v Value) as_int() int?                 — extract int value
+(v Value) as_float() f64?              — extract float value
+(v Value) as_bool() bool?              — extract bool value
+(v Value) as_sequence() []Value?       — extract sequence
+(v Value) as_mapping() map[string]Value? — extract mapping
+
+Encoder           struct       — streaming YAML encoder
+Decoder           struct       — streaming YAML decoder (multi-document)
+```
+
+**Dependencies:** `io`
+**Status:** Stub exists
+
+---
+
+### `encoding/xml` — XML Parsing and Serialization
+
+**Purpose:** XML encoding/decoding with streaming token-based and tree-based APIs.
+
+**Key types and functions:**
+```
+XmlError          sum type     — .syntax_error | .unexpected_eof | .invalid_character | .unclosed_tag | .mismatched_tag
+Token             sum type     — .start_element | .end_element | .char_data | .comment | .proc_inst | .directive
+
+Name              struct       — local string, space string
+Attr              struct       — name Name, value string
+StartElement      struct       — name Name, attr []Attr
+EndElement        struct       — name Name
+ProcInst          struct       — target string, inst string
+
+marshal(v any) ![]byte                  — encode to XML
+marshal_indent(v any, prefix, indent string) ![]byte
+unmarshal(data []byte, target &any) !void — decode XML
+
+Encoder           struct       — streaming XML encoder
+Decoder           struct       — streaming XML decoder
+(d Decoder) token() !Token?            — read next token
+(d Decoder) decode(target &any) !void  — decode element
+(d Decoder) skip() !void              — skip current element
+```
+
+**Dependencies:** `io`
+**Status:** Stub exists
+
+---
+
+### `compress/zstd` — Zstandard Compression
+
+**Purpose:** Modern, fast compression with better ratios than gzip at comparable speeds.
+
+**Key types and functions:**
+```
+ZstdError         sum type     — .corrupt_input | .window_too_large | .dictionary_mismatch | .unexpected_eof
+
+compress(data []byte) ![]byte           — compress with default level
+compress_level(data []byte, level int) ![]byte — compress with specific level (1-19)
+decompress(data []byte) ![]byte         — decompress
+
+Reader            struct       — streaming decompressor (io.Reader + io.Closer)
+Writer            struct       — streaming compressor (io.Writer + io.Closer)
+new_reader(r io.Reader) !Reader
+new_writer(w io.Writer) Writer
+new_writer_level(w io.Writer, level int) !Writer
+```
+
+**Dependencies:** `io`
+**Status:** Stub exists
+
+---
+
+### `io/fs` — Virtual Filesystem Interface
+
+**Purpose:** Abstract filesystem interface for testable I/O, embedded files, and archive access.
+
+**Key types and functions:**
+```
+FsError           sum type     — .not_found | .permission_denied | .not_directory | .invalid_path
+FileMode          sum type     — .regular | .directory | .symlink | .socket | .pipe | .device
+
+FS                interface    — open(name string) !File
+File              interface    — stat() !FileInfo, read(buf) !int, close() !void
+ReadDirFS         interface    — FS + read_dir(name string) ![]DirEntry
+StatFS            interface    — FS + stat(name string) !FileInfo
+FileInfo          interface    — name, size, mode, mod_time, is_dir
+DirEntry          interface    — name, is_dir, type_mode, info
+
+walk_dir(fsys FS, root string, fn fun(path, d, err))
+sub(fsys FS, dir string) !FS
+glob(fsys FS, pattern string) ![]string
+read_file(fsys FS, name string) ![]byte
+valid_path(name string) bool
+```
+
+**Dependencies:** `io`
+**Status:** Stub exists
+
+---
+
+### `html` — HTML Escaping
+
+**Purpose:** Security-critical HTML entity escaping and unescaping to prevent XSS attacks.
+
+**Key types and functions:**
+```
+escape_string(s string) string           — < > & " ' → entities
+unescape_string(s string) string         — entities → characters
+```
+
+**Dependencies:** None
+**Status:** Stub exists
+
+---
+
+### `text/template` — Text Templating
+
+**Purpose:** Data-driven text templates with field access, conditionals, iteration, and pipelines.
+
+**Key types and functions:**
+```
+TemplateError     sum type     — .parse_error | .exec_error | .undefined_variable | .undefined_function | .wrong_arg_count
+
+Template          struct       — compiled template
+
+new(name string) Template
+parse(text string) !Template
+parse_files(filenames ...string) !Template
+must(t Template) Template
+
+(t Template) execute(wr io.Writer, data any) !void
+(t Template) execute_string(data any) !string
+(t Template) name() string
+```
+
+**Dependencies:** `io`
+**Status:** Stub exists
+
+---
+
+### `hash/crc32` — CRC-32
+
+**Purpose:** CRC-32 checksum computation with IEEE, Castagnoli, and Koopman polynomials.
+
+**Key types and functions:**
+```
+Table             struct       — precomputed polynomial table
+
+make_table(poly int) Table              — build table from polynomial
+new(tab Table) hash.Hash32              — new Hash32 using table
+checksum(data []byte, tab Table) int    — compute CRC-32
+checksum_ieee(data []byte) int          — CRC-32 with IEEE polynomial
+update(crc int, tab Table, data []byte) int — update running CRC
+```
+
+**Dependencies:** `hash`
+**Status:** Stub exists
+
+---
+
+### `hash/fnv` — FNV Hash
+
+**Purpose:** FNV-1 and FNV-1a hash functions in 32, 64, and 128-bit variants.
+
+**Key types and functions:**
+```
+new32() hash.Hash32                     — FNV-1 32-bit
+new32a() hash.Hash32                    — FNV-1a 32-bit
+new64() hash.Hash64                     — FNV-1 64-bit
+new64a() hash.Hash64                    — FNV-1a 64-bit
+new128() hash.Hash64                    — FNV-1 128-bit
+new128a() hash.Hash64                   — FNV-1a 128-bit
+```
+
+**Dependencies:** `hash`
+**Status:** Stub exists
+
+---
+
+### `crypto/subtle` — Constant-Time Operations
+
+**Purpose:** Constant-time operations for avoiding timing side-channel attacks in cryptographic code.
+
+**Key types and functions:**
+```
+constant_time_compare(a, b []byte) bool — constant-time byte comparison
+constant_time_eq(a, b int) bool         — constant-time integer equality
+constant_time_select(v, a, b int) int   — constant-time conditional select
+constant_time_copy(v int, dst, src []byte) — conditional copy
+xor_bytes(dst, a, b []byte) int         — XOR byte slices
+```
+
+**Dependencies:** None
+**Status:** Stub exists
+
+---
+
 ## P3 — Advanced/Specialized Packages
 
 ### `simd` — SIMD Vector Operations
@@ -1912,10 +2338,12 @@ yield()                        — yield current green thread to scheduler
 | `io` | I/O interfaces, buffered I/O, utilities | P0 | — |
 | `fmt` | Formatting and printing | P0 | `io` |
 | `os` | Files, processes, env, paths | P0 | `io` |
+| `errors` | Error creation, wrapping, inspection | P0 | — |
 | `strings` | String manipulation | P1 | — |
 | `bytes` | Byte slice utilities, Buffer | P1 | `io` |
 | `math` | Math functions and constants | P1 | — |
 | `math/rand` | Pseudo-random numbers | P1 | `math` |
+| `math/bits` | Bit counting, rotation, extended arithmetic | P1 | — |
 | `testing` | Test framework and assertions | P1 | `fmt`, `strings` |
 | `time` | Time, duration, timers | P1 | — |
 | `log` | Structured logging | P1 | `io`, `time`, `fmt` |
@@ -1924,6 +2352,11 @@ yield()                        — yield current green thread to scheduler
 | `unicode/utf8` | UTF-8 encoding/decoding | P1 | — |
 | `sort` | Sorting algorithms | P1 | — |
 | `bufio` | Scanner, line-by-line reading | P1 | `io`, `bytes` |
+| `iter` | Iterator protocol and combinators | P1 | — |
+| `slices` | Slice utilities | P1 | — |
+| `maps` | Map utilities | P1 | — |
+| `cmp` | Comparison and ordering | P1 | — |
+| `path` | OS-independent path manipulation | P1 | — |
 | `net` | TCP/UDP, DNS | P2 | `io`, `time`, `os` |
 | `net/http` | HTTP client and server | P2 | `net`, `io`, `fmt`, `strings`, `time`, `context`, `metrics` |
 | `net/http2` | HTTP/2 protocol | P2 | `net`, `net/http`, `io`, `sync`, `crypto/tls` |
@@ -1933,12 +2366,16 @@ yield()                        — yield current green thread to scheduler
 | `encoding/csv` | CSV read/write | P2 | `io`, `strings`, `bytes` |
 | `encoding/base64` | Base64 encode/decode | P2 | — |
 | `encoding/hex` | Hex encode/decode | P2 | `bytes` |
-| `crypto` | Hash interface, secure random | P2 | `io` |
+| `encoding/toml` | TOML parsing and serialization | P2 | `io` |
+| `encoding/yaml` | YAML parsing and serialization | P2 | `io` |
+| `encoding/xml` | XML parsing and serialization | P2 | `io` |
+| `crypto` | Hash/AEAD/signing interfaces, recommended defaults | P2 | `io` |
 | `crypto/sha256` | SHA-256 | P2 | `crypto` |
 | `crypto/sha512` | SHA-512 | P2 | `crypto` |
 | `crypto/hmac` | HMAC | P2 | `crypto` |
 | `crypto/aes` | AES block cipher | P2 | `crypto` |
 | `crypto/tls` | TLS connections | P2 | `crypto/*`, `net`, `io` |
+| `crypto/subtle` | Constant-time operations | P2 | — |
 | `sync` | Mutex, RwMutex, WaitGroup, Atomic | P2 | — |
 | `unsafe` | Raw pointers, type layout | P2 | — |
 | `context` | Cancellation and deadlines | P2 | `time` |
@@ -1950,11 +2387,17 @@ yield()                        — yield current green thread to scheduler
 | `os/signal` | OS signal handling | P2 | `os` |
 | `regex` | Regular expressions | P2 | `strings` |
 | `hash` | Non-crypto hash functions | P2 | — |
+| `hash/crc32` | CRC-32 checksums | P2 | `hash` |
+| `hash/fnv` | FNV hash functions | P2 | `hash` |
 | `compress/flate` | DEFLATE compression | P2 | `io` |
 | `compress/gzip` | Gzip compression | P2 | `io`, `compress/flate` |
 | `compress/zlib` | Zlib compression | P2 | `io`, `compress/flate` |
+| `compress/zstd` | Zstandard compression | P2 | `io` |
 | `archive/tar` | Tar archives | P2 | `io`, `os`, `time` |
 | `archive/zip` | Zip archives | P2 | `io`, `os`, `compress/flate`, `time` |
+| `io/fs` | Virtual filesystem interface | P2 | `io` |
+| `html` | HTML escaping | P2 | — |
+| `text/template` | Text templating | P2 | `io` |
 | `simd` | SIMD vector operations | P3 | — |
 | `numa` | NUMA topology and allocation | P3 | `os`, `unsafe` |
 | `asm` | Assembly utilities, CPU features | P3 | `unsafe` |
@@ -1962,4 +2405,4 @@ yield()                        — yield current green thread to scheduler
 | `debug` | Stack traces, assertions | P3 | `fmt`, `os` |
 | `runtime` | Runtime introspection | P3 | — |
 
-**Total: 50 packages** (6 exist as stubs)
+**Total: 67 packages**

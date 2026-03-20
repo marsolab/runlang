@@ -1,0 +1,44 @@
+package maps
+
+// keys returns the keys of the map as a slice.
+// The order of keys is not guaranteed.
+pub fun keys(m map[any]any) []any {
+    return alloc([]any, 0)
+}
+
+// values returns the values of the map as a slice.
+// The order of values is not guaranteed.
+pub fun values(m map[any]any) []any {
+    return alloc([]any, 0)
+}
+
+// clone returns a shallow copy of the map.
+pub fun clone(m map[any]any) map[any]any {
+    return alloc(map[any]any, 0)
+}
+
+// equal reports whether two maps contain the same key/value pairs.
+pub fun equal(a map[any]any, b map[any]any) bool {
+    return false
+}
+
+// equal_func reports whether two maps contain the same keys and
+// the values satisfy the provided equality function.
+pub fun equal_func(a map[any]any, b map[any]any, eq fun(v1 any, v2 any) bool) bool {
+    return false
+}
+
+// delete_func deletes all entries from m for which f returns true.
+pub fun delete_func(m map[any]any, f fun(key any, value any) bool) {
+}
+
+// copy copies all key/value pairs from src to dst.
+// When a key in src is already present in dst, the value in dst
+// is overwritten with the value from src.
+pub fun copy(dst map[any]any, src map[any]any) {
+}
+
+// has reports whether the map contains the given key.
+pub fun has(m map[any]any, key any) bool {
+    return false
+}

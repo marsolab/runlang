@@ -75,3 +75,46 @@ pub type CryptoError = .invalidKey
     | .shortBuffer
     | .randomFailure
     | .invalidParameter
+
+// --- Recommended Defaults ---
+// These convenience functions use opinionated, modern algorithms.
+// For specific algorithm control, use the sub-packages directly.
+
+// hash computes a cryptographic hash of data using BLAKE3.
+pub fun hash(data []byte) []byte {
+    return alloc([]byte, 0)
+}
+
+// encrypt encrypts plaintext using ChaCha20-Poly1305 AEAD.
+// Key must be 32 bytes. Returns nonce prepended to ciphertext.
+pub fun encrypt(key []byte, plaintext []byte) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// decrypt decrypts ciphertext produced by encrypt.
+// Key must be 32 bytes. Expects nonce prepended to ciphertext.
+pub fun decrypt(key []byte, ciphertext []byte) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// sign signs a message using Ed25519.
+pub fun sign(key PrivateKey, message []byte) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// verify verifies an Ed25519 signature.
+pub fun verify(key PublicKey, message []byte, sig []byte) !bool {
+    return false
+}
+
+// rand_bytes returns n cryptographically secure random bytes
+// from the operating system's CSPRNG.
+pub fun rand_bytes(n int) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// derive_key derives a key from a secret using HKDF with BLAKE3.
+// Returns a 32-byte derived key.
+pub fun derive_key(secret []byte, salt []byte, info []byte) []byte {
+    return alloc([]byte, 0)
+}

@@ -1,0 +1,89 @@
+package zstd
+
+use "io"
+
+// ZstdError represents errors during Zstandard compression/decompression.
+pub type ZstdError = .corrupt_input
+    | .window_too_large
+    | .dictionary_mismatch
+    | .unexpected_eof
+
+// Compression level constants.
+pub let default_compression = 3
+pub let best_speed = 1
+pub let best_compression = 19
+
+// compress compresses data using the default compression level.
+pub fun compress(data []byte) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// compress_level compresses data using the specified compression level.
+// Level must be between 1 (fastest) and 19 (best compression).
+pub fun compress_level(data []byte, level int) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// decompress decompresses Zstandard-compressed data.
+pub fun decompress(data []byte) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// Reader reads and decompresses Zstandard data from an underlying reader.
+pub Reader struct {
+    implements {
+        io.Reader
+        io.Closer
+    }
+
+    reader io.Reader
+}
+
+// new_reader returns a new Reader that decompresses data from r.
+pub fun new_reader(r io.Reader) !Reader {
+    return Reader{ reader: r }
+}
+
+// read reads decompressed data into buf.
+pub fun (r &Reader) read(buf []byte) !int {
+    return 0
+}
+
+// close releases resources used by the Reader.
+pub fun (r &Reader) close() !void {
+}
+
+// Writer compresses data and writes to an underlying writer.
+pub Writer struct {
+    implements {
+        io.Writer
+        io.Closer
+    }
+
+    writer io.Writer
+    level  int
+}
+
+// new_writer returns a new Writer that compresses at the default level.
+pub fun new_writer(w io.Writer) Writer {
+    return Writer{ writer: w, level: 3 }
+}
+
+// new_writer_level returns a new Writer that compresses at the given level.
+// Level must be between 1 and 19.
+pub fun new_writer_level(w io.Writer, level int) !Writer {
+    return Writer{ writer: w, level: level }
+}
+
+// write compresses data from buf and writes to the underlying writer.
+pub fun (w &Writer) write(buf []byte) !int {
+    return 0
+}
+
+// flush flushes any pending compressed data to the underlying writer.
+pub fun (w &Writer) flush() !void {
+}
+
+// close finishes the compressed stream and closes the writer.
+pub fun (w &Writer) close() !void {
+}

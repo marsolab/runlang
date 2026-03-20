@@ -1,0 +1,98 @@
+package iter
+
+// Iterator is the interface for lazy iteration over sequences.
+pub type Iterator interface {
+    // next returns the next element, or null when exhausted.
+    next() any?
+}
+
+// from_slice creates an iterator over the elements of a slice.
+pub fun from_slice(s []any) Iterator {
+    return null
+}
+
+// range creates an iterator over integers in [start, end).
+pub fun range(start int, end int) Iterator {
+    return null
+}
+
+// map returns an iterator that applies f to each element.
+pub fun map(it Iterator, f fun(any) any) Iterator {
+    return null
+}
+
+// filter returns an iterator that yields only elements where f returns true.
+pub fun filter(it Iterator, f fun(any) bool) Iterator {
+    return null
+}
+
+// reduce reduces the iterator to a single value by applying f
+// to an accumulator and each element.
+pub fun reduce(it Iterator, init any, f fun(acc any, item any) any) any {
+    return null
+}
+
+// take returns an iterator that yields at most n elements.
+pub fun take(it Iterator, n int) Iterator {
+    return null
+}
+
+// skip returns an iterator that skips the first n elements.
+pub fun skip(it Iterator, n int) Iterator {
+    return null
+}
+
+// zip combines two iterators element-wise into an iterator of pairs.
+pub fun zip(a Iterator, b Iterator) Iterator {
+    return null
+}
+
+// chain chains two iterators sequentially.
+pub fun chain(a Iterator, b Iterator) Iterator {
+    return null
+}
+
+// enumerate wraps an iterator to yield (index, item) pairs.
+pub fun enumerate(it Iterator) Iterator {
+    return null
+}
+
+// count consumes the iterator and returns the number of elements.
+pub fun count(it Iterator) int {
+    return 0
+}
+
+// any_match reports whether f returns true for any element.
+pub fun any_match(it Iterator, f fun(any) bool) bool {
+    return false
+}
+
+// all_match reports whether f returns true for all elements.
+pub fun all_match(it Iterator, f fun(any) bool) bool {
+    return false
+}
+
+// collect consumes the iterator and collects all elements into a slice.
+pub fun collect(it Iterator) []any {
+    return alloc([]any, 0)
+}
+
+// for_each applies f to each element in the iterator.
+pub fun for_each(it Iterator, f fun(any)) {
+}
+
+// flat_map applies f to each element and flattens the resulting iterators.
+pub fun flat_map(it Iterator, f fun(any) Iterator) Iterator {
+    return null
+}
+
+// take_while returns an iterator that yields elements while f returns true.
+pub fun take_while(it Iterator, f fun(any) bool) Iterator {
+    return null
+}
+
+// skip_while returns an iterator that skips elements while f returns true,
+// then yields the rest.
+pub fun skip_while(it Iterator, f fun(any) bool) Iterator {
+    return null
+}

@@ -1,0 +1,51 @@
+package crc32
+
+use "hash"
+
+// Predefined CRC-32 polynomial constants.
+pub let ieee = 0xedb88320
+pub let castagnoli = 0x82f63b78
+pub let koopman = 0xeb31d82e
+
+// size is the size of a CRC-32 checksum in bytes.
+pub let size = 4
+
+// Table is a 256-word table representing the polynomial for efficient processing.
+pub Table struct {
+    entries [256]int
+}
+
+// ieee_table is the Table for the IEEE polynomial (most common).
+pub var ieee_table = make_table(0xedb88320)
+
+// castagnoli_table is the Table for the Castagnoli polynomial.
+pub var castagnoli_table = make_table(0x82f63b78)
+
+// koopman_table is the Table for the Koopman polynomial.
+pub var koopman_table = make_table(0xeb31d82e)
+
+// make_table returns a Table constructed from the specified polynomial.
+pub fun make_table(poly int) Table {
+    return Table{ entries: alloc([256]int, 0) }
+}
+
+// new creates a new hash.Hash32 computing the CRC-32 checksum
+// using the given polynomial table.
+pub fun new(tab @Table) hash.Hash32 {
+    return null
+}
+
+// checksum returns the CRC-32 checksum of data using the given table.
+pub fun checksum(data []byte, tab @Table) int {
+    return 0
+}
+
+// checksum_ieee returns the CRC-32 checksum of data using the IEEE polynomial.
+pub fun checksum_ieee(data []byte) int {
+    return 0
+}
+
+// update adds data to the running CRC-32 checksum.
+pub fun update(crc int, tab @Table, data []byte) int {
+    return 0
+}

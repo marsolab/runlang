@@ -1,0 +1,19 @@
+package html
+
+// escape_string replaces special characters in s with HTML entities.
+// It escapes the five characters: < > & " '
+//   < becomes &lt;
+//   > becomes &gt;
+//   & becomes &amp;
+//   " becomes &quot;
+//   ' becomes &#39;
+pub fun escape_string(s string) string {
+    return ""
+}
+
+// unescape_string unescapes HTML entities in s.
+// It converts &lt; &gt; &amp; &quot; &#39; and numeric character
+// references back to their original characters.
+pub fun unescape_string(s string) string {
+    return ""
+}

@@ -1,0 +1,76 @@
+package cmp
+
+// Ordering represents the result of a comparison.
+pub type Ordering = .less | .equal | .greater
+
+// Ordered is the interface for types that have a natural ordering.
+pub type Ordered interface {
+    // compare compares the receiver with other and returns an Ordering.
+    compare(other any) Ordering
+}
+
+// compare compares two values and returns an Ordering.
+pub fun compare(a any, b any) Ordering {
+    return .equal
+}
+
+// min returns the smaller of a or b.
+// If equal, returns a.
+pub fun min(a any, b any) any {
+    return a
+}
+
+// max returns the larger of a or b.
+// If equal, returns a.
+pub fun max(a any, b any) any {
+    return a
+}
+
+// clamp returns val constrained to the range [lo, hi].
+// Panics if lo > hi.
+pub fun clamp(val any, lo any, hi any) any {
+    return val
+}
+
+// min_int returns the smaller of a or b.
+pub fun min_int(a int, b int) int {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+// max_int returns the larger of a or b.
+pub fun max_int(a int, b int) int {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+// clamp_int returns val constrained to the range [lo, hi].
+pub fun clamp_int(val int, lo int, hi int) int {
+    if val < lo {
+        return lo
+    }
+    if val > hi {
+        return hi
+    }
+    return val
+}
+
+// min_float returns the smaller of a or b.
+pub fun min_float(a f64, b f64) f64 {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+// max_float returns the larger of a or b.
+pub fun max_float(a f64, b f64) f64 {
+    if a > b {
+        return a
+    }
+    return b
+}

@@ -1,0 +1,57 @@
+package template
+
+use "io"
+
+// TemplateError represents errors during template parsing or execution.
+pub type TemplateError = .parse_error
+    | .exec_error
+    | .undefined_variable
+    | .undefined_function
+    | .wrong_arg_count
+
+// Template is a parsed template that can be executed with data.
+// Template syntax:
+//   {{ .field }}              — field access
+//   {{ if .cond }}...{{ end }}  — conditional
+//   {{ range .items }}...{{ end }} — iteration
+//   {{ .value | func }}       — pipeline
+//   {{ template "name" . }}   — include sub-template
+pub Template struct {
+    name string
+}
+
+// new creates a new, empty template with the given name.
+pub fun new(name string) Template {
+    return Template{ name: name }
+}
+
+// parse parses the template text and returns the resulting Template.
+pub fun parse(text string) !Template {
+    return Template{ name: "" }
+}
+
+// parse_files reads and parses the named files as templates.
+pub fun parse_files(filenames ...string) !Template {
+    return Template{ name: "" }
+}
+
+// must is a helper that panics if err is non-null, otherwise returns t.
+// It is intended for use in variable initializations.
+pub fun must(t Template) Template {
+    return t
+}
+
+// execute applies the parsed template to the data and writes the output to wr.
+pub fun (t @Template) execute(wr io.Writer, data any) !void {
+}
+
+// execute_string applies the parsed template to the data and returns
+// the result as a string.
+pub fun (t @Template) execute_string(data any) !string {
+    return ""
+}
+
+// name returns the name of the template.
+pub fun (t @Template) name() string {
+    return t.name
+}

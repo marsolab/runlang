@@ -1,0 +1,33 @@
+package fnv
+
+use "hash"
+
+// new32 returns a new hash.Hash32 computing the FNV-1 32-bit hash.
+pub fun new32() hash.Hash32 {
+    return null
+}
+
+// new32a returns a new hash.Hash32 computing the FNV-1a 32-bit hash.
+pub fun new32a() hash.Hash32 {
+    return null
+}
+
+// new64 returns a new hash.Hash64 computing the FNV-1 64-bit hash.
+pub fun new64() hash.Hash64 {
+    return null
+}
+
+// new64a returns a new hash.Hash64 computing the FNV-1a 64-bit hash.
+pub fun new64a() hash.Hash64 {
+    return null
+}
+
+// new128 returns a new hash computing the FNV-1 128-bit hash.
+pub fun new128() hash.Hash64 {
+    return null
+}
+
+// new128a returns a new hash computing the FNV-1a 128-bit hash.
+pub fun new128a() hash.Hash64 {
+    return null
+}

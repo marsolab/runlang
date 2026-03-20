@@ -1,0 +1,82 @@
+package bits
+
+// leading_zeros returns the number of leading zero bits in x.
+// Returns 64 for x == 0.
+pub fun leading_zeros(x int) int {
+    return 0
+}
+
+// trailing_zeros returns the number of trailing zero bits in x.
+// Returns 64 for x == 0.
+pub fun trailing_zeros(x int) int {
+    return 0
+}
+
+// ones_count returns the number of one bits (population count) in x.
+pub fun ones_count(x int) int {
+    return 0
+}
+
+// rotate_left returns the value of x rotated left by k bits.
+// To rotate right, use a negative k.
+pub fun rotate_left(x int, k int) int {
+    return 0
+}
+
+// rotate_right returns the value of x rotated right by k bits.
+// To rotate left, use a negative k.
+pub fun rotate_right(x int, k int) int {
+    return 0
+}
+
+// reverse returns the value of x with its bits in reversed order.
+pub fun reverse(x int) int {
+    return 0
+}
+
+// reverse_bytes returns the value of x with its bytes in reversed order.
+pub fun reverse_bytes(x int) int {
+    return 0
+}
+
+// len returns the minimum number of bits required to represent x.
+// Returns 0 for x == 0.
+pub fun len(x int) int {
+    return 0
+}
+
+// add returns the sum with carry of x, y, and carry_in.
+// carry_in must be 0 or 1; otherwise the behavior is undefined.
+// Returns (sum, carry_out) where carry_out is 0 or 1.
+pub fun add(x int, y int, carry_in int) int {
+    return 0
+}
+
+// sub returns the difference of x, y, and borrow_in.
+// borrow_in must be 0 or 1; otherwise the behavior is undefined.
+// Returns (diff, borrow_out) where borrow_out is 0 or 1.
+pub fun sub(x int, y int, borrow_in int) int {
+    return 0
+}
+
+// mul returns the full-width product of x and y: (hi, lo) = x * y
+// with the product bits' upper half returned in hi and the lower
+// half returned in lo.
+pub fun mul(x int, y int) int {
+    return 0
+}
+
+// leading_zeros32 returns the number of leading zero bits in a 32-bit value.
+pub fun leading_zeros32(x int) int {
+    return 0
+}
+
+// trailing_zeros32 returns the number of trailing zero bits in a 32-bit value.
+pub fun trailing_zeros32(x int) int {
+    return 0
+}
+
+// ones_count32 returns the number of one bits in a 32-bit value.
+pub fun ones_count32(x int) int {
+    return 0
+}

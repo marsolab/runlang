@@ -1,0 +1,112 @@
+package fs
+
+use "io"
+
+// FsError represents errors from filesystem operations.
+pub type FsError = .not_found
+    | .permission_denied
+    | .not_directory
+    | .invalid_path
+
+// FS provides access to a hierarchical file system.
+pub type FS interface {
+    // open opens the named file.
+    open(name string) !File
+}
+
+// File provides access to a single file.
+pub type File interface {
+    // stat returns the FileInfo for the file.
+    stat() !FileInfo
+
+    // read reads up to len(buf) bytes into buf.
+    read(buf []byte) !int
+
+    // close closes the file.
+    close() !void
+}
+
+// ReadDirFS is an FS that can enumerate directory entries.
+pub type ReadDirFS interface {
+    // open opens the named file.
+    open(name string) !File
+
+    // read_dir reads the named directory and returns a list of directory entries.
+    read_dir(name string) ![]DirEntry
+}
+
+// StatFS is an FS that can stat files without opening them.
+pub type StatFS interface {
+    // open opens the named file.
+    open(name string) !File
+
+    // stat returns a FileInfo describing the named file.
+    stat(name string) !FileInfo
+}
+
+// FileInfo describes a file and is returned by stat.
+pub type FileInfo interface {
+    // name returns the base name of the file.
+    name() string
+
+    // size returns the length in bytes for regular files.
+    size() int
+
+    // mode returns the file mode bits.
+    mode() FileMode
+
+    // mod_time returns the modification time as a Unix timestamp.
+    mod_time() int
+
+    // is_dir reports whether the file is a directory.
+    is_dir() bool
+}
+
+// DirEntry is an entry read from a directory.
+pub type DirEntry interface {
+    // name returns the name of the file described by the entry.
+    name() string
+
+    // is_dir reports whether the entry describes a directory.
+    is_dir() bool
+
+    // type_mode returns the type bits for the entry.
+    type_mode() FileMode
+
+    // info returns the FileInfo for the file described by the entry.
+    info() !FileInfo
+}
+
+// FileMode represents a file's mode and permission bits.
+pub type FileMode = .regular
+    | .directory
+    | .symlink
+    | .socket
+    | .pipe
+    | .device
+
+// walk_dir walks the file tree rooted at root, calling fn for each file
+// or directory in the tree, including root.
+pub fun walk_dir(fsys FS, root string, fn fun(path string, d DirEntry, err any) any) {
+}
+
+// sub returns an FS corresponding to the subtree rooted at dir.
+pub fun sub(fsys FS, dir string) !FS {
+    return null
+}
+
+// glob returns the names of all files matching the pattern.
+pub fun glob(fsys FS, pattern string) ![]string {
+    return alloc([]string, 0)
+}
+
+// read_file reads the named file from the file system fs and returns its contents.
+pub fun read_file(fsys FS, name string) ![]byte {
+    return alloc([]byte, 0)
+}
+
+// valid_path reports whether the given path name is valid for use
+// with an FS implementation.
+pub fun valid_path(name string) bool {
+    return false
+}
