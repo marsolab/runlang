@@ -1,0 +1,29 @@
+included:
+  - Blablar
+
+excluded:
+  - Blablar.xcodeproj
+
+disabled_rules:
+  - trailing_whitespace
+
+opt_in_rules:
+  - empty_count
+  - explicit_init
+  - first_where
+  - flatmap_over_map_reduce
+  - redundant_nil_coalescing
+
+analyzer_rules: []
+
+line_length:
+  warning: 120
+  error: 160
+
+identifier_name:
+  excluded:
+    - id
+    - x
+    - y
+
+reporter: "xcode"
