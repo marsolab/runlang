@@ -29,7 +29,7 @@
 
 /* Events that a G can wait for on a file descriptor. */
 typedef enum {
-    RUN_POLL_READ  = 1 << 0,
+    RUN_POLL_READ = 1 << 0,
     RUN_POLL_WRITE = 1 << 1,
 } run_poll_event_t;
 

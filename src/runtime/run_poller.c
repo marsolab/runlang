@@ -57,10 +57,9 @@ static int io_uring_setup(unsigned entries, struct io_uring_params *p) {
     return (int)syscall(SYS_io_uring_setup, entries, p);
 }
 
-static int io_uring_enter(int fd, unsigned to_submit, unsigned min_complete,
-                          unsigned flags, void *arg, size_t argsz) {
-    return (int)syscall(SYS_io_uring_enter, fd, to_submit, min_complete,
-                        flags, arg, argsz);
+static int io_uring_enter(int fd, unsigned to_submit, unsigned min_complete, unsigned flags,
+                          void *arg, size_t argsz) {
+    return (int)syscall(SYS_io_uring_enter, fd, to_submit, min_complete, flags, arg, argsz);
 }
 
 /* Ring sizes and configuration */
@@ -95,10 +94,8 @@ typedef struct {
 static run_uring_t uring;
 
 /* Memory barriers for SQ/CQ synchronization */
-#define io_uring_smp_store_release(p, v) \
-    __atomic_store_n((p), (v), __ATOMIC_RELEASE)
-#define io_uring_smp_load_acquire(p) \
-    __atomic_load_n((p), __ATOMIC_ACQUIRE)
+#define io_uring_smp_store_release(p, v) __atomic_store_n((p), (v), __ATOMIC_RELEASE)
+#define io_uring_smp_load_acquire(p) __atomic_load_n((p), __ATOMIC_ACQUIRE)
 
 static int uring_init(void) {
     struct io_uring_params params;
@@ -115,11 +112,9 @@ static int uring_init(void) {
     uring.ring_fd = fd;
 
     /* Map the submission queue ring buffer */
-    uring.sq_mmap_size = params.sq_off.array +
-                         params.sq_entries * sizeof(uint32_t);
-    uring.sq_mmap = mmap(NULL, uring.sq_mmap_size,
-                         PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE,
-                         fd, IORING_OFF_SQ_RING);
+    uring.sq_mmap_size = params.sq_off.array + params.sq_entries * sizeof(uint32_t);
+    uring.sq_mmap = mmap(NULL, uring.sq_mmap_size, PROT_READ | PROT_WRITE,
+                         MAP_SHARED | MAP_POPULATE, fd, IORING_OFF_SQ_RING);
     if (uring.sq_mmap == MAP_FAILED) {
         close(fd);
         return -1;
@@ -136,10 +131,8 @@ static int uring_init(void) {
 
     /* Map the SQE array (separate mapping) */
     uring.sqes_mmap_size = params.sq_entries * sizeof(struct io_uring_sqe);
-    uring.sqes = (struct io_uring_sqe *)mmap(NULL, uring.sqes_mmap_size,
-                                              PROT_READ | PROT_WRITE,
-                                              MAP_SHARED | MAP_POPULATE,
-                                              fd, IORING_OFF_SQES);
+    uring.sqes = (struct io_uring_sqe *)mmap(NULL, uring.sqes_mmap_size, PROT_READ | PROT_WRITE,
+                                             MAP_SHARED | MAP_POPULATE, fd, IORING_OFF_SQES);
     if (uring.sqes == MAP_FAILED) {
         munmap(uring.sq_mmap, uring.sq_mmap_size);
         close(fd);
@@ -147,18 +140,15 @@ static int uring_init(void) {
     }
 
     /* Map the completion queue ring buffer */
-    uring.cq_mmap_size = params.cq_off.cqes +
-                         params.cq_entries * sizeof(struct io_uring_cqe);
+    uring.cq_mmap_size = params.cq_off.cqes + params.cq_entries * sizeof(struct io_uring_cqe);
     /* CQ may share mapping with SQ (IORING_FEAT_SINGLE_MMAP) */
     if (params.features & IORING_FEAT_SINGLE_MMAP) {
         /* SQ and CQ share a single mmap; adjust SQ size to cover both */
         if (uring.cq_mmap_size > uring.sq_mmap_size) {
             munmap(uring.sq_mmap, uring.sq_mmap_size);
             uring.sq_mmap_size = uring.cq_mmap_size;
-            uring.sq_mmap = mmap(NULL, uring.sq_mmap_size,
-                                 PROT_READ | PROT_WRITE,
-                                 MAP_SHARED | MAP_POPULATE,
-                                 fd, IORING_OFF_SQ_RING);
+            uring.sq_mmap = mmap(NULL, uring.sq_mmap_size, PROT_READ | PROT_WRITE,
+                                 MAP_SHARED | MAP_POPULATE, fd, IORING_OFF_SQ_RING);
             if (uring.sq_mmap == MAP_FAILED) {
                 munmap(uring.sqes, uring.sqes_mmap_size);
                 close(fd);
@@ -176,10 +166,8 @@ static int uring_init(void) {
         uring.cq_mmap = uring.sq_mmap;
         uring.cq_mmap_size = 0; /* don't munmap separately */
     } else {
-        uring.cq_mmap = mmap(NULL, uring.cq_mmap_size,
-                             PROT_READ | PROT_WRITE,
-                             MAP_SHARED | MAP_POPULATE,
-                             fd, IORING_OFF_CQ_RING);
+        uring.cq_mmap = mmap(NULL, uring.cq_mmap_size, PROT_READ | PROT_WRITE,
+                             MAP_SHARED | MAP_POPULATE, fd, IORING_OFF_CQ_RING);
         if (uring.cq_mmap == MAP_FAILED) {
             munmap(uring.sqes, uring.sqes_mmap_size);
             munmap(uring.sq_mmap, uring.sq_mmap_size);
@@ -250,8 +238,7 @@ static int uring_submit_and_wait(uint32_t min_complete) {
     unsigned flags = 0;
     if (min_complete > 0)
         flags |= IORING_ENTER_GETEVENTS;
-    return io_uring_enter(uring.ring_fd, to_submit, min_complete, flags,
-                          NULL, 0);
+    return io_uring_enter(uring.ring_fd, to_submit, min_complete, flags, NULL, 0);
 }
 
 /* Reap completed events. Returns number of CQEs consumed. */
@@ -550,20 +537,17 @@ void run_poll_wait(run_poll_desc_t *pd, run_poll_event_t events) {
      * resets the event state after delivery. */
     if (events & RUN_POLL_READ) {
         pd->read_g = g;
-        EV_SET(&changes[nchanges++], pd->fd, EVFILT_READ,
-               EV_ADD | EV_CLEAR, 0, 0, pd);
+        EV_SET(&changes[nchanges++], pd->fd, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, pd);
     }
     if (events & RUN_POLL_WRITE) {
         pd->write_g = g;
-        EV_SET(&changes[nchanges++], pd->fd, EVFILT_WRITE,
-               EV_ADD | EV_CLEAR, 0, 0, pd);
+        EV_SET(&changes[nchanges++], pd->fd, EVFILT_WRITE, EV_ADD | EV_CLEAR, 0, 0, pd);
     }
 
     if (nchanges > 0) {
         int ret = kevent(kq_fd, changes, nchanges, NULL, 0, NULL);
         if (ret < 0 && errno != ENOENT) {
-            fprintf(stderr, "run: kevent register failed: %s\n",
-                    strerror(errno));
+            fprintf(stderr, "run: kevent register failed: %s\n", strerror(errno));
         }
     }
 
@@ -683,14 +667,26 @@ bool run_poller_has_waiters(void) {
 
 void run_poller_init(void) {}
 void run_poller_close(void) {}
-int run_poll_open(run_poll_desc_t *pd) { (void)pd; return -1; }
-void run_poll_close(run_poll_desc_t *pd) { (void)pd; }
+int run_poll_open(run_poll_desc_t *pd) {
+    (void)pd;
+    return -1;
+}
+void run_poll_close(run_poll_desc_t *pd) {
+    (void)pd;
+}
 void run_poll_wait(run_poll_desc_t *pd, run_poll_event_t events) {
     (void)pd;
     (void)events;
 }
-int run_poller_poll(void) { return 0; }
-int run_poller_poll_blocking(int64_t timeout_ns) { (void)timeout_ns; return 0; }
-bool run_poller_has_waiters(void) { return false; }
+int run_poller_poll(void) {
+    return 0;
+}
+int run_poller_poll_blocking(int64_t timeout_ns) {
+    (void)timeout_ns;
+    return 0;
+}
+bool run_poller_has_waiters(void) {
+    return false;
+}
 
 #endif
