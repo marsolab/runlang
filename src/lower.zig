@@ -876,7 +876,7 @@ const LoweringContext = struct {
                         const name = self.tokenSlice(self.tree.nodes.items[operand_node].main_token);
                         if (self.lookupLocalIdx(name)) |local_idx| {
                             const local_ptr = self.allocRef();
-                            try self.emit(ir.makeInst(.localAddr, local_ptr, local_idx, 0));
+                            try self.emit(ir.makeInst(.local_addr, local_ptr, local_idx, 0));
                             break :blk local_ptr;
                         }
                     }
@@ -2402,7 +2402,7 @@ test "lower: addr_of local emits local storage address" {
     for (module.functions.items) |func| {
         for (func.blocks.items) |block| {
             for (block.insts.items) |inst| {
-                if (inst.op == .localAddr) saw_local_addr = true;
+                if (inst.op == .local_addr) saw_local_addr = true;
             }
         }
     }
