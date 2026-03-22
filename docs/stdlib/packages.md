@@ -110,7 +110,8 @@ read_link(path) !string       — read symlink target
 chmod(path, mode) !void       — change permissions
 chown(path, uid, gid) !void   — change ownership
 temp_dir() string             — OS temp directory
-temp_file(prefix) !File       — create temp file
+create_temp(prefix) !File     — create temp file
+temp_file(prefix) !File       — backward-compatible alias for create_temp
 
 // Path utilities (no separate path package)
 join_path(parts []string) string   — join path components
@@ -133,6 +134,7 @@ exit(code)                     — terminate process
 getpid() int                   — current process ID
 hostname() !string             — machine hostname
 cwd() !string                  — current working directory
+getwd() !string                — backward-compatible alias for cwd
 chdir(path) !void              — change working directory
 user_home_dir() !string        — user home directory
 
