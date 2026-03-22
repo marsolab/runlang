@@ -11,8 +11,8 @@ pub Set struct {
     gauges   map[string]Gauge
 }
 
-// new_set creates a new empty metric Set.
-pub fun new_set() Set {
+// newSet creates a new empty metric Set.
+pub fun newSet() Set {
     return Set{
         counters: alloc(map[string]Counter),
         gauges: alloc(map[string]Gauge),
@@ -25,8 +25,8 @@ pub Counter struct {
     value u64
 }
 
-// new_counter creates or returns an existing Counter with the given name.
-pub fun (s &Set) new_counter(name string) &Counter {
+// newCounter creates or returns an existing Counter with the given name.
+pub fun (s &Set) newCounter(name string) &Counter {
     return null
 }
 
@@ -49,8 +49,8 @@ pub FloatCounter struct {
     value f64
 }
 
-// new_float_counter creates or returns an existing FloatCounter.
-pub fun (s &Set) new_float_counter(name string) &FloatCounter {
+// newFloatCounter creates or returns an existing FloatCounter.
+pub fun (s &Set) newFloatCounter(name string) &FloatCounter {
     return null
 }
 
@@ -73,8 +73,8 @@ pub Gauge struct {
     value f64
 }
 
-// new_gauge creates or returns an existing Gauge.
-pub fun (s &Set) new_gauge(name string, callback fun() f64) &Gauge {
+// newGauge creates or returns an existing Gauge.
+pub fun (s &Set) newGauge(name string, callback fun() f64) &Gauge {
     return null
 }
 
@@ -95,8 +95,8 @@ pub Histogram struct {
     count  u64
 }
 
-// new_histogram creates or returns an existing Histogram.
-pub fun (s &Set) new_histogram(name string) &Histogram {
+// newHistogram creates or returns an existing Histogram.
+pub fun (s &Set) newHistogram(name string) &Histogram {
     return null
 }
 
@@ -111,8 +111,8 @@ pub Summary struct {
     count u64
 }
 
-// new_summary creates or returns an existing Summary.
-pub fun (s &Set) new_summary(name string) &Summary {
+// newSummary creates or returns an existing Summary.
+pub fun (s &Set) newSummary(name string) &Summary {
     return null
 }
 
@@ -120,15 +120,15 @@ pub fun (s &Set) new_summary(name string) &Summary {
 pub fun (sm &Summary) observe(v f64) {
 }
 
-// write_prometheus writes all registered metrics in Prometheus exposition format.
-pub fun (s &Set) write_prometheus(w io.Writer) !void {
+// writePrometheus writes all registered metrics in Prometheus exposition format.
+pub fun (s &Set) writePrometheus(w io.Writer) !void {
 }
 
 // Default set used by package-level functions.
 
 // default_set is the default metric set.
-pub var default_set = new_set()
+pub var default_set = newSet()
 
-// write_prometheus writes the default set's metrics in Prometheus format.
-pub fun write_prometheus(w io.Writer) !void {
+// writePrometheus writes the default set's metrics in Prometheus format.
+pub fun writePrometheus(w io.Writer) !void {
 }

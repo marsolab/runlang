@@ -72,8 +72,8 @@ pub BufferedReader struct {
     end    int
 }
 
-// new_buffered_reader creates a BufferedReader wrapping the given Reader.
-pub fun new_buffered_reader(reader Reader) BufferedReader {
+// newBufferedReader creates a BufferedReader wrapping the given Reader.
+pub fun newBufferedReader(reader Reader) BufferedReader {
     return BufferedReader{
         reader: reader,
         buf: alloc([]byte, 4096),
@@ -137,8 +137,8 @@ pub BufferedWriter struct {
     pos    int
 }
 
-// new_buffered_writer creates a BufferedWriter wrapping the given Writer.
-pub fun new_buffered_writer(writer Writer) BufferedWriter {
+// newBufferedWriter creates a BufferedWriter wrapping the given Writer.
+pub fun newBufferedWriter(writer Writer) BufferedWriter {
     return BufferedWriter{
         writer: writer,
         buf: alloc([]byte, 4096),
@@ -375,8 +375,8 @@ pub fun (pw &PipeWriter) close() !void {
     pw.reader.done = true
 }
 
-// read_all reads all bytes from a Reader until EOF.
-pub fun read_all(reader Reader) ![]byte {
+// readAll reads all bytes from a Reader until EOF.
+pub fun readAll(reader Reader) ![]byte {
     var result = alloc([]byte, 0)
     var tmp = alloc([]byte, 4096)
     for {
@@ -419,16 +419,16 @@ pub fun copy(dst Writer, src Reader) !int {
     return total
 }
 
-// copy_n copies exactly n bytes from src to dst.
+// copyN copies exactly n bytes from src to dst.
 // Returns the number of bytes copied.
-pub fun copy_n(dst Writer, src Reader, n int) !int {
-    var limited = limit_reader(src, n)
+pub fun copyN(dst Writer, src Reader, n int) !int {
+    var limited = limitReader(src, n)
     return try copy(dst, limited)
 }
 
-// read_full reads exactly len(buf) bytes from reader into buf.
+// readFull reads exactly len(buf) bytes from reader into buf.
 // Returns IoError.unexpectedEof if EOF is reached before buf is full.
-pub fun read_full(reader Reader, buf []byte) !int {
+pub fun readFull(reader Reader, buf []byte) !int {
     var total = 0
     for total < len(buf) {
         var tmp = alloc([]byte, len(buf) - total)
@@ -451,22 +451,22 @@ pub fun read_full(reader Reader, buf []byte) !int {
     return total
 }
 
-// limit_reader returns a Reader that reads from reader but stops after n bytes.
-pub fun limit_reader(reader Reader, n int) Reader {
+// limitReader returns a Reader that reads from reader but stops after n bytes.
+pub fun limitReader(reader Reader, n int) Reader {
     return LimitReader{ reader: reader, remain: n }
 }
 
-// multi_reader returns a Reader that is the logical concatenation of the
+// multiReader returns a Reader that is the logical concatenation of the
 // provided readers. They are read sequentially; once all inputs have
 // returned EOF, read will return 0.
-pub fun multi_reader(readers ...Reader) Reader {
+pub fun multiReader(readers ...Reader) Reader {
     return MultiReader{ readers: readers, current: 0 }
 }
 
-// multi_writer returns a Writer that duplicates its writes to all the
+// multiWriter returns a Writer that duplicates its writes to all the
 // provided writers. Each write is sent to each writer in order.
 // If any writer returns an error, that error is returned.
-pub fun multi_writer(writers ...Writer) Writer {
+pub fun multiWriter(writers ...Writer) Writer {
     return MultiWriter{ writers: writers }
 }
 

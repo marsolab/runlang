@@ -6,8 +6,8 @@ pub type Iterator interface {
     next() any?
 }
 
-// from_slice creates an iterator over the elements of a slice.
-pub fun from_slice(s []any) Iterator {
+// fromSlice creates an iterator over the elements of a slice.
+pub fun fromSlice(s []any) Iterator {
     return null
 }
 
@@ -62,13 +62,13 @@ pub fun count(it Iterator) int {
     return 0
 }
 
-// any_match reports whether f returns true for any element.
-pub fun any_match(it Iterator, f fun(any) bool) bool {
+// anyMatch reports whether f returns true for any element.
+pub fun anyMatch(it Iterator, f fun(any) bool) bool {
     return false
 }
 
-// all_match reports whether f returns true for all elements.
-pub fun all_match(it Iterator, f fun(any) bool) bool {
+// allMatch reports whether f returns true for all elements.
+pub fun allMatch(it Iterator, f fun(any) bool) bool {
     return false
 }
 
@@ -77,22 +77,22 @@ pub fun collect(it Iterator) []any {
     return alloc([]any, 0)
 }
 
-// for_each applies f to each element in the iterator.
-pub fun for_each(it Iterator, f fun(any)) {
+// forEach applies f to each element in the iterator.
+pub fun forEach(it Iterator, f fun(any)) {
 }
 
-// flat_map applies f to each element and flattens the resulting iterators.
-pub fun flat_map(it Iterator, f fun(any) Iterator) Iterator {
+// flatMap applies f to each element and flattens the resulting iterators.
+pub fun flatMap(it Iterator, f fun(any) Iterator) Iterator {
     return null
 }
 
-// take_while returns an iterator that yields elements while f returns true.
-pub fun take_while(it Iterator, f fun(any) bool) Iterator {
+// takeWhile returns an iterator that yields elements while f returns true.
+pub fun takeWhile(it Iterator, f fun(any) bool) Iterator {
     return null
 }
 
-// skip_while returns an iterator that skips elements while f returns true,
+// skipWhile returns an iterator that skips elements while f returns true,
 // then yields the rest.
-pub fun skip_while(it Iterator, f fun(any) bool) Iterator {
+pub fun skipWhile(it Iterator, f fun(any) bool) Iterator {
     return null
 }

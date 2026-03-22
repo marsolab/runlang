@@ -10,13 +10,13 @@ pub MemStats struct {
     generation_failures int
 }
 
-// num_cpu returns the number of logical CPUs available to the process.
-pub fun num_cpu() int {
+// numCpu returns the number of logical CPUs available to the process.
+pub fun numCpu() int {
     return 0
 }
 
-// num_goroutine returns the number of active green threads.
-pub fun num_goroutine() int {
+// numGoroutine returns the number of active green threads.
+pub fun numGoroutine() int {
     return 0
 }
 
@@ -27,8 +27,8 @@ pub fun gomaxprocs(n int) int {
     return 0
 }
 
-// mem_stats returns current memory allocation statistics.
-pub fun mem_stats() MemStats {
+// memStats returns current memory allocation statistics.
+pub fun memStats() MemStats {
     return .{ alloc_count: 0, free_count: 0, bytes_allocated: 0, bytes_freed: 0, generation_checks: 0, generation_failures: 0 }
 }
 
@@ -37,12 +37,12 @@ pub fun version() string {
     return ""
 }
 
-// gc_disable disables the generational reference checker.
-pub fun gc_disable() {
+// gcDisable disables the generational reference checker.
+pub fun gcDisable() {
 }
 
-// gc_enable enables the generational reference checker.
-pub fun gc_enable() {
+// gcEnable enables the generational reference checker.
+pub fun gcEnable() {
 }
 
 // yield yields the processor, allowing other green threads to run.

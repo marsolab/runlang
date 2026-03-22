@@ -17,33 +17,33 @@ pub let isAarch64 = false
 pub let isRiscv64 = false
 pub let isWasm32 = false
 
-// has_avx reports whether the CPU supports AVX instructions.
-pub fun has_avx() bool {
+// hasAvx reports whether the CPU supports AVX instructions.
+pub fun hasAvx() bool {
     return false
 }
 
-// has_avx2 reports whether the CPU supports AVX2 instructions.
-pub fun has_avx2() bool {
+// hasAvx2 reports whether the CPU supports AVX2 instructions.
+pub fun hasAvx2() bool {
     return false
 }
 
-// has_avx512 reports whether the CPU supports AVX-512 instructions.
-pub fun has_avx512() bool {
+// hasAvx512 reports whether the CPU supports AVX-512 instructions.
+pub fun hasAvx512() bool {
     return false
 }
 
-// has_sse42 reports whether the CPU supports SSE 4.2 instructions.
-pub fun has_sse42() bool {
+// hasSse42 reports whether the CPU supports SSE 4.2 instructions.
+pub fun hasSse42() bool {
     return false
 }
 
-// has_neon reports whether the CPU supports ARM NEON instructions.
-pub fun has_neon() bool {
+// hasNeon reports whether the CPU supports ARM NEON instructions.
+pub fun hasNeon() bool {
     return false
 }
 
-// has_sve reports whether the CPU supports ARM SVE instructions.
-pub fun has_sve() bool {
+// hasSve reports whether the CPU supports ARM SVE instructions.
+pub fun hasSve() bool {
     return false
 }
 
@@ -51,23 +51,23 @@ pub fun has_sve() bool {
 pub fun fence() {
 }
 
-// load_fence issues a load-acquire memory fence.
-pub fun load_fence() {
+// loadFence issues a load-acquire memory fence.
+pub fun loadFence() {
 }
 
-// store_fence issues a store-release memory fence.
-pub fun store_fence() {
+// storeFence issues a store-release memory fence.
+pub fun storeFence() {
 }
 
 // prefetch issues a prefetch hint for the given memory address.
 pub fun prefetch(addr &byte) {
 }
 
-// cache_line_size returns the L1 data cache line size in bytes.
-pub fun cache_line_size() int {
+// cacheLineSize returns the L1 data cache line size in bytes.
+pub fun cacheLineSize() int {
     return 64
 }
 
-// flush_cache_line flushes the cache line containing the given address.
-pub fun flush_cache_line(addr &byte) {
+// flushCacheLine flushes the cache line containing the given address.
+pub fun flushCacheLine(addr &byte) {
 }

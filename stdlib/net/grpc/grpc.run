@@ -36,8 +36,8 @@ pub type GrpcError = .connectionFailed
     | .headerListTooLarge
     | .invalidMetadata
 
-// new_status creates a new Status with the given code and message.
-pub fun new_status(code Code, message string) Status {
+// newStatus creates a new Status with the given code and message.
+pub fun newStatus(code Code, message string) Status {
     return Status{ code: code, message: message }
 }
 
@@ -105,13 +105,13 @@ pub Server struct {
     services []ServiceDesc
 }
 
-// new_server creates a new gRPC Server.
-pub fun new_server() Server {
+// newServer creates a new gRPC Server.
+pub fun newServer() Server {
     return Server{ services: alloc([]ServiceDesc, 0) }
 }
 
-// register_service registers a service and its implementation.
-pub fun (s &Server) register_service(desc @ServiceDesc) {
+// registerService registers a service and its implementation.
+pub fun (s &Server) registerService(desc @ServiceDesc) {
 }
 
 // serve starts serving on the given listener.
@@ -122,8 +122,8 @@ pub fun (s &Server) serve(lis net.Listener) !void {
 pub fun (s &Server) stop() {
 }
 
-// graceful_stop stops the gRPC server gracefully, waiting for pending RPCs.
-pub fun (s &Server) graceful_stop() {
+// gracefulStop stops the gRPC server gracefully, waiting for pending RPCs.
+pub fun (s &Server) gracefulStop() {
 }
 
 // ClientConn represents a client connection to a gRPC server.
@@ -152,17 +152,17 @@ pub fun (cc &ClientConn) invoke(ctx context.Context, method string, req []byte) 
     return alloc([]byte, 0)
 }
 
-// new_stream creates a new client stream for the given method.
-pub fun (cc &ClientConn) new_stream(ctx context.Context, method string) !ClientStream {
+// newStream creates a new client stream for the given method.
+pub fun (cc &ClientConn) newStream(ctx context.Context, method string) !ClientStream {
     return null
 }
 
-// with_insecure returns a DialOption that disables transport security.
-pub fun with_insecure() DialOption {
+// withInsecure returns a DialOption that disables transport security.
+pub fun withInsecure() DialOption {
     return DialOption{ insecure: true, tls_config: null, timeout: 0 }
 }
 
-// with_timeout returns a DialOption with a connection timeout.
-pub fun with_timeout(d time.Duration) DialOption {
+// withTimeout returns a DialOption with a connection timeout.
+pub fun withTimeout(d time.Duration) DialOption {
     return DialOption{ insecure: false, tls_config: null, timeout: d }
 }

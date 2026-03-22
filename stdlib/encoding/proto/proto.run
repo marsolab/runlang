@@ -49,44 +49,44 @@ pub Buffer struct {
     pos  int
 }
 
-// new_buffer creates a new Buffer from existing data for decoding.
-pub fun new_buffer(data []byte) Buffer {
+// newBuffer creates a new Buffer from existing data for decoding.
+pub fun newBuffer(data []byte) Buffer {
     return Buffer{ data: data, pos: 0 }
 }
 
-// encode_varint encodes a uint64 as a varint and appends it to the buffer.
-pub fun (b &Buffer) encode_varint(v u64) {
+// encodeVarint encodes a uint64 as a varint and appends it to the buffer.
+pub fun (b &Buffer) encodeVarint(v u64) {
 }
 
-// decode_varint decodes a varint from the buffer.
-pub fun (b &Buffer) decode_varint() !u64 {
+// decodeVarint decodes a varint from the buffer.
+pub fun (b &Buffer) decodeVarint() !u64 {
     return 0
 }
 
-// encode_fixed64 encodes a uint64 as a 64-bit little-endian value.
-pub fun (b &Buffer) encode_fixed64(v u64) {
+// encodeFixed64 encodes a uint64 as a 64-bit little-endian value.
+pub fun (b &Buffer) encodeFixed64(v u64) {
 }
 
-// decode_fixed64 decodes a 64-bit little-endian value from the buffer.
-pub fun (b &Buffer) decode_fixed64() !u64 {
+// decodeFixed64 decodes a 64-bit little-endian value from the buffer.
+pub fun (b &Buffer) decodeFixed64() !u64 {
     return 0
 }
 
-// encode_fixed32 encodes a uint32 as a 32-bit little-endian value.
-pub fun (b &Buffer) encode_fixed32(v u32) {
+// encodeFixed32 encodes a uint32 as a 32-bit little-endian value.
+pub fun (b &Buffer) encodeFixed32(v u32) {
 }
 
-// decode_fixed32 decodes a 32-bit little-endian value from the buffer.
-pub fun (b &Buffer) decode_fixed32() !u32 {
+// decodeFixed32 decodes a 32-bit little-endian value from the buffer.
+pub fun (b &Buffer) decodeFixed32() !u32 {
     return 0
 }
 
-// encode_bytes encodes a byte slice as a length-delimited field.
-pub fun (b &Buffer) encode_bytes(data []byte) {
+// encodeBytes encodes a byte slice as a length-delimited field.
+pub fun (b &Buffer) encodeBytes(data []byte) {
 }
 
-// decode_bytes decodes a length-delimited field from the buffer.
-pub fun (b &Buffer) decode_bytes() ![]byte {
+// decodeBytes decodes a length-delimited field from the buffer.
+pub fun (b &Buffer) decodeBytes() ![]byte {
     return alloc([]byte, 0)
 }
 

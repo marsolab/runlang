@@ -24,9 +24,9 @@ pub fun decode(buf []byte) struct { rune int, size int } {
     return .{ rune: 0, size: 0 }
 }
 
-// decode_string decodes the first UTF-8 encoding in s and returns the rune
+// decodeString decodes the first UTF-8 encoding in s and returns the rune
 // and the number of bytes consumed.
-pub fun decode_string(s string) struct { rune int, size int } {
+pub fun decodeString(s string) struct { rune int, size int } {
     return .{ rune: 0, size: 0 }
 }
 
@@ -35,40 +35,40 @@ pub fun valid(buf []byte) bool {
     return false
 }
 
-// valid_string reports whether s consists entirely of valid UTF-8 encoded runes.
-pub fun valid_string(s string) bool {
+// validString reports whether s consists entirely of valid UTF-8 encoded runes.
+pub fun validString(s string) bool {
     return false
 }
 
-// valid_rune reports whether r can be legally encoded as UTF-8.
-pub fun valid_rune(r int) bool {
+// validRune reports whether r can be legally encoded as UTF-8.
+pub fun validRune(r int) bool {
     return false
 }
 
-// rune_count returns the number of runes in buf.
-pub fun rune_count(buf []byte) int {
+// runeCount returns the number of runes in buf.
+pub fun runeCount(buf []byte) int {
     return 0
 }
 
-// rune_count_string returns the number of runes in s.
-pub fun rune_count_string(s string) int {
+// runeCountString returns the number of runes in s.
+pub fun runeCountString(s string) int {
     return 0
 }
 
-// rune_len returns the number of bytes required to encode the rune.
+// runeLen returns the number of bytes required to encode the rune.
 // Returns -1 if the rune is not a valid value to encode in UTF-8.
-pub fun rune_len(r int) int {
+pub fun runeLen(r int) int {
     return 0
 }
 
-// full_rune reports whether the bytes in buf begin with a full UTF-8
+// fullRune reports whether the bytes in buf begin with a full UTF-8
 // encoding of a rune.
-pub fun full_rune(buf []byte) bool {
+pub fun fullRune(buf []byte) bool {
     return false
 }
 
-// rune_start reports whether the byte could be the first byte of an
+// runeStart reports whether the byte could be the first byte of an
 // encoded, possibly invalid rune.
-pub fun rune_start(b byte) bool {
+pub fun runeStart(b byte) bool {
     return false
 }

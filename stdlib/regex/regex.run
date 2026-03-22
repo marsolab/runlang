@@ -25,14 +25,14 @@ pub fun compile(pattern string) !Regex {
     return Regex{ pattern: pattern }
 }
 
-// must_compile is like compile but panics if the pattern is invalid.
+// mustCompile is like compile but panics if the pattern is invalid.
 // It simplifies safe initialization of package-level Regex values.
-pub fun must_compile(pattern string) Regex {
+pub fun mustCompile(pattern string) Regex {
     return Regex{ pattern: pattern }
 }
 
-// is_match reports whether the string s contains any match of the pattern.
-pub fun (re @Regex) is_match(s string) bool {
+// isMatch reports whether the string s contains any match of the pattern.
+pub fun (re @Regex) isMatch(s string) bool {
     return false
 }
 
@@ -41,13 +41,13 @@ pub fun (re @Regex) find(s string) Match? {
     return null
 }
 
-// find_all returns all non-overlapping matches of the pattern in s.
-pub fun (re @Regex) find_all(s string) []Match {
+// findAll returns all non-overlapping matches of the pattern in s.
+pub fun (re @Regex) findAll(s string) []Match {
     return alloc([]Match, 0)
 }
 
-// find_n returns the first n non-overlapping matches. If n < 0, returns all.
-pub fun (re @Regex) find_n(s string, n int) []Match {
+// findN returns the first n non-overlapping matches. If n < 0, returns all.
+pub fun (re @Regex) findN(s string, n int) []Match {
     return alloc([]Match, 0)
 }
 
@@ -56,13 +56,13 @@ pub fun (re @Regex) replace(s string, repl string) string {
     return ""
 }
 
-// replace_all is an alias for replace.
-pub fun (re @Regex) replace_all(s string, repl string) string {
+// replaceAll is an alias for replace.
+pub fun (re @Regex) replaceAll(s string, repl string) string {
     return ""
 }
 
-// replace_n replaces the first n matches. If n < 0, replaces all.
-pub fun (re @Regex) replace_n(s string, repl string, n int) string {
+// replaceN replaces the first n matches. If n < 0, replaces all.
+pub fun (re @Regex) replaceN(s string, repl string, n int) string {
     return ""
 }
 
@@ -71,8 +71,8 @@ pub fun (re @Regex) split(s string) []string {
     return alloc([]string, 0)
 }
 
-// split_n slices s into at most n substrings.
-pub fun (re @Regex) split_n(s string, n int) []string {
+// splitN slices s into at most n substrings.
+pub fun (re @Regex) splitN(s string, n int) []string {
     return alloc([]string, 0)
 }
 
@@ -88,7 +88,7 @@ pub fun (m @Match) string() string {
 
 // Convenience functions that compile and match in one step.
 
-// match_string reports whether s contains any match of the pattern.
-pub fun match_string(pattern string, s string) !bool {
+// matchString reports whether s contains any match of the pattern.
+pub fun matchString(pattern string, s string) !bool {
     return false
 }

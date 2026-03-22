@@ -1,21 +1,21 @@
 package mime
 
-// type_by_extension returns the MIME type associated with the file extension ext.
+// typeByExtension returns the MIME type associated with the file extension ext.
 // The extension should begin with a leading dot, as in ".html".
 // Returns "" if the extension is not recognized.
-pub fun type_by_extension(ext string) string {
+pub fun typeByExtension(ext string) string {
     return ""
 }
 
-// extension_by_type returns the preferred extension for the given MIME type.
+// extensionByType returns the preferred extension for the given MIME type.
 // The MIME type should be in the form "type/subtype".
 // Returns "" if the type is not recognized.
-pub fun extension_by_type(mime_type string) string {
+pub fun extensionByType(mime_type string) string {
     return ""
 }
 
-// extensions_by_type returns all known extensions for the given MIME type.
-pub fun extensions_by_type(mime_type string) []string {
+// extensionsByType returns all known extensions for the given MIME type.
+pub fun extensionsByType(mime_type string) []string {
     return alloc([]string, 0)
 }
 
@@ -26,9 +26,9 @@ pub MediaType struct {
     params     map[string]string
 }
 
-// parse_media_type parses a media type value and any optional parameters,
+// parseMediaType parses a media type value and any optional parameters,
 // per RFC 2045 and RFC 2616.
-pub fun parse_media_type(v string) !MediaType {
+pub fun parseMediaType(v string) !MediaType {
     return MediaType{
         type_name: "",
         sub_type: "",
@@ -36,11 +36,11 @@ pub fun parse_media_type(v string) !MediaType {
     }
 }
 
-// format_media_type serializes a MediaType back to its string representation.
-pub fun format_media_type(t @MediaType) string {
+// formatMediaType serializes a MediaType back to its string representation.
+pub fun formatMediaType(t @MediaType) string {
     return ""
 }
 
-// add_extension_type sets the MIME type associated with the extension ext.
-pub fun add_extension_type(ext string, mime_type string) {
+// addExtensionType sets the MIME type associated with the extension ext.
+pub fun addExtensionType(ext string, mime_type string) {
 }

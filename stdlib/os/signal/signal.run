@@ -36,8 +36,8 @@ pub fun ignore(signals ...Signal) {
 pub fun reset(signals ...Signal) {
 }
 
-// notify_context returns a context that is cancelled when one of the
+// notifyContext returns a context that is cancelled when one of the
 // provided signals is received.
-pub fun notify_context(signals ...Signal) struct { done chan struct {}, cancel fun() } {
+pub fun notifyContext(signals ...Signal) struct { done chan struct {}, cancel fun() } {
     return .{ done: alloc(chan struct {}), cancel: fun() {} }
 }

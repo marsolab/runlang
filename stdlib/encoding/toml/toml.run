@@ -23,8 +23,8 @@ pub fun parse(data string) !Value {
     return .table(alloc(map[string]Value, 0))
 }
 
-// parse_file reads and parses a TOML file.
-pub fun parse_file(path string) !Value {
+// parseFile reads and parses a TOML file.
+pub fun parseFile(path string) !Value {
     return .table(alloc(map[string]Value, 0))
 }
 
@@ -42,28 +42,28 @@ pub fun (v @Value) get(key string) Value? {
     return null
 }
 
-// get_string returns the string value for the given key, or null.
-pub fun (v @Value) get_string(key string) string? {
+// getString returns the string value for the given key, or null.
+pub fun (v @Value) getString(key string) string? {
     return null
 }
 
-// get_int returns the integer value for the given key, or null.
-pub fun (v @Value) get_int(key string) int? {
+// getInt returns the integer value for the given key, or null.
+pub fun (v @Value) getInt(key string) int? {
     return null
 }
 
-// get_bool returns the boolean value for the given key, or null.
-pub fun (v @Value) get_bool(key string) bool? {
+// getBool returns the boolean value for the given key, or null.
+pub fun (v @Value) getBool(key string) bool? {
     return null
 }
 
-// get_table returns the table value for the given key, or null.
-pub fun (v @Value) get_table(key string) Value? {
+// getTable returns the table value for the given key, or null.
+pub fun (v @Value) getTable(key string) Value? {
     return null
 }
 
-// get_array returns the array value for the given key as a slice, or null.
-pub fun (v @Value) get_array(key string) []Value? {
+// getArray returns the array value for the given key as a slice, or null.
+pub fun (v @Value) getArray(key string) []Value? {
     return null
 }
 
@@ -72,8 +72,8 @@ pub Encoder struct {
     writer io.Writer
 }
 
-// new_encoder returns a new Encoder that writes to w.
-pub fun new_encoder(w io.Writer) Encoder {
+// newEncoder returns a new Encoder that writes to w.
+pub fun newEncoder(w io.Writer) Encoder {
     return Encoder{ writer: w }
 }
 
@@ -86,8 +86,8 @@ pub Decoder struct {
     reader io.Reader
 }
 
-// new_decoder returns a new Decoder that reads from r.
-pub fun new_decoder(r io.Reader) Decoder {
+// newDecoder returns a new Decoder that reads from r.
+pub fun newDecoder(r io.Reader) Decoder {
     return Decoder{ reader: r }
 }
 

@@ -1247,32 +1247,32 @@ const LoweringContext = struct {
         }
 
         if (std.mem.eql(u8, package_name, "numa")) {
-            if (std.mem.eql(u8, member_name, "node_count")) return "numa.node_count";
-            if (std.mem.eql(u8, member_name, "current_node")) return "numa.current_node";
+            if (std.mem.eql(u8, member_name, "nodeCount")) return "numa.nodeCount";
+            if (std.mem.eql(u8, member_name, "currentNode")) return "numa.currentNode";
             if (std.mem.eql(u8, member_name, "distance")) return "numa.distance";
             if (std.mem.eql(u8, member_name, "pin")) return "numa.pin";
-            if (std.mem.eql(u8, member_name, "memory_on_node")) return "numa.memory_on_node";
+            if (std.mem.eql(u8, member_name, "memoryOnNode")) return "numa.memoryOnNode";
             if (std.mem.eql(u8, member_name, "available")) return "numa.available";
-            if (std.mem.eql(u8, member_name, "preferred_node")) return "numa.preferred_node";
-            if (std.mem.eql(u8, member_name, "local_alloc")) return "numa.local_alloc";
-            if (std.mem.eql(u8, member_name, "node_alloc")) return "numa.node_alloc";
-            if (std.mem.eql(u8, member_name, "interleave_alloc")) return "numa.interleave_alloc";
+            if (std.mem.eql(u8, member_name, "preferredNode")) return "numa.preferredNode";
+            if (std.mem.eql(u8, member_name, "localAlloc")) return "numa.localAlloc";
+            if (std.mem.eql(u8, member_name, "nodeAlloc")) return "numa.nodeAlloc";
+            if (std.mem.eql(u8, member_name, "interleaveAlloc")) return "numa.interleaveAlloc";
             if (std.mem.eql(u8, member_name, "free")) return "numa.free";
-            if (std.mem.eql(u8, member_name, "bind_thread")) return "numa.bind_thread";
-            if (std.mem.eql(u8, member_name, "bind_green_thread")) return "numa.bind_green_thread";
-            if (std.mem.eql(u8, member_name, "set_memory_policy")) return "numa.set_memory_policy";
-            if (std.mem.eql(u8, member_name, "cpu_count")) return "numa.cpu_count";
+            if (std.mem.eql(u8, member_name, "bindThread")) return "numa.bindThread";
+            if (std.mem.eql(u8, member_name, "bindGreenThread")) return "numa.bindGreenThread";
+            if (std.mem.eql(u8, member_name, "setMemoryPolicy")) return "numa.setMemoryPolicy";
+            if (std.mem.eql(u8, member_name, "cpuCount")) return "numa.cpuCount";
             return null;
         }
 
         if (std.mem.eql(u8, package_name, "runtime")) {
-            if (std.mem.eql(u8, member_name, "num_cpu")) return "runtime.num_cpu";
-            if (std.mem.eql(u8, member_name, "num_goroutine")) return "runtime.num_goroutine";
+            if (std.mem.eql(u8, member_name, "numCpu")) return "runtime.numCpu";
+            if (std.mem.eql(u8, member_name, "numGoroutine")) return "runtime.numGoroutine";
             if (std.mem.eql(u8, member_name, "gomaxprocs")) return "runtime.gomaxprocs";
-            if (std.mem.eql(u8, member_name, "mem_stats")) return "runtime.mem_stats";
+            if (std.mem.eql(u8, member_name, "memStats")) return "runtime.memStats";
             if (std.mem.eql(u8, member_name, "version")) return "runtime.version";
-            if (std.mem.eql(u8, member_name, "gc_disable")) return "runtime.gc_disable";
-            if (std.mem.eql(u8, member_name, "gc_enable")) return "runtime.gc_enable";
+            if (std.mem.eql(u8, member_name, "gcDisable")) return "runtime.gcDisable";
+            if (std.mem.eql(u8, member_name, "gcEnable")) return "runtime.gcEnable";
             if (std.mem.eql(u8, member_name, "yield")) return "runtime.yield";
             if (std.mem.eql(u8, member_name, "caller")) return "runtime.caller";
             if (std.mem.eql(u8, member_name, "stack")) return "runtime.stack";
@@ -1280,11 +1280,11 @@ const LoweringContext = struct {
         }
 
         if (std.mem.eql(u8, package_name, "debug")) {
-            if (std.mem.eql(u8, member_name, "stack_trace")) return "debug.stack_trace";
-            if (std.mem.eql(u8, member_name, "print_stack")) return "debug.print_stack";
-            if (std.mem.eql(u8, member_name, "format_stack")) return "debug.format_stack";
+            if (std.mem.eql(u8, member_name, "stackTrace")) return "debug.stackTrace";
+            if (std.mem.eql(u8, member_name, "printStack")) return "debug.printStack";
+            if (std.mem.eql(u8, member_name, "formatStack")) return "debug.formatStack";
             if (std.mem.eql(u8, member_name, "assert")) return "debug.assert";
-            if (std.mem.eql(u8, member_name, "assert_eq")) return "debug.assert_eq";
+            if (std.mem.eql(u8, member_name, "assertEq")) return "debug.assertEq";
             if (std.mem.eql(u8, member_name, "unreachable")) return "debug.unreachable";
             if (std.mem.eql(u8, member_name, "todo")) return "debug.todo";
             if (std.mem.eql(u8, member_name, "breakpoint")) return "debug.breakpoint";
@@ -1293,20 +1293,20 @@ const LoweringContext = struct {
 
         if (std.mem.eql(u8, package_name, "exec")) {
             if (std.mem.eql(u8, member_name, "command")) return "exec.command";
-            if (std.mem.eql(u8, member_name, "run_cmd")) return "exec.run_cmd";
-            if (std.mem.eql(u8, member_name, "output_cmd")) return "exec.output_cmd";
-            if (std.mem.eql(u8, member_name, "combined_output_cmd")) return "exec.combined_output_cmd";
-            if (std.mem.eql(u8, member_name, "start_cmd")) return "exec.start_cmd";
-            if (std.mem.eql(u8, member_name, "wait_cmd")) return "exec.wait_cmd";
-            if (std.mem.eql(u8, member_name, "stdin_pipe_cmd")) return "exec.stdin_pipe_cmd";
-            if (std.mem.eql(u8, member_name, "stdout_pipe_cmd")) return "exec.stdout_pipe_cmd";
-            if (std.mem.eql(u8, member_name, "stderr_pipe_cmd")) return "exec.stderr_pipe_cmd";
-            if (std.mem.eql(u8, member_name, "set_dir_cmd")) return "exec.set_dir_cmd";
-            if (std.mem.eql(u8, member_name, "set_env_cmd")) return "exec.set_env_cmd";
-            if (std.mem.eql(u8, member_name, "add_args_cmd")) return "exec.add_args_cmd";
-            if (std.mem.eql(u8, member_name, "process_state_cmd")) return "exec.process_state_cmd";
-            if (std.mem.eql(u8, member_name, "free_cmd")) return "exec.free_cmd";
-            if (std.mem.eql(u8, member_name, "look_path")) return "exec.look_path";
+            if (std.mem.eql(u8, member_name, "runCmd")) return "exec.runCmd";
+            if (std.mem.eql(u8, member_name, "outputCmd")) return "exec.outputCmd";
+            if (std.mem.eql(u8, member_name, "combinedOutputCmd")) return "exec.combinedOutputCmd";
+            if (std.mem.eql(u8, member_name, "startCmd")) return "exec.startCmd";
+            if (std.mem.eql(u8, member_name, "waitCmd")) return "exec.waitCmd";
+            if (std.mem.eql(u8, member_name, "stdinPipeCmd")) return "exec.stdinPipeCmd";
+            if (std.mem.eql(u8, member_name, "stdoutPipeCmd")) return "exec.stdoutPipeCmd";
+            if (std.mem.eql(u8, member_name, "stderrPipeCmd")) return "exec.stderrPipeCmd";
+            if (std.mem.eql(u8, member_name, "setDirCmd")) return "exec.setDirCmd";
+            if (std.mem.eql(u8, member_name, "setEnvCmd")) return "exec.setEnvCmd";
+            if (std.mem.eql(u8, member_name, "addArgsCmd")) return "exec.addArgsCmd";
+            if (std.mem.eql(u8, member_name, "processStateCmd")) return "exec.processStateCmd";
+            if (std.mem.eql(u8, member_name, "freeCmd")) return "exec.freeCmd";
+            if (std.mem.eql(u8, member_name, "lookPath")) return "exec.lookPath";
             return null;
         }
 
@@ -1327,7 +1327,7 @@ const LoweringContext = struct {
         if (std.mem.eql(u8, member_name, "select")) return "simd.select";
         if (std.mem.eql(u8, member_name, "load")) return "simd.load";
         if (std.mem.eql(u8, member_name, "store")) return "simd.store";
-        if (std.mem.eql(u8, member_name, "load_unaligned")) return "simd.load_unaligned";
+        if (std.mem.eql(u8, member_name, "loadUnaligned")) return "simd.loadUnaligned";
         if (std.mem.eql(u8, member_name, "width")) return "simd.width";
         if (std.mem.eql(u8, member_name, "sqrt")) return "simd.sqrt";
         if (std.mem.eql(u8, member_name, "abs")) return "simd.abs";
@@ -1337,8 +1337,8 @@ const LoweringContext = struct {
         if (std.mem.eql(u8, member_name, "fma")) return "simd.fma";
         if (std.mem.eql(u8, member_name, "clamp")) return "simd.clamp";
         if (std.mem.eql(u8, member_name, "broadcast")) return "simd.broadcast";
-        if (std.mem.eql(u8, member_name, "i32_to_f32")) return "simd.i32_to_f32";
-        if (std.mem.eql(u8, member_name, "f32_to_i32")) return "simd.f32_to_i32";
+        if (std.mem.eql(u8, member_name, "i32ToF32")) return "simd.i32ToF32";
+        if (std.mem.eql(u8, member_name, "f32ToI32")) return "simd.f32ToI32";
         return null;
     }
 
@@ -1519,8 +1519,8 @@ const LoweringContext = struct {
             return self.emitTypedCall(helper_name, &.{scalar_ref}, self.cTypeForTypeId(type_id), false);
         }
 
-        // Conversions: i32_to_f32, f32_to_i32
-        if (std.mem.eql(u8, builtin_name, "simd.i32_to_f32") or std.mem.eql(u8, builtin_name, "simd.f32_to_i32")) {
+        // Conversions: i32ToF32, f32ToI32
+        if (std.mem.eql(u8, builtin_name, "simd.i32ToF32") or std.mem.eql(u8, builtin_name, "simd.f32ToI32")) {
             const arg_ref = if (arg_nodes.len > 0) try self.lowerExpr(arg_nodes[0]) else ir.null_ref;
             const src_type = if (arg_nodes.len > 0) self.typeOfNode(arg_nodes[0]) else types.null_type;
             const dst_type = self.typeOfNode(node_idx);
@@ -1559,7 +1559,7 @@ const LoweringContext = struct {
             if (std.mem.eql(u8, builtin_name, "simd.max")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_max", .{self.simdTypeSuffix(helper_type)});
             if (std.mem.eql(u8, builtin_name, "simd.select")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_select", .{self.simdTypeSuffix(helper_type)});
             if (std.mem.eql(u8, builtin_name, "simd.load")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_load", .{self.simdTypeSuffix(helper_type)});
-            if (std.mem.eql(u8, builtin_name, "simd.load_unaligned")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_load_unaligned", .{self.simdTypeSuffix(helper_type)});
+            if (std.mem.eql(u8, builtin_name, "simd.loadUnaligned")) break :blk try std.fmt.allocPrint(self.allocator, "run_simd_{s}_load_unaligned", .{self.simdTypeSuffix(helper_type)});
             if (std.mem.eql(u8, builtin_name, "simd.store")) {
                 const ptr_type = if (arg_nodes.len > 0) self.typeOfNode(arg_nodes[0]) else types.null_type;
                 const pointee = self.type_pool.unwrapPointer(ptr_type) orelse types.null_type;
@@ -1716,57 +1716,57 @@ const LoweringContext = struct {
         if (std.mem.eql(u8, name, "fmt.sprint")) return "run_fmt_sprint_args";
         if (std.mem.eql(u8, name, "fmt.sprintln")) return "run_fmt_sprintln_args";
         if (std.mem.eql(u8, name, "close")) return "run_chan_close";
-        if (std.mem.eql(u8, name, "numa.node_count")) return "run_numa_node_count";
-        if (std.mem.eql(u8, name, "numa.current_node")) return "run_numa_current_node";
+        if (std.mem.eql(u8, name, "numa.nodeCount")) return "run_numa_node_count";
+        if (std.mem.eql(u8, name, "numa.currentNode")) return "run_numa_current_node";
         if (std.mem.eql(u8, name, "numa.distance")) return "run_numa_distance";
         if (std.mem.eql(u8, name, "numa.pin")) return "run_numa_pin";
-        if (std.mem.eql(u8, name, "numa.memory_on_node")) return "run_numa_memory_on_node";
+        if (std.mem.eql(u8, name, "numa.memoryOnNode")) return "run_numa_memory_on_node";
         if (std.mem.eql(u8, name, "numa.available")) return "run_numa_available";
-        if (std.mem.eql(u8, name, "numa.preferred_node")) return "run_numa_preferred_node";
-        if (std.mem.eql(u8, name, "numa.local_alloc")) return "run_numa_local_alloc";
-        if (std.mem.eql(u8, name, "numa.node_alloc")) return "run_numa_node_alloc";
-        if (std.mem.eql(u8, name, "numa.interleave_alloc")) return "run_numa_interleave_alloc";
+        if (std.mem.eql(u8, name, "numa.preferredNode")) return "run_numa_preferred_node";
+        if (std.mem.eql(u8, name, "numa.localAlloc")) return "run_numa_local_alloc";
+        if (std.mem.eql(u8, name, "numa.nodeAlloc")) return "run_numa_node_alloc";
+        if (std.mem.eql(u8, name, "numa.interleaveAlloc")) return "run_numa_interleave_alloc";
         if (std.mem.eql(u8, name, "numa.free")) return "run_numa_free";
-        if (std.mem.eql(u8, name, "numa.bind_thread")) return "run_numa_bind_thread";
-        if (std.mem.eql(u8, name, "numa.bind_green_thread")) return "run_numa_pin";
-        if (std.mem.eql(u8, name, "numa.set_memory_policy")) return "run_numa_set_memory_policy";
-        if (std.mem.eql(u8, name, "numa.cpu_count")) return "run_numa_cpu_count";
+        if (std.mem.eql(u8, name, "numa.bindThread")) return "run_numa_bind_thread";
+        if (std.mem.eql(u8, name, "numa.bindGreenThread")) return "run_numa_pin";
+        if (std.mem.eql(u8, name, "numa.setMemoryPolicy")) return "run_numa_set_memory_policy";
+        if (std.mem.eql(u8, name, "numa.cpuCount")) return "run_numa_cpu_count";
         // Runtime package
-        if (std.mem.eql(u8, name, "runtime.num_cpu")) return "run_runtime_num_cpu";
-        if (std.mem.eql(u8, name, "runtime.num_goroutine")) return "run_runtime_num_goroutine";
+        if (std.mem.eql(u8, name, "runtime.numCpu")) return "run_runtime_num_cpu";
+        if (std.mem.eql(u8, name, "runtime.numGoroutine")) return "run_runtime_num_goroutine";
         if (std.mem.eql(u8, name, "runtime.gomaxprocs")) return "run_runtime_gomaxprocs";
-        if (std.mem.eql(u8, name, "runtime.mem_stats")) return "run_runtime_mem_stats";
+        if (std.mem.eql(u8, name, "runtime.memStats")) return "run_runtime_mem_stats";
         if (std.mem.eql(u8, name, "runtime.version")) return "run_runtime_version";
-        if (std.mem.eql(u8, name, "runtime.gc_disable")) return "run_runtime_gc_disable";
-        if (std.mem.eql(u8, name, "runtime.gc_enable")) return "run_runtime_gc_enable";
+        if (std.mem.eql(u8, name, "runtime.gcDisable")) return "run_runtime_gc_disable";
+        if (std.mem.eql(u8, name, "runtime.gcEnable")) return "run_runtime_gc_enable";
         if (std.mem.eql(u8, name, "runtime.yield")) return "run_runtime_yield";
         if (std.mem.eql(u8, name, "runtime.caller")) return "run_runtime_caller";
         if (std.mem.eql(u8, name, "runtime.stack")) return "run_runtime_stack";
         // Debug package
-        if (std.mem.eql(u8, name, "debug.stack_trace")) return "run_debug_stack_trace";
-        if (std.mem.eql(u8, name, "debug.print_stack")) return "run_debug_print_stack";
-        if (std.mem.eql(u8, name, "debug.format_stack")) return "run_debug_format_stack";
+        if (std.mem.eql(u8, name, "debug.stackTrace")) return "run_debug_stack_trace";
+        if (std.mem.eql(u8, name, "debug.printStack")) return "run_debug_print_stack";
+        if (std.mem.eql(u8, name, "debug.formatStack")) return "run_debug_format_stack";
         if (std.mem.eql(u8, name, "debug.assert")) return "run_debug_assert";
-        if (std.mem.eql(u8, name, "debug.assert_eq")) return "run_debug_assert_eq";
+        if (std.mem.eql(u8, name, "debug.assertEq")) return "run_debug_assert_eq";
         if (std.mem.eql(u8, name, "debug.unreachable")) return "run_debug_unreachable";
         if (std.mem.eql(u8, name, "debug.todo")) return "run_debug_todo";
         if (std.mem.eql(u8, name, "debug.breakpoint")) return "run_debug_breakpoint";
         // exec builtins
         if (std.mem.eql(u8, name, "exec.command")) return "run_exec_command";
-        if (std.mem.eql(u8, name, "exec.run_cmd")) return "run_exec_run";
-        if (std.mem.eql(u8, name, "exec.output_cmd")) return "run_exec_output";
-        if (std.mem.eql(u8, name, "exec.combined_output_cmd")) return "run_exec_combined_output";
-        if (std.mem.eql(u8, name, "exec.start_cmd")) return "run_exec_start";
-        if (std.mem.eql(u8, name, "exec.wait_cmd")) return "run_exec_wait";
-        if (std.mem.eql(u8, name, "exec.stdin_pipe_cmd")) return "run_exec_stdin_pipe";
-        if (std.mem.eql(u8, name, "exec.stdout_pipe_cmd")) return "run_exec_stdout_pipe";
-        if (std.mem.eql(u8, name, "exec.stderr_pipe_cmd")) return "run_exec_stderr_pipe";
-        if (std.mem.eql(u8, name, "exec.set_dir_cmd")) return "run_exec_set_dir";
-        if (std.mem.eql(u8, name, "exec.set_env_cmd")) return "run_exec_set_env";
-        if (std.mem.eql(u8, name, "exec.add_args_cmd")) return "run_exec_add_args";
-        if (std.mem.eql(u8, name, "exec.process_state_cmd")) return "run_exec_process_state";
-        if (std.mem.eql(u8, name, "exec.free_cmd")) return "run_exec_free";
-        if (std.mem.eql(u8, name, "exec.look_path")) return "run_exec_look_path";
+        if (std.mem.eql(u8, name, "exec.runCmd")) return "run_exec_run";
+        if (std.mem.eql(u8, name, "exec.outputCmd")) return "run_exec_output";
+        if (std.mem.eql(u8, name, "exec.combinedOutputCmd")) return "run_exec_combined_output";
+        if (std.mem.eql(u8, name, "exec.startCmd")) return "run_exec_start";
+        if (std.mem.eql(u8, name, "exec.waitCmd")) return "run_exec_wait";
+        if (std.mem.eql(u8, name, "exec.stdinPipeCmd")) return "run_exec_stdin_pipe";
+        if (std.mem.eql(u8, name, "exec.stdoutPipeCmd")) return "run_exec_stdout_pipe";
+        if (std.mem.eql(u8, name, "exec.stderrPipeCmd")) return "run_exec_stderr_pipe";
+        if (std.mem.eql(u8, name, "exec.setDirCmd")) return "run_exec_set_dir";
+        if (std.mem.eql(u8, name, "exec.setEnvCmd")) return "run_exec_set_env";
+        if (std.mem.eql(u8, name, "exec.addArgsCmd")) return "run_exec_add_args";
+        if (std.mem.eql(u8, name, "exec.processStateCmd")) return "run_exec_process_state";
+        if (std.mem.eql(u8, name, "exec.freeCmd")) return "run_exec_free";
+        if (std.mem.eql(u8, name, "exec.lookPath")) return "run_exec_look_path";
         // signal builtins
         if (std.mem.eql(u8, name, "signal.notify")) return "run_signal_notify";
         if (std.mem.eql(u8, name, "signal.stop")) return "run_signal_stop";
@@ -1805,50 +1805,50 @@ const LoweringContext = struct {
 
     fn numaReturnType(builtin_name: []const u8) []const u8 {
         if (std.mem.eql(u8, builtin_name, "numa.pin") or
-            std.mem.eql(u8, builtin_name, "numa.bind_green_thread") or
+            std.mem.eql(u8, builtin_name, "numa.bindGreenThread") or
             std.mem.eql(u8, builtin_name, "numa.free"))
             return "void";
-        if (std.mem.eql(u8, builtin_name, "numa.bind_thread") or
-            std.mem.eql(u8, builtin_name, "numa.set_memory_policy") or
-            std.mem.eql(u8, builtin_name, "numa.preferred_node"))
+        if (std.mem.eql(u8, builtin_name, "numa.bindThread") or
+            std.mem.eql(u8, builtin_name, "numa.setMemoryPolicy") or
+            std.mem.eql(u8, builtin_name, "numa.preferredNode"))
             return "int32_t";
         if (std.mem.eql(u8, builtin_name, "numa.available"))
             return "bool";
-        if (std.mem.eql(u8, builtin_name, "numa.local_alloc") or
-            std.mem.eql(u8, builtin_name, "numa.node_alloc") or
-            std.mem.eql(u8, builtin_name, "numa.interleave_alloc"))
+        if (std.mem.eql(u8, builtin_name, "numa.localAlloc") or
+            std.mem.eql(u8, builtin_name, "numa.nodeAlloc") or
+            std.mem.eql(u8, builtin_name, "numa.interleaveAlloc"))
             return "void *";
-        if (std.mem.eql(u8, builtin_name, "numa.memory_on_node"))
+        if (std.mem.eql(u8, builtin_name, "numa.memoryOnNode"))
             return "uint64_t";
-        return "uint32_t"; // node_count, current_node, distance, cpu_count
+        return "uint32_t"; // nodeCount, currentNode, distance, cpuCount
     }
 
     fn runtimeReturnType(builtin_name: []const u8) []const u8 {
-        if (std.mem.eql(u8, builtin_name, "runtime.gc_disable") or
-            std.mem.eql(u8, builtin_name, "runtime.gc_enable") or
+        if (std.mem.eql(u8, builtin_name, "runtime.gcDisable") or
+            std.mem.eql(u8, builtin_name, "runtime.gcEnable") or
             std.mem.eql(u8, builtin_name, "runtime.yield"))
             return "void";
         if (std.mem.eql(u8, builtin_name, "runtime.version") or
             std.mem.eql(u8, builtin_name, "runtime.stack"))
             return "run_string_t";
-        if (std.mem.eql(u8, builtin_name, "runtime.mem_stats"))
+        if (std.mem.eql(u8, builtin_name, "runtime.memStats"))
             return "run_mem_stats_t";
         if (std.mem.eql(u8, builtin_name, "runtime.caller"))
             return "run_caller_info_t";
-        return "int64_t"; // num_cpu, num_goroutine, gomaxprocs
+        return "int64_t"; // numCpu, numGoroutine, gomaxprocs
     }
 
     fn debugReturnType(builtin_name: []const u8) []const u8 {
-        if (std.mem.eql(u8, builtin_name, "debug.print_stack") or
+        if (std.mem.eql(u8, builtin_name, "debug.printStack") or
             std.mem.eql(u8, builtin_name, "debug.assert") or
-            std.mem.eql(u8, builtin_name, "debug.assert_eq") or
+            std.mem.eql(u8, builtin_name, "debug.assertEq") or
             std.mem.eql(u8, builtin_name, "debug.unreachable") or
             std.mem.eql(u8, builtin_name, "debug.todo") or
             std.mem.eql(u8, builtin_name, "debug.breakpoint"))
             return "void";
-        if (std.mem.eql(u8, builtin_name, "debug.format_stack"))
+        if (std.mem.eql(u8, builtin_name, "debug.formatStack"))
             return "run_string_t";
-        if (std.mem.eql(u8, builtin_name, "debug.stack_trace"))
+        if (std.mem.eql(u8, builtin_name, "debug.stackTrace"))
             return "run_slice_t";
         return "void";
     }
@@ -1856,25 +1856,25 @@ const LoweringContext = struct {
     fn execReturnType(builtin_name: []const u8) []const u8 {
         if (std.mem.eql(u8, builtin_name, "exec.command"))
             return "run_exec_cmd_t*";
-        if (std.mem.eql(u8, builtin_name, "exec.run_cmd") or
-            std.mem.eql(u8, builtin_name, "exec.start_cmd") or
-            std.mem.eql(u8, builtin_name, "exec.wait_cmd"))
+        if (std.mem.eql(u8, builtin_name, "exec.runCmd") or
+            std.mem.eql(u8, builtin_name, "exec.startCmd") or
+            std.mem.eql(u8, builtin_name, "exec.waitCmd"))
             return "run_error_t";
-        if (std.mem.eql(u8, builtin_name, "exec.output_cmd") or
-            std.mem.eql(u8, builtin_name, "exec.combined_output_cmd"))
+        if (std.mem.eql(u8, builtin_name, "exec.outputCmd") or
+            std.mem.eql(u8, builtin_name, "exec.combinedOutputCmd"))
             return "run_slice_t";
-        if (std.mem.eql(u8, builtin_name, "exec.look_path"))
+        if (std.mem.eql(u8, builtin_name, "exec.lookPath"))
             return "run_string_t";
-        if (std.mem.eql(u8, builtin_name, "exec.stdin_pipe_cmd") or
-            std.mem.eql(u8, builtin_name, "exec.stdout_pipe_cmd") or
-            std.mem.eql(u8, builtin_name, "exec.stderr_pipe_cmd"))
+        if (std.mem.eql(u8, builtin_name, "exec.stdinPipeCmd") or
+            std.mem.eql(u8, builtin_name, "exec.stdoutPipeCmd") or
+            std.mem.eql(u8, builtin_name, "exec.stderrPipeCmd"))
             return "int64_t";
-        if (std.mem.eql(u8, builtin_name, "exec.process_state_cmd"))
+        if (std.mem.eql(u8, builtin_name, "exec.processStateCmd"))
             return "run_exec_process_state_t";
-        if (std.mem.eql(u8, builtin_name, "exec.set_dir_cmd") or
-            std.mem.eql(u8, builtin_name, "exec.set_env_cmd") or
-            std.mem.eql(u8, builtin_name, "exec.add_args_cmd") or
-            std.mem.eql(u8, builtin_name, "exec.free_cmd"))
+        if (std.mem.eql(u8, builtin_name, "exec.setDirCmd") or
+            std.mem.eql(u8, builtin_name, "exec.setEnvCmd") or
+            std.mem.eql(u8, builtin_name, "exec.addArgsCmd") or
+            std.mem.eql(u8, builtin_name, "exec.freeCmd"))
             return "void";
         return "int64_t";
     }

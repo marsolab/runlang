@@ -2904,7 +2904,7 @@ test "parse try without context" {
 }
 
 test "parse try with context string" {
-    const source = "fn main() {\n    x := try read_file(path) :: \"loading config\"\n}";
+    const source = "fn main() {\n    x := try readFile(path) :: \"loading config\"\n}";
     var lexer = Lexer.init(source);
     var tokens = try lexer.tokenize(std.testing.allocator);
     defer tokens.deinit(std.testing.allocator);

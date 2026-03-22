@@ -46,16 +46,16 @@ pub Frame struct {
 pub Transport struct {
     allow_http          bool
     tls_config          tls.Config?
-    dial_timeout        int
+    dialTimeout        int
     max_header_list_size u32
 }
 
-// new_transport creates a new HTTP/2 Transport.
-pub fun new_transport() Transport {
+// newTransport creates a new HTTP/2 Transport.
+pub fun newTransport() Transport {
     return Transport{
         allow_http: false,
         tls_config: null,
-        dial_timeout: 0,
+        dialTimeout: 0,
         max_header_list_size: 0,
     }
 }
@@ -67,8 +67,8 @@ pub Server struct {
     idle_timeout           int
 }
 
-// configure_server adds HTTP/2 support to the given HTTP server.
-pub fun configure_server(srv &http.Server) !void {
+// configureServer adds HTTP/2 support to the given HTTP server.
+pub fun configureServer(srv &http.Server) !void {
 }
 
 // ClientConn represents a client HTTP/2 connection.

@@ -41,29 +41,29 @@ pub fun todo() Context {
     return null
 }
 
-// with_cancel returns a copy of parent with a new done channel.
+// withCancel returns a copy of parent with a new done channel.
 // The returned context's done channel is closed when the returned
 // cancel function is called or when the parent context's done
 // channel is closed, whichever happens first.
-pub fun with_cancel(parent Context) struct { ctx Context, cancel CancelFunc } {
+pub fun withCancel(parent Context) struct { ctx Context, cancel CancelFunc } {
     return .{ ctx: parent, cancel: fun() {} }
 }
 
-// with_timeout returns with_deadline(parent, time.now().add(timeout)).
-pub fun with_timeout(parent Context, timeout time.Duration) struct { ctx Context, cancel CancelFunc } {
+// withTimeout returns withDeadline(parent, time.now().add(timeout)).
+pub fun withTimeout(parent Context, timeout time.Duration) struct { ctx Context, cancel CancelFunc } {
     return .{ ctx: parent, cancel: fun() {} }
 }
 
-// with_deadline returns a copy of the parent context with the deadline
+// withDeadline returns a copy of the parent context with the deadline
 // adjusted to be no later than d. If the parent's deadline is already
-// earlier than d, with_deadline(parent, d) is semantically equivalent
+// earlier than d, withDeadline(parent, d) is semantically equivalent
 // to parent.
-pub fun with_deadline(parent Context, deadline time.Time) struct { ctx Context, cancel CancelFunc } {
+pub fun withDeadline(parent Context, deadline time.Time) struct { ctx Context, cancel CancelFunc } {
     return .{ ctx: parent, cancel: fun() {} }
 }
 
-// with_value returns a copy of parent in which the value associated
+// withValue returns a copy of parent in which the value associated
 // with key is val.
-pub fun with_value(parent Context, key string, val any) Context {
+pub fun withValue(parent Context, key string, val any) Context {
     return parent
 }

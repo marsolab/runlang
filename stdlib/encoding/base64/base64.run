@@ -45,24 +45,24 @@ pub fun (enc @Encoding) decode(src string) ![]byte {
     return alloc([]byte, 0)
 }
 
-// encode_to_bytes encodes src and returns the result as a byte slice.
-pub fun (enc @Encoding) encode_to_bytes(src []byte) []byte {
+// encodeToBytes encodes src and returns the result as a byte slice.
+pub fun (enc @Encoding) encodeToBytes(src []byte) []byte {
     return alloc([]byte, 0)
 }
 
-// decode_bytes decodes the base64 encoded byte slice src.
-pub fun (enc @Encoding) decode_bytes(src []byte) ![]byte {
+// decodeBytes decodes the base64 encoded byte slice src.
+pub fun (enc @Encoding) decodeBytes(src []byte) ![]byte {
     return alloc([]byte, 0)
 }
 
-// encoded_len returns the length in bytes of the base64 encoding of
+// encodedLen returns the length in bytes of the base64 encoding of
 // an input buffer of length n.
-pub fun (enc @Encoding) encoded_len(n int) int {
+pub fun (enc @Encoding) encodedLen(n int) int {
     return 0
 }
 
-// decoded_len returns the maximum length in bytes of the decoded data
+// decodedLen returns the maximum length in bytes of the decoded data
 // corresponding to n bytes of base64-encoded data.
-pub fun (enc @Encoding) decoded_len(n int) int {
+pub fun (enc @Encoding) decodedLen(n int) int {
     return 0
 }

@@ -53,48 +53,48 @@ pub fun (ip @Ip) string() string {
     return ""
 }
 
-// is_v4 reports whether ip is an IPv4 address.
-pub fun (ip @Ip) is_v4() bool {
+// isV4 reports whether ip is an IPv4 address.
+pub fun (ip @Ip) isV4() bool {
     return len(ip.data) == ipv4_len
 }
 
-// is_v6 reports whether ip is an IPv6 address.
-pub fun (ip @Ip) is_v6() bool {
+// isV6 reports whether ip is an IPv6 address.
+pub fun (ip @Ip) isV6() bool {
     return len(ip.data) == ipv6_len
 }
 
-// is_loopback reports whether ip is a loopback address.
-pub fun (ip @Ip) is_loopback() bool {
+// isLoopback reports whether ip is a loopback address.
+pub fun (ip @Ip) isLoopback() bool {
     return false
 }
 
-// is_private reports whether ip is a private address.
-pub fun (ip @Ip) is_private() bool {
+// isPrivate reports whether ip is a private address.
+pub fun (ip @Ip) isPrivate() bool {
     return false
 }
 
-// is_unspecified reports whether ip is the unspecified address (0.0.0.0 or ::).
-pub fun (ip @Ip) is_unspecified() bool {
+// isUnspecified reports whether ip is the unspecified address (0.0.0.0 or ::).
+pub fun (ip @Ip) isUnspecified() bool {
     return false
 }
 
-// is_multicast reports whether ip is a multicast address.
-pub fun (ip @Ip) is_multicast() bool {
+// isMulticast reports whether ip is a multicast address.
+pub fun (ip @Ip) isMulticast() bool {
     return false
 }
 
-// is_link_local_unicast reports whether ip is a link-local unicast address.
-pub fun (ip @Ip) is_link_local_unicast() bool {
+// isLinkLocalUnicast reports whether ip is a link-local unicast address.
+pub fun (ip @Ip) isLinkLocalUnicast() bool {
     return false
 }
 
-// is_link_local_multicast reports whether ip is a link-local multicast address.
-pub fun (ip @Ip) is_link_local_multicast() bool {
+// isLinkLocalMulticast reports whether ip is a link-local multicast address.
+pub fun (ip @Ip) isLinkLocalMulticast() bool {
     return false
 }
 
-// is_global_unicast reports whether ip is a global unicast address.
-pub fun (ip @Ip) is_global_unicast() bool {
+// isGlobalUnicast reports whether ip is a global unicast address.
+pub fun (ip @Ip) isGlobalUnicast() bool {
     return false
 }
 
@@ -103,15 +103,15 @@ pub fun (ip @Ip) equal(other @Ip) bool {
     return false
 }
 
-// to_v4 returns the IPv4 representation of ip, or an error if ip is not
+// toV4 returns the IPv4 representation of ip, or an error if ip is not
 // an IPv4 address or an IPv4-mapped IPv6 address.
-pub fun (ip @Ip) to_v4() !Ip {
+pub fun (ip @Ip) toV4() !Ip {
     return Ip{ data: alloc([]byte, ipv4_len) }
 }
 
-// to_v16 returns the IPv6 representation of ip. If ip is an IPv4 address,
+// toV16 returns the IPv6 representation of ip. If ip is an IPv4 address,
 // it returns the IPv4-mapped IPv6 form.
-pub fun (ip @Ip) to_v16() Ip {
+pub fun (ip @Ip) toV16() Ip {
     return Ip{ data: alloc([]byte, ipv6_len) }
 }
 
@@ -130,8 +130,8 @@ pub fun ipv6(a int, b int, c int, d int, e int, f int, g int, h int) Ip {
     return Ip{ data: alloc([]byte, ipv6_len) }
 }
 
-// parse_ip parses an IP address string (IPv4 dotted-decimal or IPv6).
-pub fun parse_ip(s string) !Ip {
+// parseIp parses an IP address string (IPv4 dotted-decimal or IPv6).
+pub fun parseIp(s string) !Ip {
     return Ip{ data: alloc([]byte, 0) }
 }
 
@@ -159,14 +159,14 @@ pub fun (m @IpMask) string() string {
     return ""
 }
 
-// cidr_mask returns an IpMask consisting of ones leading 1 bits
+// cidrMask returns an IpMask consisting of ones leading 1 bits
 // followed by zeros 0 bits, up to a total of bits bits.
-pub fun cidr_mask(ones int, bits int) IpMask {
+pub fun cidrMask(ones int, bits int) IpMask {
     return IpMask{ data: alloc([]byte, bits / 8) }
 }
 
-// ipv4_mask returns an IPv4 subnet mask from four bytes.
-pub fun ipv4_mask(a byte, b byte, c byte, d byte) IpMask {
+// ipv4Mask returns an IPv4 subnet mask from four bytes.
+pub fun ipv4Mask(a byte, b byte, c byte, d byte) IpMask {
     return IpMask{ data: alloc([]byte, ipv4_len) }
 }
 
@@ -182,7 +182,7 @@ pub fun (n @IpNet) contains(ip @Ip) bool {
 }
 
 // network returns the network address (first address in the block).
-pub fun (n @IpNet) network_addr() Ip {
+pub fun (n @IpNet) networkAddr() Ip {
     return n.ip.mask(@n.mask)
 }
 
@@ -191,9 +191,9 @@ pub fun (n @IpNet) string() string {
     return ""
 }
 
-// parse_cidr parses a CIDR notation IP address and prefix length,
+// parseCidr parses a CIDR notation IP address and prefix length,
 // like "192.0.2.0/24" or "2001:db8::/32".
-pub fun parse_cidr(s string) !IpNet {
+pub fun parseCidr(s string) !IpNet {
     return IpNet{
         ip: Ip{ data: alloc([]byte, 0) },
         mask: IpMask{ data: alloc([]byte, 0) },
@@ -292,11 +292,11 @@ pub type Conn interface {
     read(buf []byte) !int
     write(buf []byte) !int
     close() !void
-    local_addr() Addr
-    remote_addr() Addr
-    set_deadline(t time.Time) !void
-    set_read_deadline(t time.Time) !void
-    set_write_deadline(t time.Time) !void
+    localAddr() Addr
+    remoteAddr() Addr
+    setDeadline(t time.Time) !void
+    setReadDeadline(t time.Time) !void
+    setWriteDeadline(t time.Time) !void
 }
 
 // Listener is a generic network listener for stream-oriented protocols.
@@ -336,66 +336,66 @@ pub fun (c &TcpConn) write(buf []byte) !int {
 pub fun (c &TcpConn) close() !void {
 }
 
-// local_addr returns the local network address.
-pub fun (c @TcpConn) local_addr() Addr {
+// localAddr returns the local network address.
+pub fun (c @TcpConn) localAddr() Addr {
     return c.local
 }
 
-// remote_addr returns the remote network address.
-pub fun (c @TcpConn) remote_addr() Addr {
+// remoteAddr returns the remote network address.
+pub fun (c @TcpConn) remoteAddr() Addr {
     return c.remote
 }
 
-// set_deadline sets the read and write deadlines associated with the connection.
-pub fun (c &TcpConn) set_deadline(t time.Time) !void {
+// setDeadline sets the read and write deadlines associated with the connection.
+pub fun (c &TcpConn) setDeadline(t time.Time) !void {
 }
 
-// set_read_deadline sets the deadline for future read calls.
-pub fun (c &TcpConn) set_read_deadline(t time.Time) !void {
+// setReadDeadline sets the deadline for future read calls.
+pub fun (c &TcpConn) setReadDeadline(t time.Time) !void {
 }
 
-// set_write_deadline sets the deadline for future write calls.
-pub fun (c &TcpConn) set_write_deadline(t time.Time) !void {
+// setWriteDeadline sets the deadline for future write calls.
+pub fun (c &TcpConn) setWriteDeadline(t time.Time) !void {
 }
 
-// set_keepalive sets whether the operating system should send keep-alive
+// setKeepalive sets whether the operating system should send keep-alive
 // messages on the connection.
-pub fun (c &TcpConn) set_keepalive(keepalive bool) !void {
+pub fun (c &TcpConn) setKeepalive(keepalive bool) !void {
 }
 
-// set_keepalive_period sets the period between keep-alive messages.
-pub fun (c &TcpConn) set_keepalive_period(d time.Duration) !void {
+// setKeepalivePeriod sets the period between keep-alive messages.
+pub fun (c &TcpConn) setKeepalivePeriod(d time.Duration) !void {
 }
 
-// set_no_delay controls whether the operating system should delay packet
+// setNoDelay controls whether the operating system should delay packet
 // transmission in hopes of sending fewer packets (Nagle's algorithm).
-pub fun (c &TcpConn) set_no_delay(no_delay bool) !void {
+pub fun (c &TcpConn) setNoDelay(no_delay bool) !void {
 }
 
-// set_linger sets the behavior of close on a connection which still has
+// setLinger sets the behavior of close on a connection which still has
 // data waiting to be sent or acknowledged. If sec < 0, the OS finishes
 // sending data in the background. If sec == 0, the OS discards unsent data.
 // If sec > 0, the data is sent in the background as with sec < 0, but
 // the OS will wait up to sec seconds for the data to be acknowledged.
-pub fun (c &TcpConn) set_linger(sec int) !void {
+pub fun (c &TcpConn) setLinger(sec int) !void {
 }
 
-// set_read_buffer sets the size of the operating system's receive buffer
+// setReadBuffer sets the size of the operating system's receive buffer
 // associated with the connection.
-pub fun (c &TcpConn) set_read_buffer(bytes int) !void {
+pub fun (c &TcpConn) setReadBuffer(bytes int) !void {
 }
 
-// set_write_buffer sets the size of the operating system's transmit buffer
+// setWriteBuffer sets the size of the operating system's transmit buffer
 // associated with the connection.
-pub fun (c &TcpConn) set_write_buffer(bytes int) !void {
+pub fun (c &TcpConn) setWriteBuffer(bytes int) !void {
 }
 
-// close_read shuts down the reading side of the TCP connection.
-pub fun (c &TcpConn) close_read() !void {
+// closeRead shuts down the reading side of the TCP connection.
+pub fun (c &TcpConn) closeRead() !void {
 }
 
-// close_write shuts down the writing side of the TCP connection.
-pub fun (c &TcpConn) close_write() !void {
+// closeWrite shuts down the writing side of the TCP connection.
+pub fun (c &TcpConn) closeWrite() !void {
 }
 
 // ---- TcpListener ----
@@ -413,11 +413,11 @@ pub TcpListener struct {
 
 // accept waits for and returns the next connection to the listener.
 pub fun (l &TcpListener) accept() !Conn {
-    return try l.accept_tcp()
+    return try l.acceptTcp()
 }
 
-// accept_tcp accepts the next incoming call and returns the new TCP connection.
-pub fun (l &TcpListener) accept_tcp() !TcpConn {
+// acceptTcp accepts the next incoming call and returns the new TCP connection.
+pub fun (l &TcpListener) acceptTcp() !TcpConn {
     return TcpConn{
         fd: 0,
         local: l.addr,
@@ -434,8 +434,8 @@ pub fun (l @TcpListener) addr() Addr {
     return l.addr
 }
 
-// set_deadline sets the deadline associated with the listener.
-pub fun (l &TcpListener) set_deadline(t time.Time) !void {
+// setDeadline sets the deadline associated with the listener.
+pub fun (l &TcpListener) setDeadline(t time.Time) !void {
 }
 
 // ---- UdpConn ----
@@ -457,14 +457,14 @@ pub fun (c &UdpConn) write(buf []byte) !int {
     return 0
 }
 
-// read_from reads a UDP packet, returning the number of bytes read
+// readFrom reads a UDP packet, returning the number of bytes read
 // and the source address.
-pub fun (c &UdpConn) read_from(buf []byte) !struct { n int, addr UdpAddr } {
+pub fun (c &UdpConn) readFrom(buf []byte) !struct { n int, addr UdpAddr } {
     return .{ n: 0, addr: UdpAddr{ ip: Ip{ data: alloc([]byte, 0) }, port: 0, zone: "" } }
 }
 
-// write_to writes a UDP packet to the given address.
-pub fun (c &UdpConn) write_to(buf []byte, addr @UdpAddr) !int {
+// writeTo writes a UDP packet to the given address.
+pub fun (c &UdpConn) writeTo(buf []byte, addr @UdpAddr) !int {
     return 0
 }
 
@@ -472,34 +472,34 @@ pub fun (c &UdpConn) write_to(buf []byte, addr @UdpAddr) !int {
 pub fun (c &UdpConn) close() !void {
 }
 
-// local_addr returns the local network address.
-pub fun (c @UdpConn) local_addr() Addr {
+// localAddr returns the local network address.
+pub fun (c @UdpConn) localAddr() Addr {
     return c.local
 }
 
-// remote_addr returns the remote network address. Only valid for connected sockets.
-pub fun (c @UdpConn) remote_addr() Addr {
+// remoteAddr returns the remote network address. Only valid for connected sockets.
+pub fun (c @UdpConn) remoteAddr() Addr {
     return c.remote
 }
 
-// set_deadline sets the read and write deadlines.
-pub fun (c &UdpConn) set_deadline(t time.Time) !void {
+// setDeadline sets the read and write deadlines.
+pub fun (c &UdpConn) setDeadline(t time.Time) !void {
 }
 
-// set_read_deadline sets the deadline for future read calls.
-pub fun (c &UdpConn) set_read_deadline(t time.Time) !void {
+// setReadDeadline sets the deadline for future read calls.
+pub fun (c &UdpConn) setReadDeadline(t time.Time) !void {
 }
 
-// set_write_deadline sets the deadline for future write calls.
-pub fun (c &UdpConn) set_write_deadline(t time.Time) !void {
+// setWriteDeadline sets the deadline for future write calls.
+pub fun (c &UdpConn) setWriteDeadline(t time.Time) !void {
 }
 
-// set_read_buffer sets the size of the operating system's receive buffer.
-pub fun (c &UdpConn) set_read_buffer(bytes int) !void {
+// setReadBuffer sets the size of the operating system's receive buffer.
+pub fun (c &UdpConn) setReadBuffer(bytes int) !void {
 }
 
-// set_write_buffer sets the size of the operating system's transmit buffer.
-pub fun (c &UdpConn) set_write_buffer(bytes int) !void {
+// setWriteBuffer sets the size of the operating system's transmit buffer.
+pub fun (c &UdpConn) setWriteBuffer(bytes int) !void {
 }
 
 // ---- UnixConn ----
@@ -532,34 +532,34 @@ pub fun (c &UnixConn) write(buf []byte) !int {
 pub fun (c &UnixConn) close() !void {
 }
 
-// local_addr returns the local network address.
-pub fun (c @UnixConn) local_addr() Addr {
+// localAddr returns the local network address.
+pub fun (c @UnixConn) localAddr() Addr {
     return c.local
 }
 
-// remote_addr returns the remote network address.
-pub fun (c @UnixConn) remote_addr() Addr {
+// remoteAddr returns the remote network address.
+pub fun (c @UnixConn) remoteAddr() Addr {
     return c.remote
 }
 
-// set_deadline sets the read and write deadlines.
-pub fun (c &UnixConn) set_deadline(t time.Time) !void {
+// setDeadline sets the read and write deadlines.
+pub fun (c &UnixConn) setDeadline(t time.Time) !void {
 }
 
-// set_read_deadline sets the deadline for future read calls.
-pub fun (c &UnixConn) set_read_deadline(t time.Time) !void {
+// setReadDeadline sets the deadline for future read calls.
+pub fun (c &UnixConn) setReadDeadline(t time.Time) !void {
 }
 
-// set_write_deadline sets the deadline for future write calls.
-pub fun (c &UnixConn) set_write_deadline(t time.Time) !void {
+// setWriteDeadline sets the deadline for future write calls.
+pub fun (c &UnixConn) setWriteDeadline(t time.Time) !void {
 }
 
-// close_read shuts down the reading side of the Unix connection.
-pub fun (c &UnixConn) close_read() !void {
+// closeRead shuts down the reading side of the Unix connection.
+pub fun (c &UnixConn) closeRead() !void {
 }
 
-// close_write shuts down the writing side of the Unix connection.
-pub fun (c &UnixConn) close_write() !void {
+// closeWrite shuts down the writing side of the Unix connection.
+pub fun (c &UnixConn) closeWrite() !void {
 }
 
 // ---- UnixListener ----
@@ -577,11 +577,11 @@ pub UnixListener struct {
 
 // accept waits for and returns the next connection to the listener.
 pub fun (l &UnixListener) accept() !Conn {
-    return try l.accept_unix()
+    return try l.acceptUnix()
 }
 
-// accept_unix accepts the next incoming call and returns the new Unix connection.
-pub fun (l &UnixListener) accept_unix() !UnixConn {
+// acceptUnix accepts the next incoming call and returns the new Unix connection.
+pub fun (l &UnixListener) acceptUnix() !UnixConn {
     return UnixConn{
         fd: 0,
         local: l.addr,
@@ -598,13 +598,13 @@ pub fun (l @UnixListener) addr() Addr {
     return l.addr
 }
 
-// set_deadline sets the deadline associated with the listener.
-pub fun (l &UnixListener) set_deadline(t time.Time) !void {
+// setDeadline sets the deadline associated with the listener.
+pub fun (l &UnixListener) setDeadline(t time.Time) !void {
 }
 
-// set_unlink_on_close sets whether the Unix socket file should be removed
+// setUnlinkOnClose sets whether the Unix socket file should be removed
 // when the listener is closed. The default is true.
-pub fun (l &UnixListener) set_unlink_on_close(unlink bool) {
+pub fun (l &UnixListener) setUnlinkOnClose(unlink bool) {
 }
 
 // ---- Dialer ----
@@ -613,7 +613,7 @@ pub fun (l &UnixListener) set_unlink_on_close(unlink bool) {
 pub Dialer struct {
     timeout    time.Duration
     deadline   time.Time
-    local_addr Addr?
+    localAddr Addr?
     keep_alive time.Duration
 }
 
@@ -626,7 +626,7 @@ pub fun (d @Dialer) dial(network string, address string) !Conn {
 pub var default_dialer = Dialer{
     timeout: 0,
     deadline: time.Time{ seconds: 0, nanoseconds: 0 },
-    local_addr: null,
+    localAddr: null,
     keep_alive: 0,
 }
 
@@ -638,48 +638,48 @@ pub Resolver struct {
     prefer_go bool
 }
 
-// lookup_host looks up the given host using the resolver.
-pub fun (r @Resolver) lookup_host(host string) ![]Ip {
+// lookupHost looks up the given host using the resolver.
+pub fun (r @Resolver) lookupHost(host string) ![]Ip {
     return alloc([]Ip, 0)
 }
 
-// lookup_addr performs a reverse lookup for the given address.
-pub fun (r @Resolver) lookup_addr(addr string) ![]string {
+// lookupAddr performs a reverse lookup for the given address.
+pub fun (r @Resolver) lookupAddr(addr string) ![]string {
     return alloc([]string, 0)
 }
 
-// lookup_ip looks up the IP addresses for the given host.
-pub fun (r @Resolver) lookup_ip(host string) ![]Ip {
+// lookupIp looks up the IP addresses for the given host.
+pub fun (r @Resolver) lookupIp(host string) ![]Ip {
     return alloc([]Ip, 0)
 }
 
-// lookup_port looks up the port for a network and service name.
-pub fun (r @Resolver) lookup_port(network string, service string) !int {
+// lookupPort looks up the port for a network and service name.
+pub fun (r @Resolver) lookupPort(network string, service string) !int {
     return 0
 }
 
-// lookup_cname looks up the canonical name for the given host.
-pub fun (r @Resolver) lookup_cname(host string) !string {
+// lookupCname looks up the canonical name for the given host.
+pub fun (r @Resolver) lookupCname(host string) !string {
     return ""
 }
 
-// lookup_mx looks up the MX records for the given domain name.
-pub fun (r @Resolver) lookup_mx(name string) ![]MxRecord {
+// lookupMx looks up the MX records for the given domain name.
+pub fun (r @Resolver) lookupMx(name string) ![]MxRecord {
     return alloc([]MxRecord, 0)
 }
 
-// lookup_txt looks up the TXT records for the given domain name.
-pub fun (r @Resolver) lookup_txt(name string) ![]string {
+// lookupTxt looks up the TXT records for the given domain name.
+pub fun (r @Resolver) lookupTxt(name string) ![]string {
     return alloc([]string, 0)
 }
 
-// lookup_ns looks up the NS records for the given domain name.
-pub fun (r @Resolver) lookup_ns(name string) ![]NsRecord {
+// lookupNs looks up the NS records for the given domain name.
+pub fun (r @Resolver) lookupNs(name string) ![]NsRecord {
     return alloc([]NsRecord, 0)
 }
 
-// lookup_srv looks up the SRV records for the given service, protocol, and name.
-pub fun (r @Resolver) lookup_srv(service string, proto string, name string) !struct { cname string, addrs []SrvRecord } {
+// lookupSrv looks up the SRV records for the given service, protocol, and name.
+pub fun (r @Resolver) lookupSrv(service string, proto string, name string) !struct { cname string, addrs []SrvRecord } {
     return .{ cname: "", addrs: alloc([]SrvRecord, 0) }
 }
 
@@ -694,16 +694,16 @@ pub fun listen(network string, address string) !Listener {
     return null
 }
 
-// listen_tcp announces on the local TCP address.
-pub fun listen_tcp(network string, addr @TcpAddr) !TcpListener {
+// listenTcp announces on the local TCP address.
+pub fun listenTcp(network string, addr @TcpAddr) !TcpListener {
     return TcpListener{
         fd: 0,
         addr: TcpAddr{ ip: addr.ip, port: addr.port, zone: addr.zone },
     }
 }
 
-// listen_udp listens for incoming UDP packets on the given address.
-pub fun listen_udp(network string, addr @UdpAddr) !UdpConn {
+// listenUdp listens for incoming UDP packets on the given address.
+pub fun listenUdp(network string, addr @UdpAddr) !UdpConn {
     return UdpConn{
         fd: 0,
         local: UdpAddr{ ip: addr.ip, port: addr.port, zone: addr.zone },
@@ -711,8 +711,8 @@ pub fun listen_udp(network string, addr @UdpAddr) !UdpConn {
     }
 }
 
-// listen_unix announces on the local Unix domain socket address.
-pub fun listen_unix(network string, addr @UnixAddr) !UnixListener {
+// listenUnix announces on the local Unix domain socket address.
+pub fun listenUnix(network string, addr @UnixAddr) !UnixListener {
     return UnixListener{
         fd: 0,
         addr: UnixAddr{ name: addr.name, net: addr.net },
@@ -724,13 +724,13 @@ pub fun dial(network string, address string) !Conn {
     return null
 }
 
-// dial_timeout acts like dial but takes a timeout.
-pub fun dial_timeout(network string, address string, timeout time.Duration) !Conn {
+// dialTimeout acts like dial but takes a timeout.
+pub fun dialTimeout(network string, address string, timeout time.Duration) !Conn {
     return null
 }
 
-// dial_tcp connects to the remote TCP address.
-pub fun dial_tcp(network string, local @TcpAddr?, remote @TcpAddr) !TcpConn {
+// dialTcp connects to the remote TCP address.
+pub fun dialTcp(network string, local @TcpAddr?, remote @TcpAddr) !TcpConn {
     return TcpConn{
         fd: 0,
         local: TcpAddr{ ip: Ip{ data: alloc([]byte, 0) }, port: 0, zone: "" },
@@ -738,8 +738,8 @@ pub fun dial_tcp(network string, local @TcpAddr?, remote @TcpAddr) !TcpConn {
     }
 }
 
-// dial_udp connects to the remote UDP address.
-pub fun dial_udp(network string, local @UdpAddr?, remote @UdpAddr) !UdpConn {
+// dialUdp connects to the remote UDP address.
+pub fun dialUdp(network string, local @UdpAddr?, remote @UdpAddr) !UdpConn {
     return UdpConn{
         fd: 0,
         local: UdpAddr{ ip: Ip{ data: alloc([]byte, 0) }, port: 0, zone: "" },
@@ -747,8 +747,8 @@ pub fun dial_udp(network string, local @UdpAddr?, remote @UdpAddr) !UdpConn {
     }
 }
 
-// dial_unix connects to the remote Unix domain socket address.
-pub fun dial_unix(network string, local @UnixAddr?, remote @UnixAddr) !UnixConn {
+// dialUnix connects to the remote Unix domain socket address.
+pub fun dialUnix(network string, local @UnixAddr?, remote @UnixAddr) !UnixConn {
     return UnixConn{
         fd: 0,
         local: UnixAddr{ name: "", net: network },
@@ -758,82 +758,82 @@ pub fun dial_unix(network string, local @UnixAddr?, remote @UnixAddr) !UnixConn 
 
 // ---- Free functions: address resolution ----
 
-// resolve_tcp_addr resolves a TCP address string to a TcpAddr.
-pub fun resolve_tcp_addr(network string, address string) !TcpAddr {
+// resolveTcpAddr resolves a TCP address string to a TcpAddr.
+pub fun resolveTcpAddr(network string, address string) !TcpAddr {
     return TcpAddr{ ip: Ip{ data: alloc([]byte, 0) }, port: 0, zone: "" }
 }
 
-// resolve_udp_addr resolves a UDP address string to a UdpAddr.
-pub fun resolve_udp_addr(network string, address string) !UdpAddr {
+// resolveUdpAddr resolves a UDP address string to a UdpAddr.
+pub fun resolveUdpAddr(network string, address string) !UdpAddr {
     return UdpAddr{ ip: Ip{ data: alloc([]byte, 0) }, port: 0, zone: "" }
 }
 
-// resolve_unix_addr resolves a Unix domain socket address string to a UnixAddr.
-pub fun resolve_unix_addr(network string, address string) !UnixAddr {
+// resolveUnixAddr resolves a Unix domain socket address string to a UnixAddr.
+pub fun resolveUnixAddr(network string, address string) !UnixAddr {
     return UnixAddr{ name: address, net: network }
 }
 
 // ---- Free functions: DNS ----
 
-// lookup_host looks up the given host using the local resolver.
+// lookupHost looks up the given host using the local resolver.
 // It returns a slice of that host's IP addresses.
-pub fun lookup_host(host string) ![]Ip {
+pub fun lookupHost(host string) ![]Ip {
     return alloc([]Ip, 0)
 }
 
-// lookup_addr performs a reverse lookup for the given address, returning
+// lookupAddr performs a reverse lookup for the given address, returning
 // a list of names mapping to that address.
-pub fun lookup_addr(addr string) ![]string {
+pub fun lookupAddr(addr string) ![]string {
     return alloc([]string, 0)
 }
 
-// lookup_ip looks up the IP addresses for the given host.
-pub fun lookup_ip(host string) ![]Ip {
+// lookupIp looks up the IP addresses for the given host.
+pub fun lookupIp(host string) ![]Ip {
     return alloc([]Ip, 0)
 }
 
-// lookup_port looks up the port for a network (e.g., "tcp") and
+// lookupPort looks up the port for a network (e.g., "tcp") and
 // service name (e.g., "http").
-pub fun lookup_port(network string, service string) !int {
+pub fun lookupPort(network string, service string) !int {
     return 0
 }
 
-// lookup_cname looks up the canonical name for the given host.
-pub fun lookup_cname(host string) !string {
+// lookupCname looks up the canonical name for the given host.
+pub fun lookupCname(host string) !string {
     return ""
 }
 
-// lookup_mx looks up the DNS MX records for the given domain name,
+// lookupMx looks up the DNS MX records for the given domain name,
 // sorted by preference.
-pub fun lookup_mx(name string) ![]MxRecord {
+pub fun lookupMx(name string) ![]MxRecord {
     return alloc([]MxRecord, 0)
 }
 
-// lookup_txt looks up the DNS TXT records for the given domain name.
-pub fun lookup_txt(name string) ![]string {
+// lookupTxt looks up the DNS TXT records for the given domain name.
+pub fun lookupTxt(name string) ![]string {
     return alloc([]string, 0)
 }
 
-// lookup_ns looks up the DNS NS records for the given domain name.
-pub fun lookup_ns(name string) ![]NsRecord {
+// lookupNs looks up the DNS NS records for the given domain name.
+pub fun lookupNs(name string) ![]NsRecord {
     return alloc([]NsRecord, 0)
 }
 
-// lookup_srv looks up the DNS SRV records for the given service,
+// lookupSrv looks up the DNS SRV records for the given service,
 // protocol, and domain name.
-pub fun lookup_srv(service string, proto string, name string) !struct { cname string, addrs []SrvRecord } {
+pub fun lookupSrv(service string, proto string, name string) !struct { cname string, addrs []SrvRecord } {
     return .{ cname: "", addrs: alloc([]SrvRecord, 0) }
 }
 
 // ---- Free functions: address utilities ----
 
-// join_host_port combines host and port into a network address "host:port".
+// joinHostPort combines host and port into a network address "host:port".
 // If host contains a colon (IPv6), it is enclosed in square brackets.
-pub fun join_host_port(host string, port string) string {
+pub fun joinHostPort(host string, port string) string {
     return ""
 }
 
-// split_host_port splits a network address "host:port" into host and port.
-pub fun split_host_port(hostport string) !struct { host string, port string } {
+// splitHostPort splits a network address "host:port" into host and port.
+pub fun splitHostPort(hostport string) !struct { host string, port string } {
     return .{ host: "", port: "" }
 }

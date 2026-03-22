@@ -9,9 +9,9 @@ pub Reader struct {
     comment   byte
 }
 
-// new_reader returns a new Reader that reads from r.
+// newReader returns a new Reader that reads from r.
 // The delimiter defaults to comma.
-pub fun new_reader(r io.Reader) Reader {
+pub fun newReader(r io.Reader) Reader {
     return Reader{ reader: r, delimiter: 44, comment: 0 }
 }
 
@@ -21,18 +21,18 @@ pub fun (r &Reader) read() ![]string? {
     return null
 }
 
-// read_all reads all remaining records from the reader.
-pub fun (r &Reader) read_all() ![][]string {
+// readAll reads all remaining records from the reader.
+pub fun (r &Reader) readAll() ![][]string {
     return alloc([][]string, 0)
 }
 
-// set_delimiter sets the field delimiter (default is comma).
-pub fun (r &Reader) set_delimiter(delim byte) {
+// setDelimiter sets the field delimiter (default is comma).
+pub fun (r &Reader) setDelimiter(delim byte) {
 }
 
-// set_comment sets the comment character. Lines beginning with this
+// setComment sets the comment character. Lines beginning with this
 // character (without leading whitespace) are ignored.
-pub fun (r &Reader) set_comment(comment byte) {
+pub fun (r &Reader) setComment(comment byte) {
 }
 
 // Writer writes records to a CSV-encoded file.
@@ -41,8 +41,8 @@ pub Writer struct {
     delimiter byte
 }
 
-// new_writer returns a new Writer that writes to w.
-pub fun new_writer(w io.Writer) Writer {
+// newWriter returns a new Writer that writes to w.
+pub fun newWriter(w io.Writer) Writer {
     return Writer{ writer: w, delimiter: 44 }
 }
 
@@ -50,14 +50,14 @@ pub fun new_writer(w io.Writer) Writer {
 pub fun (w &Writer) write(record []string) !void {
 }
 
-// write_all writes multiple CSV records and then calls flush.
-pub fun (w &Writer) write_all(records [][]string) !void {
+// writeAll writes multiple CSV records and then calls flush.
+pub fun (w &Writer) writeAll(records [][]string) !void {
 }
 
 // flush writes any buffered data to the underlying writer.
 pub fun (w &Writer) flush() !void {
 }
 
-// set_delimiter sets the field delimiter (default is comma).
-pub fun (w &Writer) set_delimiter(delim byte) {
+// setDelimiter sets the field delimiter (default is comma).
+pub fun (w &Writer) setDelimiter(delim byte) {
 }

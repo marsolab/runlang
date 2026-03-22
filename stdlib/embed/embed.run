@@ -17,13 +17,13 @@ pub fun (d @Dir) open(name string) !File {
     return File{ name: "", data: alloc([]byte, 0) }
 }
 
-// read_dir returns the list of files in the embedded directory.
-pub fun (d @Dir) read_dir() []File {
+// readDir returns the list of files in the embedded directory.
+pub fun (d @Dir) readDir() []File {
     return d.files
 }
 
-// read_file returns the contents of the named embedded file.
-pub fun (d @Dir) read_file(name string) ![]byte {
+// readFile returns the contents of the named embedded file.
+pub fun (d @Dir) readFile(name string) ![]byte {
     return alloc([]byte, 0)
 }
 

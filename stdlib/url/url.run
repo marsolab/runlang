@@ -45,20 +45,20 @@ pub fun (u @Url) hostname() string {
     return ""
 }
 
-// request_uri returns the encoded path?query or opaque?query string
+// requestUri returns the encoded path?query or opaque?query string
 // suitable for use in an HTTP request.
-pub fun (u @Url) request_uri() string {
+pub fun (u @Url) requestUri() string {
     return ""
 }
 
-// is_abs reports whether the URL is absolute (has a scheme).
-pub fun (u @Url) is_abs() bool {
+// isAbs reports whether the URL is absolute (has a scheme).
+pub fun (u @Url) isAbs() bool {
     return false
 }
 
-// resolve_reference resolves a URI reference to an absolute URI from
+// resolveReference resolves a URI reference to an absolute URI from
 // an absolute base URI.
-pub fun (u @Url) resolve_reference(ref @Url) Url {
+pub fun (u @Url) resolveReference(ref @Url) Url {
     return Url{
         scheme: "",
         host: "",
@@ -78,8 +78,8 @@ pub Values struct {
     data map[string][]string
 }
 
-// parse_query parses a URL query string into Values.
-pub fun parse_query(query string) !Values {
+// parseQuery parses a URL query string into Values.
+pub fun parseQuery(query string) !Values {
     return Values{ data: alloc(map[string][]string) }
 }
 
@@ -105,22 +105,22 @@ pub fun (v @Values) encode() string {
     return ""
 }
 
-// path_escape escapes the string so it can be safely placed inside a URL path segment.
-pub fun path_escape(s string) string {
+// pathEscape escapes the string so it can be safely placed inside a URL path segment.
+pub fun pathEscape(s string) string {
     return ""
 }
 
-// path_unescape does the inverse transformation of path_escape.
-pub fun path_unescape(s string) !string {
+// pathUnescape does the inverse transformation of pathEscape.
+pub fun pathUnescape(s string) !string {
     return ""
 }
 
-// query_escape escapes the string so it can be safely placed inside a URL query.
-pub fun query_escape(s string) string {
+// queryEscape escapes the string so it can be safely placed inside a URL query.
+pub fun queryEscape(s string) string {
     return ""
 }
 
-// query_unescape does the inverse transformation of query_escape.
-pub fun query_unescape(s string) !string {
+// queryUnescape does the inverse transformation of queryEscape.
+pub fun queryUnescape(s string) !string {
     return ""
 }
