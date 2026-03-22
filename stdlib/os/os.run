@@ -50,35 +50,35 @@ pub File struct {
 
 // open opens a file for reading.
 pub fun open(path string) !File {
-    fd := try @syscall.open(path, 0, 0)
+    fd := try syscall.open(path, 0, 0)
     return File{ fd: fd, path: path }
 }
 
 // create creates or truncates a file for writing.
 pub fun create(path string) !File {
-    fd := try @syscall.open(path, 577, 438)
+    fd := try syscall.open(path, 577, 438)
     return File{ fd: fd, path: path }
 }
 
 // openFile opens a file with the specified flags and permission mode.
 pub fun openFile(path string, flags int, mode int) !File {
-    fd := try @syscall.open(path, flags, mode)
+    fd := try syscall.open(path, flags, mode)
     return File{ fd: fd, path: path }
 }
 
 // read reads up to len(buf) bytes into buf.
 pub fun (f &File) read(buf []byte) !int {
-    return try @syscall.read(f.fd, buf, len(buf))
+    return try syscall.read(f.fd, buf, len(buf))
 }
 
 // write writes buf to the file.
 pub fun (f &File) write(buf []byte) !int {
-    return try @syscall.write(f.fd, buf, len(buf))
+    return try syscall.write(f.fd, buf, len(buf))
 }
 
 // close closes the file.
 pub fun (f &File) close() !void {
-    try @syscall.close(f.fd)
+    try syscall.close(f.fd)
 }
 
 // seek sets the offset for the next read or write on the file.
@@ -89,7 +89,7 @@ pub fun (f &File) seek(offset int, whence io.SeekWhence) !int {
         .current :: { w = 1 },
         .end :: { w = 2 },
     }
-    return try @syscall.lseek(f.fd, offset, w)
+    return try syscall.lseek(f.fd, offset, w)
 }
 
 // stdin is the standard input file.
@@ -103,44 +103,44 @@ pub var stderr = File{ fd: 2, path: "<stderr>" }
 
 // args returns the command-line arguments, starting with the program name.
 pub fun args() []string {
-    return @syscall.args()
+    return syscall.args()
 }
 
 // getenv returns the value of the environment variable named by key,
 // or null if the variable is not set.
 pub fun getenv(key string) string? {
-    return @syscall.getenv(key)
+    return syscall.getenv(key)
 }
 
 // setenv sets the value of the environment variable named by key.
 pub fun setenv(key string, value string) !void {
-    try @syscall.setenv(key, value)
+    try syscall.setenv(key, value)
 }
 
 // unsetenv removes the environment variable named by key.
 pub fun unsetenv(key string) !void {
-    try @syscall.unsetenv(key)
+    try syscall.unsetenv(key)
 }
 
 // environ returns all environment variables as a slice of "KEY=VALUE" strings.
 pub fun environ() []string {
-    return @syscall.environ()
+    return syscall.environ()
 }
 
 // exit terminates the program with the given exit code.
 pub fun exit(code int) {
-    @syscall.exit(code)
+    syscall.exit(code)
 }
 
 // getpid returns the process ID of the current process.
 pub fun getpid() int {
-    return @syscall.getpid()
+    return syscall.getpid()
 }
 
 // hostname returns the hostname of the machine.
 pub fun hostname() !string {
     var buf = alloc([]byte, 256)
-    let n = try @syscall.gethostname(buf, 256)
+    let n = try syscall.gethostname(buf, 256)
     return string(buf[0..n])
 }
 
@@ -155,7 +155,7 @@ pub fun userHomeDir() !string {
 
 // mkdir creates a directory at the given path with permission 0755.
 pub fun mkdir(path string) !void {
-    try @syscall.mkdir(path, 493)
+    try syscall.mkdir(path, 493)
 }
 
 // mkdirAll creates a directory path, including any missing parents.
@@ -171,17 +171,17 @@ pub fun mkdirAll(path string) !void {
     if len(parent) > 0 and parent != cleaned {
         try mkdirAll(parent)
     }
-    try @syscall.mkdir(cleaned, 493)
+    try syscall.mkdir(cleaned, 493)
 }
 
 // remove removes the named file or empty directory.
 pub fun remove(path string) !void {
     let info = try lstat(path)
     if info.is_dir {
-        try @syscall.rmdir(path)
+        try syscall.rmdir(path)
         return
     }
-    try @syscall.unlink(path)
+    try syscall.unlink(path)
 }
 
 // removeAll removes the path and any children it contains.
@@ -193,42 +193,42 @@ pub fun removeAll(path string) !void {
             let child = joinPath([path, entry.name])
             try removeAll(child)
         }
-        try @syscall.rmdir(path)
+        try syscall.rmdir(path)
     } else {
-        try @syscall.unlink(path)
+        try syscall.unlink(path)
     }
 }
 
 // rename renames (moves) a file or directory from old_path to new_path.
 pub fun rename(old_path string, new_path string) !void {
-    try @syscall.rename(old_path, new_path)
+    try syscall.rename(old_path, new_path)
 }
 
 // symlink creates a symbolic link that points to target.
 pub fun symlink(target string, link string) !void {
-    try @syscall.symlink(target, link)
+    try syscall.symlink(target, link)
 }
 
 // readLink returns the destination of the named symbolic link.
 pub fun readLink(path string) !string {
     var buf = alloc([]byte, 1024)
-    let n = try @syscall.readlink(path, buf, 1024)
+    let n = try syscall.readlink(path, buf, 1024)
     return string(buf[0..n])
 }
 
 // chmod changes the permission bits of the named file.
 pub fun chmod(path string, mode int) !void {
-    try @syscall.chmod(path, mode)
+    try syscall.chmod(path, mode)
 }
 
 // chown changes the numeric uid and gid of the named file.
 pub fun chown(path string, uid int, gid int) !void {
-    try @syscall.chown(path, uid, gid)
+    try syscall.chown(path, uid, gid)
 }
 
 // stat returns file info for the named path.
 pub fun stat(path string) !FileInfo {
-    let raw = try @syscall.stat(path)
+    let raw = try syscall.stat(path)
     return FileInfo{
         name: base(path),
         size: raw.size,
@@ -240,7 +240,7 @@ pub fun stat(path string) !FileInfo {
 
 // lstat returns file info for the named path without following symlinks.
 pub fun lstat(path string) !FileInfo {
-    let raw = try @syscall.lstat(path)
+    let raw = try syscall.lstat(path)
     return FileInfo{
         name: base(path),
         size: raw.size,
@@ -252,7 +252,7 @@ pub fun lstat(path string) !FileInfo {
 
 // readDir reads the named directory and returns a list of directory entries.
 pub fun readDir(path string) ![]DirEntry {
-    let raw_entries = try @syscall.readdir(path)
+    let raw_entries = try syscall.readdir(path)
     var entries = alloc([]DirEntry, len(raw_entries))
     var i = 0
     for raw in raw_entries {
@@ -280,7 +280,7 @@ pub fun tempDir() string {
 // removing the file.
 pub fun createTemp(prefix string) !File {
     let template = joinPath([tempDir(), prefix + "XXXXXX"])
-    let fd = try @syscall.mkstemp(template)
+    let fd = try syscall.mkstemp(template)
     return File{ fd: fd, path: template }
 }
 
@@ -291,7 +291,7 @@ pub fun tempFile(prefix string) !File {
 
 // cwd returns the current working directory.
 pub fun cwd() !string {
-    return try @syscall.getcwd()
+    return try syscall.getcwd()
 }
 
 // getwd is a backward-compatible alias for cwd.
@@ -301,7 +301,7 @@ pub fun getwd() !string {
 
 // chdir changes the current working directory.
 pub fun chdir(path string) !void {
-    try @syscall.chdir(path)
+    try syscall.chdir(path)
 }
 
 // readFile reads the entire contents of a file.
@@ -507,7 +507,7 @@ pub fun glob(pattern string) ![]string {
     return matches
 }
 
-// modeFromRaw converts a raw mode type integer from @syscall.stat
+// modeFromRaw converts a raw mode type integer from syscall.stat
 // to a FileMode sum type value.
 fun modeFromRaw(raw_type int) FileMode {
     switch raw_type {

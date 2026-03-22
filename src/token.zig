@@ -52,6 +52,7 @@ pub const Token = struct {
         kw_not,
         kw_asm,
         kw_clobber,
+        kw_syscall,
 
         // Operators
         plus, // +
@@ -98,7 +99,7 @@ pub const Token = struct {
 
         pub fn isKeyword(tag: Tag) bool {
             return @intFromEnum(tag) >= @intFromEnum(Tag.kw_fun) and
-                @intFromEnum(tag) <= @intFromEnum(Tag.kw_clobber);
+                @intFromEnum(tag) <= @intFromEnum(Tag.kw_syscall);
         }
     };
 
@@ -136,6 +137,7 @@ pub const Token = struct {
         .{ "not", .kw_not },
         .{ "asm", .kw_asm },
         .{ "clobber", .kw_clobber },
+        .{ "syscall", .kw_syscall },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {

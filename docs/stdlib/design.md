@@ -14,7 +14,7 @@ The standard library is written in Run itself, not in Zig or C. This is the stan
 │  user-readable, contributable           │
 ├─────────────────────────────────────────┤
 │  Layer 2: Compiler Builtins (bridge)    │
-│  @syscall, @alloc, @chanSend, ...       │
+│  syscall, @alloc, @chanSend, ...       │
 │  Thin intrinsics the compiler lowers    │
 │  to C runtime calls                     │
 ├─────────────────────────────────────────┤
@@ -49,10 +49,10 @@ A small, fixed set of intrinsics that the compiler recognizes and lowers to C ru
 
 ```run
 // These are compiler-known, not user-definable
-@syscall.open(path, flags, mode)   // → run_syscall_open()
-@syscall.read(fd, buf, len)        // → run_syscall_read()
-@syscall.write(fd, buf, len)       // → run_syscall_write()
-@syscall.close(fd)                 // → run_syscall_close()
+syscall.open(path, flags, mode)   // → run_syscall_open()
+syscall.read(fd, buf, len)        // → run_syscall_read()
+syscall.write(fd, buf, len)       // → run_syscall_write()
+syscall.close(fd)                 // → run_syscall_close()
 @alloc(T)                          // → run_alloc(sizeof(T))
 @free(ptr)                         // → run_free(ptr)
 @chanSend(ch, val)                 // → run_chan_send()
@@ -143,23 +143,23 @@ pub type File struct {
 
 // Open opens a file for reading.
 pub fun open(path string) !File {
-    fd := try @syscall.open(path, O_RDONLY, 0)
+    fd := try syscall.open(path, O_RDONLY, 0)
     return File{ fd: fd, path: path }
 }
 
 // Read reads up to len(buf) bytes into buf.
 pub fun (f &File) read(buf []byte) !int {
-    return try @syscall.read(f.fd, buf, len(buf))
+    return try syscall.read(f.fd, buf, len(buf))
 }
 
 // Write writes buf to the file.
 pub fun (f &File) write(buf []byte) !int {
-    return try @syscall.write(f.fd, buf, len(buf))
+    return try syscall.write(f.fd, buf, len(buf))
 }
 
 // Close closes the file.
 pub fun (f &File) close() !void {
-    try @syscall.close(f.fd)
+    try syscall.close(f.fd)
 }
 ```
 
