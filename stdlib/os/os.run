@@ -160,18 +160,27 @@ pub fun mkdir(path string) !void {
 
 // mkdir_all creates a directory path, including any missing parents.
 pub fun mkdir_all(path string) !void {
-    if len(path) == 0 {
+    if len(path) == 0 or path == "." {
         return
     }
-    let parent = dir(path)
-    if len(parent) > 0 and parent != path {
-        mkdir_all(parent)
+    let cleaned = clean(path)
+    if cleaned == "." or cleaned == "/" {
+        return
     }
-    @syscall.mkdir(path, 493)
+    let parent = dir(cleaned)
+    if len(parent) > 0 and parent != cleaned {
+        try mkdir_all(parent)
+    }
+    try @syscall.mkdir(cleaned, 493)
 }
 
 // remove removes the named file or empty directory.
 pub fun remove(path string) !void {
+    let info = try lstat(path)
+    if info.is_dir {
+        try @syscall.rmdir(path)
+        return
+    }
     try @syscall.unlink(path)
 }
 
@@ -266,18 +275,28 @@ pub fun temp_dir() string {
     }
 }
 
-// temp_file creates a new temporary file with the given prefix in the
+// create_temp creates a new temporary file with the given prefix in the
 // default temp directory. The caller is responsible for closing and
 // removing the file.
+pub fun create_temp(prefix string) !File {
+    let template = join_path([temp_dir(), prefix + "XXXXXX"])
+    let fd = try @syscall.mkstemp(template)
+    return File{ fd: fd, path: template }
+}
+
+// temp_file is a backward-compatible alias for create_temp.
 pub fun temp_file(prefix string) !File {
-    let path = join_path([temp_dir(), prefix])
-    let fd = try @syscall.mkstemp(path)
-    return File{ fd: fd, path: path }
+    return try create_temp(prefix)
 }
 
 // cwd returns the current working directory.
 pub fun cwd() !string {
     return try @syscall.getcwd()
+}
+
+// getwd is a backward-compatible alias for cwd.
+pub fun getwd() !string {
+    return try cwd()
 }
 
 // chdir changes the current working directory.
@@ -290,6 +309,9 @@ pub fun read_file(path string) ![]byte {
     let f = try open(path)
     defer f.close()
     let info = try stat(path)
+    if info.size <= 0 {
+        return alloc([]byte, 0)
+    }
     var buf = alloc([]byte, info.size)
     var total = 0
     for total < info.size {
@@ -383,6 +405,9 @@ pub fun dir(path string) string {
 
 // ext returns the file name extension used by path.
 pub fun ext(path string) string {
+    if len(path) == 0 {
+        return ""
+    }
     var i = len(path) - 1
     for i >= 0 {
         if path[i] == 46 {
