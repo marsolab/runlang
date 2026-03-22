@@ -19,9 +19,9 @@ pub fun (r &Rand) int() int {
     return 0
 }
 
-// int_n returns a non-negative pseudo-random int in the half-open interval [0, n).
+// intN returns a non-negative pseudo-random int in the half-open interval [0, n).
 // Panics if n <= 0.
-pub fun (r &Rand) int_n(n int) int {
+pub fun (r &Rand) intN(n int) int {
     return 0
 }
 

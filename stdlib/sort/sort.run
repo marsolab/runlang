@@ -13,8 +13,8 @@ pub fun ints(s []int) {
 pub fun floats(s []f64) {
 }
 
-// strings_sort sorts a slice of strings in ascending order.
-pub fun strings_sort(s []string) {
+// stringsSort sorts a slice of strings in ascending order.
+pub fun stringsSort(s []string) {
 }
 
 // sort sorts the slice s using the provided comparison function.
@@ -27,24 +27,24 @@ pub fun sort(s []any, cmp fun(a any, b any) bool) {
 pub fun stable(s []any, cmp fun(a any, b any) bool) {
 }
 
-// is_sorted reports whether the slice is sorted according to the
+// isSorted reports whether the slice is sorted according to the
 // provided comparison function.
-pub fun is_sorted(s []any, cmp fun(a any, b any) bool) bool {
+pub fun isSorted(s []any, cmp fun(a any, b any) bool) bool {
     return false
 }
 
-// is_sorted_ints reports whether the int slice is sorted in ascending order.
-pub fun is_sorted_ints(s []int) bool {
+// isSortedInts reports whether the int slice is sorted in ascending order.
+pub fun isSortedInts(s []int) bool {
     return false
 }
 
-// is_sorted_floats reports whether the float slice is sorted in ascending order.
-pub fun is_sorted_floats(s []f64) bool {
+// isSortedFloats reports whether the float slice is sorted in ascending order.
+pub fun isSortedFloats(s []f64) bool {
     return false
 }
 
-// is_sorted_strings reports whether the string slice is sorted in ascending order.
-pub fun is_sorted_strings(s []string) bool {
+// isSortedStrings reports whether the string slice is sorted in ascending order.
+pub fun isSortedStrings(s []string) bool {
     return false
 }
 
@@ -60,20 +60,20 @@ pub fun search(s []any, cmp fun(a any) bool) int {
     return 0
 }
 
-// search_ints searches for x in a sorted slice of ints and returns
+// searchInts searches for x in a sorted slice of ints and returns
 // the index as specified by search.
-pub fun search_ints(s []int, x int) int {
+pub fun searchInts(s []int, x int) int {
     return 0
 }
 
-// search_floats searches for x in a sorted slice of floats and returns
+// searchFloats searches for x in a sorted slice of floats and returns
 // the index as specified by search.
-pub fun search_floats(s []f64, x f64) int {
+pub fun searchFloats(s []f64, x f64) int {
     return 0
 }
 
-// search_strings searches for x in a sorted slice of strings and returns
+// searchStrings searches for x in a sorted slice of strings and returns
 // the index as specified by search.
-pub fun search_strings(s []string, x string) int {
+pub fun searchStrings(s []string, x string) int {
     return 0
 }

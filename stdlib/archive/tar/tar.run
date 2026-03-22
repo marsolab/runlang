@@ -37,8 +37,8 @@ pub Reader struct {
     reader io.Reader
 }
 
-// new_reader creates a new Reader reading from r.
-pub fun new_reader(r io.Reader) Reader {
+// newReader creates a new Reader reading from r.
+pub fun newReader(r io.Reader) Reader {
     return Reader{ reader: r }
 }
 
@@ -62,13 +62,13 @@ pub Writer struct {
     writer io.Writer
 }
 
-// new_writer creates a new Writer writing to w.
-pub fun new_writer(w io.Writer) Writer {
+// newWriter creates a new Writer writing to w.
+pub fun newWriter(w io.Writer) Writer {
     return Writer{ writer: w }
 }
 
-// write_header writes the header and prepares to accept the file's contents.
-pub fun (w &Writer) write_header(header @Header) !void {
+// writeHeader writes the header and prepares to accept the file's contents.
+pub fun (w &Writer) writeHeader(header @Header) !void {
 }
 
 // write writes to the current file in the tar archive.

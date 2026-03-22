@@ -31,16 +31,16 @@ pub Reader struct {
     comment string
 }
 
-// open_reader opens a zip file at the given path for reading.
-pub fun open_reader(path string) !Reader {
+// openReader opens a zip file at the given path for reading.
+pub fun openReader(path string) !Reader {
     return Reader{
         files: alloc([]File, 0),
         comment: "",
     }
 }
 
-// new_reader creates a Reader from an io.Reader and the archive size.
-pub fun new_reader(r io.Reader, size int) !Reader {
+// newReader creates a Reader from an io.Reader and the archive size.
+pub fun newReader(r io.Reader, size int) !Reader {
     return Reader{
         files: alloc([]File, 0),
         comment: "",
@@ -66,8 +66,8 @@ pub Writer struct {
     writer io.Writer
 }
 
-// new_writer returns a new Writer writing a zip archive to w.
-pub fun new_writer(w io.Writer) Writer {
+// newWriter returns a new Writer writing a zip archive to w.
+pub fun newWriter(w io.Writer) Writer {
     return Writer{ writer: w }
 }
 
@@ -77,13 +77,13 @@ pub fun (w &Writer) create(name string) !io.Writer {
     return null
 }
 
-// create_header adds a file to the zip archive using the provided File header.
-pub fun (w &Writer) create_header(fh @File) !io.Writer {
+// createHeader adds a file to the zip archive using the provided File header.
+pub fun (w &Writer) createHeader(fh @File) !io.Writer {
     return null
 }
 
-// set_comment sets the end-of-central-directory comment field.
-pub fun (w &Writer) set_comment(comment string) {
+// setComment sets the end-of-central-directory comment field.
+pub fun (w &Writer) setComment(comment string) {
 }
 
 // close finishes writing the zip archive.

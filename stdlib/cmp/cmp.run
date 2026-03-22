@@ -32,24 +32,24 @@ pub fun clamp(val any, lo any, hi any) any {
     return val
 }
 
-// min_int returns the smaller of a or b.
-pub fun min_int(a int, b int) int {
+// minInt returns the smaller of a or b.
+pub fun minInt(a int, b int) int {
     if a < b {
         return a
     }
     return b
 }
 
-// max_int returns the larger of a or b.
-pub fun max_int(a int, b int) int {
+// maxInt returns the larger of a or b.
+pub fun maxInt(a int, b int) int {
     if a > b {
         return a
     }
     return b
 }
 
-// clamp_int returns val constrained to the range [lo, hi].
-pub fun clamp_int(val int, lo int, hi int) int {
+// clampInt returns val constrained to the range [lo, hi].
+pub fun clampInt(val int, lo int, hi int) int {
     if val < lo {
         return lo
     }
@@ -59,16 +59,16 @@ pub fun clamp_int(val int, lo int, hi int) int {
     return val
 }
 
-// min_float returns the smaller of a or b.
-pub fun min_float(a f64, b f64) f64 {
+// minFloat returns the smaller of a or b.
+pub fun minFloat(a f64, b f64) f64 {
     if a < b {
         return a
     }
     return b
 }
 
-// max_float returns the larger of a or b.
-pub fun max_float(a f64, b f64) f64 {
+// maxFloat returns the larger of a or b.
+pub fun maxFloat(a f64, b f64) f64 {
     if a > b {
         return a
     }

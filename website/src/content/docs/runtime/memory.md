@@ -171,8 +171,8 @@ A bump-pointer allocator for batch allocation patterns where many allocations sh
 ```c
 typedef struct run_arena run_arena_t;
 
-// Create a new arena. block_size is the size of each backing block (default 64 KB).
-run_arena_t *run_arena_create(size_t block_size);
+// Create a new arena. blockSize is the size of each backing block (default 64 KB).
+run_arena_t *run_arena_create(size_t blockSize);
 
 // Allocate `size` bytes with `align` alignment from the arena.
 // Never fails (aborts on OOM). Memory is zero-initialized.
@@ -199,7 +199,7 @@ typedef struct run_arena_block {
 struct run_arena {
     run_arena_block_t *current;
     run_arena_block_t *head;
-    size_t block_size;
+    size_t blockSize;
 };
 ```
 

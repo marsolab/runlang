@@ -49,7 +49,7 @@ pub fun main() {
 The short declaration keeps temporary variables out of the surrounding scope. This is especially handy when working with error-returning functions:
 
 ```go
-if data := try read_file("config.txt"); data != null {
+if data := try readFile("config.txt"); data != null {
     process(data)
 } else {
     fmt.println("no config found")

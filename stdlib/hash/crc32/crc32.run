@@ -16,16 +16,16 @@ pub Table struct {
 }
 
 // ieee_table is the Table for the IEEE polynomial (most common).
-pub var ieee_table = make_table(0xedb88320)
+pub var ieee_table = makeTable(0xedb88320)
 
 // castagnoli_table is the Table for the Castagnoli polynomial.
-pub var castagnoli_table = make_table(0x82f63b78)
+pub var castagnoli_table = makeTable(0x82f63b78)
 
 // koopman_table is the Table for the Koopman polynomial.
-pub var koopman_table = make_table(0xeb31d82e)
+pub var koopman_table = makeTable(0xeb31d82e)
 
-// make_table returns a Table constructed from the specified polynomial.
-pub fun make_table(poly int) Table {
+// makeTable returns a Table constructed from the specified polynomial.
+pub fun makeTable(poly int) Table {
     return Table{ entries: alloc([256]int, 0) }
 }
 
@@ -40,8 +40,8 @@ pub fun checksum(data []byte, tab @Table) int {
     return 0
 }
 
-// checksum_ieee returns the CRC-32 checksum of data using the IEEE polynomial.
-pub fun checksum_ieee(data []byte) int {
+// checksumIeee returns the CRC-32 checksum of data using the IEEE polynomial.
+pub fun checksumIeee(data []byte) int {
     return 0
 }
 

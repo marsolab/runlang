@@ -2,7 +2,7 @@ package path
 
 // join joins any number of path elements into a single path,
 // separating them with forward slashes. Empty elements are ignored.
-// This is OS-independent; for OS-specific path handling use os.join_path.
+// This is OS-independent; for OS-specific path handling use os.joinPath.
 pub fun join(parts ...string) string {
     return ""
 }
@@ -41,8 +41,8 @@ pub fun clean(p string) string {
     return ""
 }
 
-// is_abs reports whether the path is absolute.
-pub fun is_abs(p string) bool {
+// isAbs reports whether the path is absolute.
+pub fun isAbs(p string) bool {
     return false
 }
 

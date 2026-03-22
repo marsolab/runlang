@@ -58,8 +58,8 @@ pub fun (l @Logger) with(attrs ...Attr) Logger {
     return Logger{ handler: l.handler, level: l.level, attrs: alloc([]Attr, 0) }
 }
 
-// set_level sets the minimum log level for this logger.
-pub fun (l &Logger) set_level(level Level) {
+// setLevel sets the minimum log level for this logger.
+pub fun (l &Logger) setLevel(level Level) {
 }
 
 // TextHandler writes log records as human-readable text lines.
@@ -72,8 +72,8 @@ pub TextHandler struct {
     level  Level
 }
 
-// new_text_handler creates a TextHandler writing to the given writer.
-pub fun new_text_handler(w io.Writer) TextHandler {
+// newTextHandler creates a TextHandler writing to the given writer.
+pub fun newTextHandler(w io.Writer) TextHandler {
     return TextHandler{ writer: w, level: .info }
 }
 
@@ -96,8 +96,8 @@ pub JsonHandler struct {
     level  Level
 }
 
-// new_json_handler creates a JsonHandler writing to the given writer.
-pub fun new_json_handler(w io.Writer) JsonHandler {
+// newJsonHandler creates a JsonHandler writing to the given writer.
+pub fun newJsonHandler(w io.Writer) JsonHandler {
     return JsonHandler{ writer: w, level: .info }
 }
 
@@ -128,6 +128,6 @@ pub fun warn(msg string, attrs ...Attr) {
 pub fun error(msg string, attrs ...Attr) {
 }
 
-// set_default sets the default logger.
-pub fun set_default(logger Logger) {
+// setDefault sets the default logger.
+pub fun setDefault(logger Logger) {
 }

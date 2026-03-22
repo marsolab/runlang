@@ -15,7 +15,7 @@ use "os"
 fun read_config(path: string) !string {
     file := try os.open(path)
     defer file.close()
-    return try file.read_all()
+    return try file.readAll()
 }
 
 pub fun main() {
@@ -32,7 +32,7 @@ Use `try` to propagate errors. If the expression returns an error, `try` immedia
 
 ```go
 fun process() !int {
-    data := try read_file("input.txt")
+    data := try readFile("input.txt")
     result := try parse(data)
     return result
 }
@@ -57,12 +57,12 @@ When propagating errors with `try`, you can attach a context message using `::`.
 
 ```go
 fun load_config(path: string) !Config {
-    content := try read_file(path) :: "reading config file"
+    content := try readFile(path) :: "reading config file"
     return try parse_config(content) :: "parsing config"
 }
 ```
 
-If `read_file` fails, the error carries the context `"reading config file"` along with it. As the error propagates further up the call stack, each `try` with `::` adds another layer of context, building a trace:
+If `readFile` fails, the error carries the context `"reading config file"` along with it. As the error propagates further up the call stack, each `try` with `::` adds another layer of context, building a trace:
 
 ```
 error: not_found

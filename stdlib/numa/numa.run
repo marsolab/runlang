@@ -1,6 +1,6 @@
 package numa
 
-// Policy constants for set_memory_policy.
+// Policy constants for setMemoryPolicy.
 pub let POLICY_LOCAL      = 0
 pub let POLICY_BIND       = 1
 pub let POLICY_INTERLEAVE = 2
@@ -25,24 +25,24 @@ pub fun available() bool {
     return false
 }
 
-// node_count returns the number of NUMA nodes (>= 1).
-pub fun node_count() int {
+// nodeCount returns the number of NUMA nodes (>= 1).
+pub fun nodeCount() int {
     return 0
 }
 
-// current_node returns the NUMA node the calling thread is running on.
-pub fun current_node() int {
+// currentNode returns the NUMA node the calling thread is running on.
+pub fun currentNode() int {
     return 0
 }
 
-// preferred_node returns the preferred NUMA node of the current
+// preferredNode returns the preferred NUMA node of the current
 // green thread, or -1 if no preference is set.
-pub fun preferred_node() int {
+pub fun preferredNode() int {
     return -1
 }
 
-// cpu_count returns the number of CPUs on the given NUMA node.
-pub fun cpu_count(node int) int {
+// cpuCount returns the number of CPUs on the given NUMA node.
+pub fun cpuCount(node int) int {
     return 0
 }
 
@@ -53,48 +53,48 @@ pub fun distance(node_a int, node_b int) int {
     return 0
 }
 
-// memory_on_node returns the total memory in bytes on the given node.
-pub fun memory_on_node(node int) int {
+// memoryOnNode returns the total memory in bytes on the given node.
+pub fun memoryOnNode(node int) int {
     return 0
 }
 
-// local_alloc allocates size bytes on the current thread's NUMA node.
-pub fun local_alloc(size int) &byte {
+// localAlloc allocates size bytes on the current thread's NUMA node.
+pub fun localAlloc(size int) &byte {
     return null
 }
 
-// node_alloc allocates size bytes on the specified NUMA node.
-pub fun node_alloc(node int, size int) &byte {
+// nodeAlloc allocates size bytes on the specified NUMA node.
+pub fun nodeAlloc(node int, size int) &byte {
     return null
 }
 
-// interleave_alloc allocates size bytes interleaved round-robin
+// interleaveAlloc allocates size bytes interleaved round-robin
 // across all NUMA nodes.
-pub fun interleave_alloc(size int) &byte {
+pub fun interleaveAlloc(size int) &byte {
     return null
 }
 
-// free releases memory previously allocated by local_alloc,
-// node_alloc, or interleave_alloc.
+// free releases memory previously allocated by localAlloc,
+// nodeAlloc, or interleaveAlloc.
 pub fun free(ptr &byte, size int) {
 }
 
-// bind_thread binds the calling OS thread to CPUs on the given
+// bindThread binds the calling OS thread to CPUs on the given
 // NUMA node. Returns 0 on success, -1 on failure.
-pub fun bind_thread(node int) int {
+pub fun bindThread(node int) int {
     return 0
 }
 
-// bind_green_thread sets the preferred NUMA node for the current
+// bindGreenThread sets the preferred NUMA node for the current
 // green thread. The scheduler will prefer running the thread on
 // a processor assigned to that node.
-pub fun bind_green_thread(node int) {
+pub fun bindGreenThread(node int) {
 }
 
-// set_memory_policy sets the memory placement policy for the
+// setMemoryPolicy sets the memory placement policy for the
 // calling thread. Use POLICY_* constants for the policy parameter.
 // node is used by POLICY_BIND and POLICY_PREFERRED.
 // Returns 0 on success, -1 on failure.
-pub fun set_memory_policy(policy int, node int) int {
+pub fun setMemoryPolicy(policy int, node int) int {
     return 0
 }

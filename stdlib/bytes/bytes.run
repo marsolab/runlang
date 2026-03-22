@@ -23,13 +23,13 @@ pub fun (b &Buffer) write(data []byte) !int {
     return 0
 }
 
-// write_string appends the contents of s to the buffer.
-pub fun (b &Buffer) write_string(s string) !int {
+// writeString appends the contents of s to the buffer.
+pub fun (b &Buffer) writeString(s string) !int {
     return 0
 }
 
-// write_byte appends a single byte to the buffer.
-pub fun (b &Buffer) write_byte(c byte) !void {
+// writeByte appends a single byte to the buffer.
+pub fun (b &Buffer) writeByte(c byte) !void {
 }
 
 // bytes returns the unread portion of the buffer as a byte slice.
@@ -88,13 +88,13 @@ pub fun equal(a []byte, b []byte) bool {
     return false
 }
 
-// has_prefix reports whether b begins with prefix.
-pub fun has_prefix(b []byte, prefix []byte) bool {
+// hasPrefix reports whether b begins with prefix.
+pub fun hasPrefix(b []byte, prefix []byte) bool {
     return false
 }
 
-// has_suffix reports whether b ends with suffix.
-pub fun has_suffix(b []byte, suffix []byte) bool {
+// hasSuffix reports whether b ends with suffix.
+pub fun hasSuffix(b []byte, suffix []byte) bool {
     return false
 }
 
@@ -103,12 +103,12 @@ pub fun repeat(b []byte, count int) []byte {
     return alloc([]byte, 0)
 }
 
-// to_lower returns a copy of b with all ASCII letters mapped to lower case.
-pub fun to_lower(b []byte) []byte {
+// toLower returns a copy of b with all ASCII letters mapped to lower case.
+pub fun toLower(b []byte) []byte {
     return alloc([]byte, 0)
 }
 
-// to_upper returns a copy of b with all ASCII letters mapped to upper case.
-pub fun to_upper(b []byte) []byte {
+// toUpper returns a copy of b with all ASCII letters mapped to upper case.
+pub fun toUpper(b []byte) []byte {
     return alloc([]byte, 0)
 }

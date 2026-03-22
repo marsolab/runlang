@@ -44,9 +44,9 @@ fun (c @Config) string() string {
 }
 
 fun load_config(path: string) !Config {
-    content := try os.read_file(path)
+    content := try os.readFile(path)
     host := try parse_field(content, "host")
-    port := try parse_int(try parse_field(content, "port"))
+    port := try parseInt(try parse_field(content, "port"))
     return Config{ host: host, port: port }
 }
 

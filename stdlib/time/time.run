@@ -110,8 +110,8 @@ pub fun (t Time) before(u Time) bool {
     return false
 }
 
-// after_time reports whether the time instant t is after u.
-pub fun (t Time) after_time(u Time) bool {
+// afterTime reports whether the time instant t is after u.
+pub fun (t Time) afterTime(u Time) bool {
     return false
 }
 
@@ -120,23 +120,23 @@ pub fun (t Time) equal(u Time) bool {
     return false
 }
 
-// is_zero reports whether t represents the zero time instant.
-pub fun (t Time) is_zero() bool {
+// isZero reports whether t represents the zero time instant.
+pub fun (t Time) isZero() bool {
     return false
 }
 
-// unix_seconds returns the Unix time in seconds.
-pub fun (t Time) unix_seconds() int {
+// unixSeconds returns the Unix time in seconds.
+pub fun (t Time) unixSeconds() int {
     return 0
 }
 
-// unix_milli returns the Unix time in milliseconds.
-pub fun (t Time) unix_milli() int {
+// unixMilli returns the Unix time in milliseconds.
+pub fun (t Time) unixMilli() int {
     return 0
 }
 
-// unix_nano returns the Unix time in nanoseconds.
-pub fun (t Time) unix_nano() int {
+// unixNano returns the Unix time in nanoseconds.
+pub fun (t Time) unixNano() int {
     return 0
 }
 
@@ -186,8 +186,8 @@ pub fun (t Time) string() string {
     return ""
 }
 
-// in_location returns the same instant in time with the given location.
-pub fun (t Time) in_location(loc @Location) Time {
+// inLocation returns the same instant in time with the given location.
+pub fun (t Time) inLocation(loc @Location) Time {
     return Time{ seconds: 0, nanoseconds: 0 }
 }
 
@@ -207,8 +207,8 @@ pub Timer struct {
     done    bool
 }
 
-// new_timer creates a new Timer that will fire after duration d.
-pub fun new_timer(d Duration) Timer {
+// newTimer creates a new Timer that will fire after duration d.
+pub fun newTimer(d Duration) Timer {
     return Timer{ c: alloc(chan Time), done: false }
 }
 
@@ -228,9 +228,9 @@ pub Ticker struct {
     interval Duration
 }
 
-// new_ticker returns a new Ticker containing a channel that will send
+// newTicker returns a new Ticker containing a channel that will send
 // the current time on the channel after each tick.
-pub fun new_ticker(d Duration) Ticker {
+pub fun newTicker(d Duration) Ticker {
     return Ticker{ c: alloc(chan Time), interval: d }
 }
 

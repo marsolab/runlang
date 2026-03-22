@@ -4,57 +4,57 @@ package strconv
 pub type ParseError = .invalidSyntax
     | .outOfRange
 
-// parse_int parses a string as an integer in the given base (0 for auto-detect).
+// parseInt parses a string as an integer in the given base (0 for auto-detect).
 // Base 0 means auto-detect: "0x" prefix for hex, "0o" for octal, "0b" for binary,
 // otherwise decimal.
-pub fun parse_int(s string, base int) !int {
+pub fun parseInt(s string, base int) !int {
     return 0
 }
 
-// parse_float parses a string as a floating-point number.
-pub fun parse_float(s string) !f64 {
+// parseFloat parses a string as a floating-point number.
+pub fun parseFloat(s string) !f64 {
     return 0.0
 }
 
-// parse_bool parses a string as a boolean.
+// parseBool parses a string as a boolean.
 // Accepted values: "1", "t", "T", "TRUE", "true", "True",
 // "0", "f", "F", "FALSE", "false", "False".
-pub fun parse_bool(s string) !bool {
+pub fun parseBool(s string) !bool {
     return false
 }
 
-// parse_uint parses a string as an unsigned integer in the given base.
-pub fun parse_uint(s string, base int) !u64 {
+// parseUint parses a string as an unsigned integer in the given base.
+pub fun parseUint(s string, base int) !u64 {
     return 0
 }
 
-// format_int returns the string representation of i in the given base.
-pub fun format_int(i int, base int) string {
+// formatInt returns the string representation of i in the given base.
+pub fun formatInt(i int, base int) string {
     return ""
 }
 
-// format_float converts the floating-point number f to a string,
+// formatFloat converts the floating-point number f to a string,
 // using the given format ('f', 'e', 'g') and precision.
-pub fun format_float(f f64, fmt byte, prec int) string {
+pub fun formatFloat(f f64, fmt byte, prec int) string {
     return ""
 }
 
-// format_bool returns "true" or "false" according to the value of b.
-pub fun format_bool(b bool) string {
+// formatBool returns "true" or "false" according to the value of b.
+pub fun formatBool(b bool) string {
     return ""
 }
 
-// format_uint returns the string representation of u in the given base.
-pub fun format_uint(u u64, base int) string {
+// formatUint returns the string representation of u in the given base.
+pub fun formatUint(u u64, base int) string {
     return ""
 }
 
-// atoi is shorthand for parse_int(s, 10).
+// atoi is shorthand for parseInt(s, 10).
 pub fun atoi(s string) !int {
     return 0
 }
 
-// itoa is shorthand for format_int(i, 10).
+// itoa is shorthand for formatInt(i, 10).
 pub fun itoa(i int) string {
     return ""
 }
@@ -70,17 +70,17 @@ pub fun unquote(s string) !string {
     return ""
 }
 
-// append_int appends the string representation of i in the given base to dst.
-pub fun append_int(dst []byte, i int, base int) []byte {
+// appendInt appends the string representation of i in the given base to dst.
+pub fun appendInt(dst []byte, i int, base int) []byte {
     return alloc([]byte, 0)
 }
 
-// append_float appends the string form of the floating-point number f to dst.
-pub fun append_float(dst []byte, f f64, fmt byte, prec int) []byte {
+// appendFloat appends the string form of the floating-point number f to dst.
+pub fun appendFloat(dst []byte, f f64, fmt byte, prec int) []byte {
     return alloc([]byte, 0)
 }
 
-// append_bool appends "true" or "false" to dst.
-pub fun append_bool(dst []byte, b bool) []byte {
+// appendBool appends "true" or "false" to dst.
+pub fun appendBool(dst []byte, b bool) []byte {
     return alloc([]byte, 0)
 }

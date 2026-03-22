@@ -19,14 +19,14 @@ pub Reader struct {
     reader io.Reader
 }
 
-// new_reader returns a new Reader that decompresses data from r.
-pub fun new_reader(r io.Reader) !Reader {
+// newReader returns a new Reader that decompresses data from r.
+pub fun newReader(r io.Reader) !Reader {
     return Reader{ reader: r }
 }
 
-// new_reader_dict returns a new Reader that decompresses data from r
+// newReaderDict returns a new Reader that decompresses data from r
 // using a preset dictionary.
-pub fun new_reader_dict(r io.Reader, dict []byte) !Reader {
+pub fun newReaderDict(r io.Reader, dict []byte) !Reader {
     return Reader{ reader: r }
 }
 
@@ -50,18 +50,18 @@ pub Writer struct {
     level  int
 }
 
-// new_writer returns a new Writer that compresses at the default level.
-pub fun new_writer(w io.Writer) Writer {
+// newWriter returns a new Writer that compresses at the default level.
+pub fun newWriter(w io.Writer) Writer {
     return Writer{ writer: w, level: -1 }
 }
 
-// new_writer_level returns a new Writer that compresses at the given level.
-pub fun new_writer_level(w io.Writer, level int) !Writer {
+// newWriterLevel returns a new Writer that compresses at the given level.
+pub fun newWriterLevel(w io.Writer, level int) !Writer {
     return Writer{ writer: w, level: level }
 }
 
-// new_writer_level_dict returns a new Writer with preset dictionary.
-pub fun new_writer_level_dict(w io.Writer, level int, dict []byte) !Writer {
+// newWriterLevelDict returns a new Writer with preset dictionary.
+pub fun newWriterLevelDict(w io.Writer, level int, dict []byte) !Writer {
     return Writer{ writer: w, level: level }
 }
 

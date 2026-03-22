@@ -157,15 +157,15 @@ result.remainder  // 1
 Zig-style error unions. A function that can fail returns `!T`:
 
 ```
-fun read_file(path string) !string {
+fun readFile(path string) !string {
     // returns string on success, error on failure
 }
 
 // Caller handles with try:
-content := try read_file("config.txt")
+content := try readFile("config.txt")
 
 // Or with switch:
-switch read_file("config.txt") {
+switch readFile("config.txt") {
     .ok(content) :: use(content),
     .err(e) :: log(e),
 }
@@ -179,7 +179,7 @@ switch read_file("config.txt") {
 When propagating errors with `try`, you can attach context using `::`:
 
 ```
-content := try read_file(path) :: "loading config"
+content := try readFile(path) :: "loading config"
 ```
 
 If the expression returns an error, the context string is attached to the error
@@ -514,13 +514,13 @@ The compiler recognizes these `simd.*` builtins:
 - `simd.min(a, b)`, `simd.max(a, b)` — element-wise minimum/maximum
 - `simd.select(mask, a, b)` — choose lanes from `a` or `b` using the matching mask type
 - `simd.load(ptr)` — aligned load from a pointer-to-vector
-- `simd.load_unaligned(ptr)` — unaligned load from a pointer-to-vector
+- `simd.loadUnaligned(ptr)` — unaligned load from a pointer-to-vector
 - `simd.store(ptr, v)` — aligned store through a mutable pointer-to-vector
 - `simd.width()` — available fast-path width in the compiled binary (`256` with AVX-enabled builds, `128` with SSE/NEON builds, otherwise `0`)
 
 ### Memory and Alignment
 
-`simd.load`, `simd.load_unaligned`, and `simd.store` operate on pointers to the
+`simd.load`, `simd.loadUnaligned`, and `simd.store` operate on pointers to the
 vector type itself, not pointers to slices or arrays:
 
 ```run
@@ -568,8 +568,8 @@ NUMA topology through the runtime and integrates it with the scheduler and alloc
 ```run
 use "runtime/numa"
 
-nodes := numa.node_count()           // number of NUMA nodes
-current := numa.current_node()       // node the current green thread is on
+nodes := numa.nodeCount()           // number of NUMA nodes
+current := numa.currentNode()       // node the current green thread is on
 cpus := numa.cpus_on_node(0)         // CPU IDs belonging to node 0
 dist := numa.distance(0, 1)          // relative distance between nodes
 ```
@@ -588,10 +588,10 @@ and can be passed to `alloc()` using Run's existing custom allocator support:
 use "runtime/numa"
 
 // Create an allocator that allocates on a specific NUMA node
-node_alloc := numa.allocator(node: 0)
+nodeAlloc := numa.allocator(node: 0)
 
 // Use it with alloc
-data := alloc([]f32, 1024, allocator: node_alloc)
+data := alloc([]f32, 1024, allocator: nodeAlloc)
 ```
 
 The runtime's per-P slab caches automatically allocate from the NUMA node

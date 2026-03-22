@@ -60,8 +60,8 @@ pub fun create(path string) !File {
     return File{ fd: fd, path: path }
 }
 
-// open_file opens a file with the specified flags and permission mode.
-pub fun open_file(path string, flags int, mode int) !File {
+// openFile opens a file with the specified flags and permission mode.
+pub fun openFile(path string, flags int, mode int) !File {
     fd := try syscall.open(path, flags, mode)
     return File{ fd: fd, path: path }
 }
@@ -144,8 +144,8 @@ pub fun hostname() !string {
     return string(buf[0..n])
 }
 
-// user_home_dir returns the home directory of the current user.
-pub fun user_home_dir() !string {
+// userHomeDir returns the home directory of the current user.
+pub fun userHomeDir() !string {
     let home = getenv("HOME")
     switch home {
         .some(val) :: { return val },
@@ -158,8 +158,8 @@ pub fun mkdir(path string) !void {
     try syscall.mkdir(path, 493)
 }
 
-// mkdir_all creates a directory path, including any missing parents.
-pub fun mkdir_all(path string) !void {
+// mkdirAll creates a directory path, including any missing parents.
+pub fun mkdirAll(path string) !void {
     if len(path) == 0 or path == "." {
         return
     }
@@ -169,7 +169,7 @@ pub fun mkdir_all(path string) !void {
     }
     let parent = dir(cleaned)
     if len(parent) > 0 and parent != cleaned {
-        try mkdir_all(parent)
+        try mkdirAll(parent)
     }
     try syscall.mkdir(cleaned, 493)
 }
@@ -184,14 +184,14 @@ pub fun remove(path string) !void {
     try syscall.unlink(path)
 }
 
-// remove_all removes the path and any children it contains.
-pub fun remove_all(path string) !void {
+// removeAll removes the path and any children it contains.
+pub fun removeAll(path string) !void {
     let info = try stat(path)
     if info.is_dir {
-        let entries = try read_dir(path)
+        let entries = try readDir(path)
         for entry in entries {
-            let child = join_path([path, entry.name])
-            try remove_all(child)
+            let child = joinPath([path, entry.name])
+            try removeAll(child)
         }
         try syscall.rmdir(path)
     } else {
@@ -209,8 +209,8 @@ pub fun symlink(target string, link string) !void {
     try syscall.symlink(target, link)
 }
 
-// read_link returns the destination of the named symbolic link.
-pub fun read_link(path string) !string {
+// readLink returns the destination of the named symbolic link.
+pub fun readLink(path string) !string {
     var buf = alloc([]byte, 1024)
     let n = try syscall.readlink(path, buf, 1024)
     return string(buf[0..n])
@@ -233,7 +233,7 @@ pub fun stat(path string) !FileInfo {
         name: base(path),
         size: raw.size,
         is_dir: raw.mode_type == 1,
-        mode: mode_from_raw(raw.mode_type),
+        mode: modeFromRaw(raw.mode_type),
         mod_time: raw.mod_time,
     }
 }
@@ -245,13 +245,13 @@ pub fun lstat(path string) !FileInfo {
         name: base(path),
         size: raw.size,
         is_dir: raw.mode_type == 1,
-        mode: mode_from_raw(raw.mode_type),
+        mode: modeFromRaw(raw.mode_type),
         mod_time: raw.mod_time,
     }
 }
 
-// read_dir reads the named directory and returns a list of directory entries.
-pub fun read_dir(path string) ![]DirEntry {
+// readDir reads the named directory and returns a list of directory entries.
+pub fun readDir(path string) ![]DirEntry {
     let raw_entries = try syscall.readdir(path)
     var entries = alloc([]DirEntry, len(raw_entries))
     var i = 0
@@ -259,15 +259,15 @@ pub fun read_dir(path string) ![]DirEntry {
         entries[i] = DirEntry{
             name: raw.name,
             is_dir: raw.type == 1,
-            file_type: mode_from_raw(raw.type),
+            file_type: modeFromRaw(raw.type),
         }
         i = i + 1
     }
     return entries
 }
 
-// temp_dir returns the default directory for temporary files.
-pub fun temp_dir() string {
+// tempDir returns the default directory for temporary files.
+pub fun tempDir() string {
     let tmp = getenv("TMPDIR")
     switch tmp {
         .some(val) :: { return val },
@@ -275,18 +275,18 @@ pub fun temp_dir() string {
     }
 }
 
-// create_temp creates a new temporary file with the given prefix in the
+// createTemp creates a new temporary file with the given prefix in the
 // default temp directory. The caller is responsible for closing and
 // removing the file.
-pub fun create_temp(prefix string) !File {
-    let template = join_path([temp_dir(), prefix + "XXXXXX"])
+pub fun createTemp(prefix string) !File {
+    let template = joinPath([tempDir(), prefix + "XXXXXX"])
     let fd = try syscall.mkstemp(template)
     return File{ fd: fd, path: template }
 }
 
-// temp_file is a backward-compatible alias for create_temp.
-pub fun temp_file(prefix string) !File {
-    return try create_temp(prefix)
+// tempFile is a backward-compatible alias for createTemp.
+pub fun tempFile(prefix string) !File {
+    return try createTemp(prefix)
 }
 
 // cwd returns the current working directory.
@@ -304,8 +304,8 @@ pub fun chdir(path string) !void {
     try syscall.chdir(path)
 }
 
-// read_file reads the entire contents of a file.
-pub fun read_file(path string) ![]byte {
+// readFile reads the entire contents of a file.
+pub fun readFile(path string) ![]byte {
     let f = try open(path)
     defer f.close()
     let info = try stat(path)
@@ -324,8 +324,8 @@ pub fun read_file(path string) ![]byte {
     return buf[0..total]
 }
 
-// write_file writes data to a file, creating it if necessary.
-pub fun write_file(path string, data []byte) !void {
+// writeFile writes data to a file, creating it if necessary.
+pub fun writeFile(path string, data []byte) !void {
     let f = try create(path)
     defer f.close()
     var written = 0
@@ -335,9 +335,9 @@ pub fun write_file(path string, data []byte) !void {
     }
 }
 
-// join_path joins any number of path elements into a single path,
+// joinPath joins any number of path elements into a single path,
 // separating them with the OS-specific path separator.
-pub fun join_path(parts []string) string {
+pub fun joinPath(parts []string) string {
     var result = ""
     for part in parts {
         if len(part) == 0 {
@@ -476,20 +476,20 @@ pub fun clean(path string) string {
 
 // abs returns an absolute representation of path.
 pub fun abs(path string) !string {
-    if is_abs(path) {
+    if isAbs(path) {
         return clean(path)
     }
     let wd = try cwd()
-    return clean(join_path([wd, path]))
+    return clean(joinPath([wd, path]))
 }
 
-// is_abs reports whether the path is absolute.
-pub fun is_abs(path string) bool {
+// isAbs reports whether the path is absolute.
+pub fun isAbs(path string) bool {
     return len(path) > 0 and path[0] == 47
 }
 
-// split_path splits path into a directory and file component.
-pub fun split_path(path string) struct { dir string, file string } {
+// splitPath splits path into a directory and file component.
+pub fun splitPath(path string) struct { dir string, file string } {
     return .{ dir: dir(path), file: base(path) }
 }
 
@@ -497,19 +497,19 @@ pub fun split_path(path string) struct { dir string, file string } {
 pub fun glob(pattern string) ![]string {
     let dir_path = dir(pattern)
     let file_pattern = base(pattern)
-    let entries = try read_dir(dir_path)
+    let entries = try readDir(dir_path)
     var matches = alloc([]string, 0)
     for entry in entries {
-        if glob_match(file_pattern, entry.name) {
-            matches = append(matches, join_path([dir_path, entry.name]))
+        if globMatch(file_pattern, entry.name) {
+            matches = append(matches, joinPath([dir_path, entry.name]))
         }
     }
     return matches
 }
 
-// mode_from_raw converts a raw mode type integer from syscall.stat
+// modeFromRaw converts a raw mode type integer from syscall.stat
 // to a FileMode sum type value.
-fun mode_from_raw(raw_type int) FileMode {
+fun modeFromRaw(raw_type int) FileMode {
     switch raw_type {
         1 :: { return .directory },
         2 :: { return .symlink },
@@ -520,9 +520,9 @@ fun mode_from_raw(raw_type int) FileMode {
     }
 }
 
-// glob_match reports whether name matches a shell file name pattern.
+// globMatch reports whether name matches a shell file name pattern.
 // Supports * (any sequence of characters) and ? (any single character).
-fun glob_match(pattern string, name string) bool {
+fun globMatch(pattern string, name string) bool {
     var pi = 0
     var ni = 0
     var star_pi = 0 - 1

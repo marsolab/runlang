@@ -1752,7 +1752,7 @@ const TypeChecker = struct {
         if (std.mem.eql(u8, member_name, "select")) return "simd.select";
         if (std.mem.eql(u8, member_name, "load")) return "simd.load";
         if (std.mem.eql(u8, member_name, "store")) return "simd.store";
-        if (std.mem.eql(u8, member_name, "load_unaligned")) return "simd.load_unaligned";
+        if (std.mem.eql(u8, member_name, "loadUnaligned")) return "simd.loadUnaligned";
         if (std.mem.eql(u8, member_name, "width")) return "simd.width";
         if (std.mem.eql(u8, member_name, "sqrt")) return "simd.sqrt";
         if (std.mem.eql(u8, member_name, "abs")) return "simd.abs";
@@ -1762,8 +1762,8 @@ const TypeChecker = struct {
         if (std.mem.eql(u8, member_name, "fma")) return "simd.fma";
         if (std.mem.eql(u8, member_name, "clamp")) return "simd.clamp";
         if (std.mem.eql(u8, member_name, "broadcast")) return "simd.broadcast";
-        if (std.mem.eql(u8, member_name, "i32_to_f32")) return "simd.i32_to_f32";
-        if (std.mem.eql(u8, member_name, "f32_to_i32")) return "simd.f32_to_i32";
+        if (std.mem.eql(u8, member_name, "i32ToF32")) return "simd.i32ToF32";
+        if (std.mem.eql(u8, member_name, "f32ToI32")) return "simd.f32ToI32";
         return null;
     }
 
@@ -1797,7 +1797,7 @@ const TypeChecker = struct {
             return types.primitives.int_id;
         }
 
-        if (std.mem.eql(u8, builtin_name, "simd.load") or std.mem.eql(u8, builtin_name, "simd.load_unaligned")) {
+        if (std.mem.eql(u8, builtin_name, "simd.load") or std.mem.eql(u8, builtin_name, "simd.loadUnaligned")) {
             if (arg_nodes.len != 1) {
                 try self.diagnostics.addErrorFmt(call_loc.start, call_loc.end, "{s} expects 1 argument, got {d}", .{ builtin_name, arg_nodes.len });
                 return types.null_type;
@@ -2032,13 +2032,13 @@ const TypeChecker = struct {
             return target_type;
         }
 
-        // Conversion: i32_to_f32
-        if (std.mem.eql(u8, builtin_name, "simd.i32_to_f32")) {
+        // Conversion: i32ToF32
+        if (std.mem.eql(u8, builtin_name, "simd.i32ToF32")) {
             const vec_type = try self.expectSimdVectorArgs(builtin_name, arg_nodes, arg_types, 1, call_node) orelse return types.null_type;
             const simd = self.type_pool.getSimd(vec_type).?;
             if (simd.elem_kind != .int or simd.elem_bits != 32) {
                 const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
-                try self.diagnostics.addError(loc.start, loc.end, "simd.i32_to_f32 expects a v4i32 or v8i32 argument");
+                try self.diagnostics.addError(loc.start, loc.end, "simd.i32ToF32 expects a v4i32 or v8i32 argument");
                 return types.null_type;
             }
             return switch (simd.lanes) {
@@ -2048,13 +2048,13 @@ const TypeChecker = struct {
             };
         }
 
-        // Conversion: f32_to_i32
-        if (std.mem.eql(u8, builtin_name, "simd.f32_to_i32")) {
+        // Conversion: f32ToI32
+        if (std.mem.eql(u8, builtin_name, "simd.f32ToI32")) {
             const vec_type = try self.expectSimdVectorArgs(builtin_name, arg_nodes, arg_types, 1, call_node) orelse return types.null_type;
             const simd = self.type_pool.getSimd(vec_type).?;
             if (simd.elem_kind != .float or simd.elem_bits != 32) {
                 const loc = self.tokenLoc(self.nodeMainToken(arg_nodes[0]));
-                try self.diagnostics.addError(loc.start, loc.end, "simd.f32_to_i32 expects a v4f32 or v8f32 argument");
+                try self.diagnostics.addError(loc.start, loc.end, "simd.f32ToI32 expects a v4f32 or v8f32 argument");
                 return types.null_type;
             }
             return switch (simd.lanes) {
@@ -3975,7 +3975,7 @@ test "typecheck: interface type as function parameter" {
 
 test "typecheck: error union return type construction" {
     const result = try testTypeCheck(
-        \\fn read_file() !int {
+        \\fn readFile() !int {
         \\    return 42
         \\}
         \\
@@ -3995,11 +3995,11 @@ test "typecheck: nullable type construction in var decl" {
 
 test "typecheck: try on error union valid" {
     const result = try testTypeCheck(
-        \\fn read_file() !int {
+        \\fn readFile() !int {
         \\    return 42
         \\}
         \\fn main() !int {
-        \\    var x int = try read_file()
+        \\    var x int = try readFile()
         \\    return x
         \\}
         \\
@@ -4023,11 +4023,11 @@ test "typecheck: try on non-error-union operand" {
 
 test "typecheck: try in non-error-union function" {
     const has_err = try testTypeCheckHasErrorContaining(
-        \\fn read_file() !int {
+        \\fn readFile() !int {
         \\    return 42
         \\}
         \\fn main() {
-        \\    var x int = try read_file()
+        \\    var x int = try readFile()
         \\}
         \\
     , "'try' requires enclosing function to return an error union");
@@ -4067,11 +4067,11 @@ test "typecheck: null assigned to non-nullable in assignment" {
 
 test "typecheck: switch exhaustive on error union" {
     const result = try testTypeCheck(
-        \\fn read_file() !int {
+        \\fn readFile() !int {
         \\    return 42
         \\}
         \\fn main() {
-        \\    switch read_file() {
+        \\    switch readFile() {
         \\        .ok(val) :: val,
         \\        .err(e) :: e,
         \\    }
@@ -4083,11 +4083,11 @@ test "typecheck: switch exhaustive on error union" {
 
 test "typecheck: switch non-exhaustive on error union missing err" {
     const has_err = try testTypeCheckHasErrorContaining(
-        \\fn read_file() !int {
+        \\fn readFile() !int {
         \\    return 42
         \\}
         \\fn main() {
-        \\    switch read_file() {
+        \\    switch readFile() {
         \\        .ok(val) :: val,
         \\    }
         \\}
@@ -4129,11 +4129,11 @@ test "typecheck: switch non-exhaustive on nullable missing null" {
 
 test "typecheck: switch with wildcard on error union" {
     const result = try testTypeCheck(
-        \\fn read_file() !int {
+        \\fn readFile() !int {
         \\    return 42
         \\}
         \\fn main() {
-        \\    switch read_file() {
+        \\    switch readFile() {
         \\        _ :: 0,
         \\    }
         \\}
@@ -4733,7 +4733,7 @@ test "typecheck: SIMD load store with pointer-to-vector valid" {
         \\    let value = v4f32{ 1.0, 2.0, 3.0, 4.0 }
         \\    simd.store(ptr, value)
         \\    let roundtrip = simd.load(ptr)
-        \\    let unaligned = simd.load_unaligned(ptr)
+        \\    let unaligned = simd.loadUnaligned(ptr)
         \\}
         \\
     );

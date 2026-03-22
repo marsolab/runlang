@@ -24,8 +24,8 @@ pub Reader struct {
     reader io.Reader
 }
 
-// new_reader returns a new Reader that decompresses data from r.
-pub fun new_reader(r io.Reader) Reader {
+// newReader returns a new Reader that decompresses data from r.
+pub fun newReader(r io.Reader) Reader {
     return Reader{ reader: r }
 }
 
@@ -49,13 +49,13 @@ pub Writer struct {
     level  int
 }
 
-// new_writer returns a new Writer that compresses data at the default level.
-pub fun new_writer(w io.Writer) Writer {
+// newWriter returns a new Writer that compresses data at the default level.
+pub fun newWriter(w io.Writer) Writer {
     return Writer{ writer: w, level: default_compression }
 }
 
-// new_writer_level returns a new Writer that compresses data at the given level.
-pub fun new_writer_level(w io.Writer, level int) !Writer {
+// newWriterLevel returns a new Writer that compresses data at the given level.
+pub fun newWriterLevel(w io.Writer, level int) !Writer {
     return Writer{ writer: w, level: level }
 }
 

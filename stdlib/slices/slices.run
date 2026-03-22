@@ -11,9 +11,9 @@ pub fun index(s []any, v any) int? {
     return null
 }
 
-// last_index returns the index of the last occurrence of v in s,
+// lastIndex returns the index of the last occurrence of v in s,
 // or null if v is not present.
-pub fun last_index(s []any, v any) int? {
+pub fun lastIndex(s []any, v any) int? {
     return null
 }
 
@@ -22,14 +22,14 @@ pub fun compact(s []any) []any {
     return alloc([]any, 0)
 }
 
-// sort_func sorts s in-place using the provided comparison function.
+// sortFunc sorts s in-place using the provided comparison function.
 // cmp(a, b) should return a negative number when a < b, zero when a == b,
 // and a positive number when a > b.
-pub fun sort_func(s []any, cmp fun(a any, b any) int) {
+pub fun sortFunc(s []any, cmp fun(a any, b any) int) {
 }
 
-// is_sorted_func reports whether s is sorted according to the comparison function.
-pub fun is_sorted_func(s []any, cmp fun(a any, b any) int) bool {
+// isSortedFunc reports whether s is sorted according to the comparison function.
+pub fun isSortedFunc(s []any, cmp fun(a any, b any) int) bool {
     return false
 }
 
@@ -63,19 +63,19 @@ pub fun equal(a []any, b []any) bool {
     return false
 }
 
-// min_func returns the minimum element of s according to the comparison function.
-pub fun min_func(s []any, cmp fun(a any, b any) int) any {
+// minFunc returns the minimum element of s according to the comparison function.
+pub fun minFunc(s []any, cmp fun(a any, b any) int) any {
     return null
 }
 
-// max_func returns the maximum element of s according to the comparison function.
-pub fun max_func(s []any, cmp fun(a any, b any) int) any {
+// maxFunc returns the maximum element of s according to the comparison function.
+pub fun maxFunc(s []any, cmp fun(a any, b any) int) any {
     return null
 }
 
-// binary_search_func searches for target in a sorted slice using the
+// binarySearchFunc searches for target in a sorted slice using the
 // comparison function. Returns the index if found, or null.
-pub fun binary_search_func(s []any, target any, cmp fun(a any, b any) int) int? {
+pub fun binarySearchFunc(s []any, target any, cmp fun(a any, b any) int) int? {
     return null
 }
 

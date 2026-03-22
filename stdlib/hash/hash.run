@@ -14,8 +14,8 @@ pub type Hash32 interface {
     // size returns the number of bytes sum will produce.
     size() int
 
-    // block_size returns the hash's underlying block size.
-    block_size() int
+    // blockSize returns the hash's underlying block size.
+    blockSize() int
 }
 
 // Hash64 is the interface for 64-bit hash functions.
@@ -32,8 +32,8 @@ pub type Hash64 interface {
     // size returns the number of bytes sum will produce.
     size() int
 
-    // block_size returns the hash's underlying block size.
-    block_size() int
+    // blockSize returns the hash's underlying block size.
+    blockSize() int
 }
 
 // Fnv32 implements the FNV-1 and FNV-1a 32-bit hash algorithms.
@@ -74,8 +74,8 @@ pub fun (h @Fnv32) size() int {
     return 4
 }
 
-// block_size returns the hash's underlying block size.
-pub fun (h @Fnv32) block_size() int {
+// blockSize returns the hash's underlying block size.
+pub fun (h @Fnv32) blockSize() int {
     return 1
 }
 
@@ -117,8 +117,8 @@ pub fun (h @Fnv64) size() int {
     return 8
 }
 
-// block_size returns the hash's underlying block size.
-pub fun (h @Fnv64) block_size() int {
+// blockSize returns the hash's underlying block size.
+pub fun (h @Fnv64) blockSize() int {
     return 1
 }
 
@@ -155,7 +155,7 @@ pub fun (h @Xxhash64) size() int {
     return 8
 }
 
-// block_size returns the hash's underlying block size.
-pub fun (h @Xxhash64) block_size() int {
+// blockSize returns the hash's underlying block size.
+pub fun (h @Xxhash64) blockSize() int {
     return 32
 }

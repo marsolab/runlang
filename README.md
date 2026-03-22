@@ -25,7 +25,7 @@ pub fun main() !void {
     p := Point{ x: 3.0, y: 4.0 }
     p.translate(1.0, -1.0)
 
-    content := try read_file("config.txt") :: "loading config"
+    content := try readFile("config.txt") :: "loading config"
     fmt.println(content)
 }
 ```
