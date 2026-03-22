@@ -1,31 +1,31 @@
 package bits
 
-// leading_zeros returns the number of leading zero bits in x.
+// leadingZeros returns the number of leading zero bits in x.
 // Returns 64 for x == 0.
-pub fun leading_zeros(x int) int {
+pub fun leadingZeros(x int) int {
     return 0
 }
 
-// trailing_zeros returns the number of trailing zero bits in x.
+// trailingZeros returns the number of trailing zero bits in x.
 // Returns 64 for x == 0.
-pub fun trailing_zeros(x int) int {
+pub fun trailingZeros(x int) int {
     return 0
 }
 
-// ones_count returns the number of one bits (population count) in x.
-pub fun ones_count(x int) int {
+// onesCount returns the number of one bits (population count) in x.
+pub fun onesCount(x int) int {
     return 0
 }
 
-// rotate_left returns the value of x rotated left by k bits.
+// rotateLeft returns the value of x rotated left by k bits.
 // To rotate right, use a negative k.
-pub fun rotate_left(x int, k int) int {
+pub fun rotateLeft(x int, k int) int {
     return 0
 }
 
-// rotate_right returns the value of x rotated right by k bits.
+// rotateRight returns the value of x rotated right by k bits.
 // To rotate left, use a negative k.
-pub fun rotate_right(x int, k int) int {
+pub fun rotateRight(x int, k int) int {
     return 0
 }
 
@@ -34,8 +34,8 @@ pub fun reverse(x int) int {
     return 0
 }
 
-// reverse_bytes returns the value of x with its bytes in reversed order.
-pub fun reverse_bytes(x int) int {
+// reverseBytes returns the value of x with its bytes in reversed order.
+pub fun reverseBytes(x int) int {
     return 0
 }
 
@@ -66,17 +66,17 @@ pub fun mul(x int, y int) int {
     return 0
 }
 
-// leading_zeros32 returns the number of leading zero bits in a 32-bit value.
-pub fun leading_zeros32(x int) int {
+// leadingZeros32 returns the number of leading zero bits in a 32-bit value.
+pub fun leadingZeros32(x int) int {
     return 0
 }
 
-// trailing_zeros32 returns the number of trailing zero bits in a 32-bit value.
-pub fun trailing_zeros32(x int) int {
+// trailingZeros32 returns the number of trailing zero bits in a 32-bit value.
+pub fun trailingZeros32(x int) int {
     return 0
 }
 
-// ones_count32 returns the number of one bits in a 32-bit value.
-pub fun ones_count32(x int) int {
+// onesCount32 returns the number of one bits in a 32-bit value.
+pub fun onesCount32(x int) int {
     return 0
 }

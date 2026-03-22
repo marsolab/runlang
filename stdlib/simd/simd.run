@@ -40,8 +40,8 @@ pub fun load(ptr @v4f32) v4f32 {
     return v4f32{ 0.0, 0.0, 0.0, 0.0 }
 }
 
-// load_unaligned performs an unaligned load from a pointer to a vector.
-pub fun load_unaligned(ptr @v4f32) v4f32 {
+// loadUnaligned performs an unaligned load from a pointer to a vector.
+pub fun loadUnaligned(ptr @v4f32) v4f32 {
     return v4f32{ 0.0, 0.0, 0.0, 0.0 }
 }
 
@@ -96,14 +96,14 @@ pub fun broadcast(v v4f32) v4f32 {
     return v4f32{ 0.0, 0.0, 0.0, 0.0 }
 }
 
-// i32_to_f32 converts an integer vector to a float vector.
+// i32ToF32 converts an integer vector to a float vector.
 // Works with v4i32 -> v4f32 and v8i32 -> v8f32.
-pub fun i32_to_f32(v v4i32) v4f32 {
+pub fun i32ToF32(v v4i32) v4f32 {
     return v4f32{ 0.0, 0.0, 0.0, 0.0 }
 }
 
-// f32_to_i32 converts a float vector to an integer vector.
+// f32ToI32 converts a float vector to an integer vector.
 // Works with v4f32 -> v4i32 and v8f32 -> v8i32.
-pub fun f32_to_i32(v v4f32) v4i32 {
+pub fun f32ToI32(v v4f32) v4i32 {
     return v4i32{ 0, 0, 0, 0 }
 }

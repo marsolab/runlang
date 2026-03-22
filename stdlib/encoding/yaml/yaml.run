@@ -28,8 +28,8 @@ pub fun marshal(value any) ![]byte {
 pub fun unmarshal(data []byte, target &any) !void {
 }
 
-// marshal_string encodes a value as a YAML string.
-pub fun marshal_string(value any) !string {
+// marshalString encodes a value as a YAML string.
+pub fun marshalString(value any) !string {
     return ""
 }
 
@@ -38,8 +38,8 @@ pub fun parse(data []byte) !Value {
     return .null
 }
 
-// parse_string parses a YAML string into a dynamic Value tree.
-pub fun parse_string(s string) !Value {
+// parseString parses a YAML string into a dynamic Value tree.
+pub fun parseString(s string) !Value {
     return .null
 }
 
@@ -53,33 +53,33 @@ pub fun (v @Value) index(i int) Value? {
     return null
 }
 
-// as_string returns the string if the Value is a string, or null.
-pub fun (v @Value) as_string() string? {
+// asString returns the string if the Value is a string, or null.
+pub fun (v @Value) asString() string? {
     return null
 }
 
-// as_int returns the int if the Value is an int, or null.
-pub fun (v @Value) as_int() int? {
+// asInt returns the int if the Value is an int, or null.
+pub fun (v @Value) asInt() int? {
     return null
 }
 
-// as_float returns the float if the Value is a float, or null.
-pub fun (v @Value) as_float() f64? {
+// asFloat returns the float if the Value is a float, or null.
+pub fun (v @Value) asFloat() f64? {
     return null
 }
 
-// as_bool returns the bool if the Value is a bool, or null.
-pub fun (v @Value) as_bool() bool? {
+// asBool returns the bool if the Value is a bool, or null.
+pub fun (v @Value) asBool() bool? {
     return null
 }
 
-// as_sequence returns the sequence if the Value is a sequence, or null.
-pub fun (v @Value) as_sequence() []Value? {
+// asSequence returns the sequence if the Value is a sequence, or null.
+pub fun (v @Value) asSequence() []Value? {
     return null
 }
 
-// as_mapping returns the mapping if the Value is a mapping, or null.
-pub fun (v @Value) as_mapping() map[string]Value? {
+// asMapping returns the mapping if the Value is a mapping, or null.
+pub fun (v @Value) asMapping() map[string]Value? {
     return null
 }
 
@@ -88,8 +88,8 @@ pub Encoder struct {
     writer io.Writer
 }
 
-// new_encoder returns a new Encoder that writes to w.
-pub fun new_encoder(w io.Writer) Encoder {
+// newEncoder returns a new Encoder that writes to w.
+pub fun newEncoder(w io.Writer) Encoder {
     return Encoder{ writer: w }
 }
 
@@ -107,8 +107,8 @@ pub Decoder struct {
     reader io.Reader
 }
 
-// new_decoder returns a new Decoder that reads from r.
-pub fun new_decoder(r io.Reader) Decoder {
+// newDecoder returns a new Decoder that reads from r.
+pub fun newDecoder(r io.Reader) Decoder {
     return Decoder{ reader: r }
 }
 

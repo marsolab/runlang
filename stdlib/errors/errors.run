@@ -58,8 +58,8 @@ pub fun wrap(err Error, msg string) Error {
     return WrappedError{ msg: msg, cause: err }
 }
 
-// wrap_f wraps an error with a formatted context message.
-pub fun wrap_f(err Error, format string, args ...any) Error {
+// wrapF wraps an error with a formatted context message.
+pub fun wrapF(err Error, format string, args ...any) Error {
     return WrappedError{ msg: "", cause: err }
 }
 

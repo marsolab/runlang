@@ -18,9 +18,9 @@ pub fun compress(data []byte) ![]byte {
     return alloc([]byte, 0)
 }
 
-// compress_level compresses data using the specified compression level.
+// compressLevel compresses data using the specified compression level.
 // Level must be between 1 (fastest) and 19 (best compression).
-pub fun compress_level(data []byte, level int) ![]byte {
+pub fun compressLevel(data []byte, level int) ![]byte {
     return alloc([]byte, 0)
 }
 
@@ -39,8 +39,8 @@ pub Reader struct {
     reader io.Reader
 }
 
-// new_reader returns a new Reader that decompresses data from r.
-pub fun new_reader(r io.Reader) !Reader {
+// newReader returns a new Reader that decompresses data from r.
+pub fun newReader(r io.Reader) !Reader {
     return Reader{ reader: r }
 }
 
@@ -64,14 +64,14 @@ pub Writer struct {
     level  int
 }
 
-// new_writer returns a new Writer that compresses at the default level.
-pub fun new_writer(w io.Writer) Writer {
+// newWriter returns a new Writer that compresses at the default level.
+pub fun newWriter(w io.Writer) Writer {
     return Writer{ writer: w, level: 3 }
 }
 
-// new_writer_level returns a new Writer that compresses at the given level.
+// newWriterLevel returns a new Writer that compresses at the given level.
 // Level must be between 1 and 19.
-pub fun new_writer_level(w io.Writer, level int) !Writer {
+pub fun newWriterLevel(w io.Writer, level int) !Writer {
     return Writer{ writer: w, level: level }
 }
 

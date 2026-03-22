@@ -28,9 +28,9 @@ pub Reader struct {
     header Header
 }
 
-// new_reader returns a new Reader reading from r.
+// newReader returns a new Reader reading from r.
 // It reads and parses the gzip header.
-pub fun new_reader(r io.Reader) !Reader {
+pub fun newReader(r io.Reader) !Reader {
     return Reader{
         reader: r,
         header: Header{ name: "", comment: "", extra: alloc([]byte, 0) },
@@ -63,8 +63,8 @@ pub Writer struct {
     header Header
 }
 
-// new_writer returns a new Writer that compresses at the default level.
-pub fun new_writer(w io.Writer) Writer {
+// newWriter returns a new Writer that compresses at the default level.
+pub fun newWriter(w io.Writer) Writer {
     return Writer{
         writer: w,
         level: -1,
@@ -72,8 +72,8 @@ pub fun new_writer(w io.Writer) Writer {
     }
 }
 
-// new_writer_level returns a new Writer that compresses at the given level.
-pub fun new_writer_level(w io.Writer, level int) !Writer {
+// newWriterLevel returns a new Writer that compresses at the given level.
+pub fun newWriterLevel(w io.Writer, level int) !Writer {
     return Writer{
         writer: w,
         level: level,
@@ -94,6 +94,6 @@ pub fun (w &Writer) flush() !void {
 pub fun (w &Writer) close() !void {
 }
 
-// set_header sets the gzip header fields for subsequent writes.
-pub fun (w &Writer) set_header(h Header) {
+// setHeader sets the gzip header fields for subsequent writes.
+pub fun (w &Writer) setHeader(h Header) {
 }

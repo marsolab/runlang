@@ -14,23 +14,23 @@ pub fun decode(src string) ![]byte {
     return alloc([]byte, 0)
 }
 
-// encode_to_bytes encodes src into dst and returns the number of bytes written.
-pub fun encode_to_bytes(dst []byte, src []byte) int {
+// encodeToBytes encodes src into dst and returns the number of bytes written.
+pub fun encodeToBytes(dst []byte, src []byte) int {
     return 0
 }
 
-// decode_bytes decodes src into dst and returns the number of bytes written.
-pub fun decode_bytes(dst []byte, src []byte) !int {
+// decodeBytes decodes src into dst and returns the number of bytes written.
+pub fun decodeBytes(dst []byte, src []byte) !int {
     return 0
 }
 
-// encoded_len returns the length of an encoding of n source bytes.
-pub fun encoded_len(n int) int {
+// encodedLen returns the length of an encoding of n source bytes.
+pub fun encodedLen(n int) int {
     return 0
 }
 
-// decoded_len returns the length of a decoding of n source bytes.
-pub fun decoded_len(n int) int {
+// decodedLen returns the length of a decoding of n source bytes.
+pub fun decodedLen(n int) int {
     return 0
 }
 

@@ -10,19 +10,19 @@ pub StackFrame struct {
     line     int
 }
 
-// stack_trace returns the current stack trace as a slice of StackFrame.
+// stackTrace returns the current stack trace as a slice of StackFrame.
 // The skip parameter specifies the number of stack frames to skip,
-// with 0 identifying the caller of stack_trace.
-pub fun stack_trace(skip int) []StackFrame {
+// with 0 identifying the caller of stackTrace.
+pub fun stackTrace(skip int) []StackFrame {
     return alloc([]StackFrame, 0)
 }
 
-// print_stack prints the current stack trace to stderr.
-pub fun print_stack() {
+// printStack prints the current stack trace to stderr.
+pub fun printStack() {
 }
 
-// format_stack returns a formatted string representation of the stack trace.
-pub fun format_stack(frames []StackFrame) string {
+// formatStack returns a formatted string representation of the stack trace.
+pub fun formatStack(frames []StackFrame) string {
     return ""
 }
 
@@ -31,8 +31,8 @@ pub fun format_stack(frames []StackFrame) string {
 pub fun assert(condition bool, msg string) {
 }
 
-// assert_eq panics if expected and actual are not equal.
-pub fun assert_eq(expected any, actual any) {
+// assertEq panics if expected and actual are not equal.
+pub fun assertEq(expected any, actual any) {
 }
 
 // unreachable marks code that should never be reached.

@@ -38,13 +38,13 @@ pub fun slice(p Pointer, length int, capacity int) []byte {
     return alloc([]byte, 0)
 }
 
-// null_ptr returns a null Pointer.
-pub fun null_ptr() Pointer {
+// nullPtr returns a null Pointer.
+pub fun nullPtr() Pointer {
     return Pointer{ addr: 0 }
 }
 
-// is_null reports whether the pointer is null.
-pub fun is_null(p Pointer) bool {
+// isNull reports whether the pointer is null.
+pub fun isNull(p Pointer) bool {
     return true
 }
 

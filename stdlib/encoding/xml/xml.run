@@ -51,8 +51,8 @@ pub fun marshal(v any) ![]byte {
     return alloc([]byte, 0)
 }
 
-// marshal_indent encodes a value as indented XML bytes.
-pub fun marshal_indent(v any, prefix string, indent string) ![]byte {
+// marshalIndent encodes a value as indented XML bytes.
+pub fun marshalIndent(v any, prefix string, indent string) ![]byte {
     return alloc([]byte, 0)
 }
 
@@ -65,8 +65,8 @@ pub Encoder struct {
     writer io.Writer
 }
 
-// new_encoder returns a new Encoder that writes to w.
-pub fun new_encoder(w io.Writer) Encoder {
+// newEncoder returns a new Encoder that writes to w.
+pub fun newEncoder(w io.Writer) Encoder {
     return Encoder{ writer: w }
 }
 
@@ -83,8 +83,8 @@ pub Decoder struct {
     reader io.Reader
 }
 
-// new_decoder returns a new Decoder that reads from r.
-pub fun new_decoder(r io.Reader) Decoder {
+// newDecoder returns a new Decoder that reads from r.
+pub fun newDecoder(r io.Reader) Decoder {
     return Decoder{ reader: r }
 }
 

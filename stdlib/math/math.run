@@ -9,8 +9,8 @@ pub let ln2 = 0.693147180559945309417
 pub let ln10 = 2.30258509299404568402
 pub let max_f64 = 1.7976931348623157e308
 pub let min_f64 = 5.0e-324
-pub let max_int = 9223372036854775807
-pub let min_int = -9223372036854775808
+pub let maxInt = 9223372036854775807
+pub let minInt = -9223372036854775808
 pub let inf = 1.0 / 0.0
 pub let nan = 0.0 / 0.0
 
@@ -19,8 +19,8 @@ pub fun abs(x f64) f64 {
     return 0.0
 }
 
-// abs_int returns the absolute value of an integer.
-pub fun abs_int(x int) int {
+// absInt returns the absolute value of an integer.
+pub fun absInt(x int) int {
     return 0
 }
 
@@ -34,13 +34,13 @@ pub fun max(a f64, b f64) f64 {
     return 0.0
 }
 
-// min_int returns the smaller of a or b.
-pub fun min_int(a int, b int) int {
+// minInt returns the smaller of a or b.
+pub fun minInt(a int, b int) int {
     return 0
 }
 
-// max_int returns the larger of a or b.
-pub fun max_int(a int, b int) int {
+// maxInt returns the larger of a or b.
+pub fun maxInt(a int, b int) int {
     return 0
 }
 
@@ -125,13 +125,13 @@ pub fun exp(x f64) f64 {
     return 0.0
 }
 
-// is_nan reports whether x is an IEEE 754 "not-a-number" value.
-pub fun is_nan(x f64) bool {
+// isNan reports whether x is an IEEE 754 "not-a-number" value.
+pub fun isNan(x f64) bool {
     return false
 }
 
-// is_inf reports whether x is positive or negative infinity.
-pub fun is_inf(x f64) bool {
+// isInf reports whether x is positive or negative infinity.
+pub fun isInf(x f64) bool {
     return false
 }
 
@@ -140,8 +140,8 @@ pub fun clamp(x f64, lo f64, hi f64) f64 {
     return 0.0
 }
 
-// clamp_int returns x clamped to the integer range [lo, hi].
-pub fun clamp_int(x int, lo int, hi int) int {
+// clampInt returns x clamped to the integer range [lo, hi].
+pub fun clampInt(x int, lo int, hi int) int {
     return 0
 }
 

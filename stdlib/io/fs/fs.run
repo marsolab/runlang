@@ -31,8 +31,8 @@ pub type ReadDirFS interface {
     // open opens the named file.
     open(name string) !File
 
-    // read_dir reads the named directory and returns a list of directory entries.
-    read_dir(name string) ![]DirEntry
+    // readDir reads the named directory and returns a list of directory entries.
+    readDir(name string) ![]DirEntry
 }
 
 // StatFS is an FS that can stat files without opening them.
@@ -85,9 +85,9 @@ pub type FileMode = .regular
     | .pipe
     | .device
 
-// walk_dir walks the file tree rooted at root, calling fn for each file
+// walkDir walks the file tree rooted at root, calling fn for each file
 // or directory in the tree, including root.
-pub fun walk_dir(fsys FS, root string, fn fun(path string, d DirEntry, err any) any) {
+pub fun walkDir(fsys FS, root string, fn fun(path string, d DirEntry, err any) any) {
 }
 
 // sub returns an FS corresponding to the subtree rooted at dir.
@@ -100,13 +100,13 @@ pub fun glob(fsys FS, pattern string) ![]string {
     return alloc([]string, 0)
 }
 
-// read_file reads the named file from the file system fs and returns its contents.
-pub fun read_file(fsys FS, name string) ![]byte {
+// readFile reads the named file from the file system fs and returns its contents.
+pub fun readFile(fsys FS, name string) ![]byte {
     return alloc([]byte, 0)
 }
 
-// valid_path reports whether the given path name is valid for use
+// validPath reports whether the given path name is valid for use
 // with an FS implementation.
-pub fun valid_path(name string) bool {
+pub fun validPath(name string) bool {
     return false
 }

@@ -19,12 +19,12 @@ use "os"
 fun load_config(path: string) !string {
     file := try os.open(path)      // may return os.NotFound, os.Permission, ...
     defer file.close()
-    content := try file.read_all() // may return io.ReadError, ...
+    content := try file.readAll() // may return io.ReadError, ...
     return content
 }
 ```
 
-The error set of `load_config` is the union of all errors from `os.open` and `file.read_all`. You never need to write this out — the compiler tracks it for you.
+The error set of `load_config` is the union of all errors from `os.open` and `file.readAll`. You never need to write this out — the compiler tracks it for you.
 
 ## Handling specific errors
 
@@ -55,8 +55,8 @@ The `try` keyword unwraps a success value or immediately returns the error from 
 
 ```go
 fun process() !int {
-    data := try read_file("input.txt")   // returns error if read fails
-    parsed := try parse_int(data)         // returns error if parse fails
+    data := try readFile("input.txt")   // returns error if read fails
+    parsed := try parseInt(data)         // returns error if parse fails
     return parsed * 2                     // only reached on success
 }
 ```

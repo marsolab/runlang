@@ -27,13 +27,13 @@ pub fun new384() crypto.Hash {
     return null
 }
 
-// new512_256 returns a new crypto.Hash computing the SHA-512/256 checksum.
-pub fun new512_256() crypto.Hash {
+// new512256 returns a new crypto.Hash computing the SHA-512/256 checksum.
+pub fun new512256() crypto.Hash {
     return null
 }
 
-// new512_224 returns a new crypto.Hash computing the SHA-512/224 checksum.
-pub fun new512_224() crypto.Hash {
+// new512224 returns a new crypto.Hash computing the SHA-512/224 checksum.
+pub fun new512224() crypto.Hash {
     return null
 }
 

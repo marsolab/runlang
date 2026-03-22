@@ -22,14 +22,14 @@ pub fun equal(a map[any]any, b map[any]any) bool {
     return false
 }
 
-// equal_func reports whether two maps contain the same keys and
+// equalFunc reports whether two maps contain the same keys and
 // the values satisfy the provided equality function.
-pub fun equal_func(a map[any]any, b map[any]any, eq fun(v1 any, v2 any) bool) bool {
+pub fun equalFunc(a map[any]any, b map[any]any, eq fun(v1 any, v2 any) bool) bool {
     return false
 }
 
-// delete_func deletes all entries from m for which f returns true.
-pub fun delete_func(m map[any]any, f fun(key any, value any) bool) {
+// deleteFunc deletes all entries from m for which f returns true.
+pub fun deleteFunc(m map[any]any, f fun(key any, value any) bool) {
 }
 
 // copy copies all key/value pairs from src to dst.

@@ -30,8 +30,8 @@ pub fun parse(text string) !Template {
     return Template{ name: "" }
 }
 
-// parse_files reads and parses the named files as templates.
-pub fun parse_files(filenames ...string) !Template {
+// parseFiles reads and parses the named files as templates.
+pub fun parseFiles(filenames ...string) !Template {
     return Template{ name: "" }
 }
 
@@ -45,9 +45,9 @@ pub fun must(t Template) Template {
 pub fun (t @Template) execute(wr io.Writer, data any) !void {
 }
 
-// execute_string applies the parsed template to the data and returns
+// executeString applies the parsed template to the data and returns
 // the result as a string.
-pub fun (t @Template) execute_string(data any) !string {
+pub fun (t @Template) executeString(data any) !string {
     return ""
 }
 

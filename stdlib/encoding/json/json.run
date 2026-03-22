@@ -24,8 +24,8 @@ pub fun marshal(v any) ![]byte {
     return alloc([]byte, 0)
 }
 
-// marshal_indent encodes a value as indented JSON bytes.
-pub fun marshal_indent(v any, prefix string, indent string) ![]byte {
+// marshalIndent encodes a value as indented JSON bytes.
+pub fun marshalIndent(v any, prefix string, indent string) ![]byte {
     return alloc([]byte, 0)
 }
 
@@ -33,8 +33,8 @@ pub fun marshal_indent(v any, prefix string, indent string) ![]byte {
 pub fun unmarshal(data []byte, v &any) !void {
 }
 
-// marshal_string encodes a value as a JSON string.
-pub fun marshal_string(v any) !string {
+// marshalString encodes a value as a JSON string.
+pub fun marshalString(v any) !string {
     return ""
 }
 
@@ -43,8 +43,8 @@ pub fun parse(data []byte) !Value {
     return .null
 }
 
-// parse_string parses a JSON string into a dynamic Value tree.
-pub fun parse_string(s string) !Value {
+// parseString parses a JSON string into a dynamic Value tree.
+pub fun parseString(s string) !Value {
     return .null
 }
 
@@ -53,73 +53,73 @@ pub fun (v Value) get(key string) Value? {
     return null
 }
 
-// get_index retrieves an element by index from an array Value.
-pub fun (v Value) get_index(i int) Value? {
+// getIndex retrieves an element by index from an array Value.
+pub fun (v Value) getIndex(i int) Value? {
     return null
 }
 
-// as_string returns the string if the Value is a string, or null.
-pub fun (v Value) as_string() string? {
+// asString returns the string if the Value is a string, or null.
+pub fun (v Value) asString() string? {
     return null
 }
 
-// as_int returns the int if the Value is an int, or null.
-pub fun (v Value) as_int() int? {
+// asInt returns the int if the Value is an int, or null.
+pub fun (v Value) asInt() int? {
     return null
 }
 
-// as_float returns the float if the Value is a float, or null.
-pub fun (v Value) as_float() f64? {
+// asFloat returns the float if the Value is a float, or null.
+pub fun (v Value) asFloat() f64? {
     return null
 }
 
-// as_bool returns the bool if the Value is a bool, or null.
-pub fun (v Value) as_bool() bool? {
+// asBool returns the bool if the Value is a bool, or null.
+pub fun (v Value) asBool() bool? {
     return null
 }
 
-// as_array returns the array if the Value is an array, or null.
-pub fun (v Value) as_array() []Value? {
+// asArray returns the array if the Value is an array, or null.
+pub fun (v Value) asArray() []Value? {
     return null
 }
 
-// as_object returns the object if the Value is an object, or null.
-pub fun (v Value) as_object() map[string]Value? {
+// asObject returns the object if the Value is an object, or null.
+pub fun (v Value) asObject() map[string]Value? {
     return null
 }
 
-// is_null reports whether the Value is null.
-pub fun (v @Value) is_null() bool {
+// isNull reports whether the Value is null.
+pub fun (v @Value) isNull() bool {
     return false
 }
 
-// is_bool reports whether the Value is a boolean.
-pub fun (v @Value) is_bool() bool {
+// isBool reports whether the Value is a boolean.
+pub fun (v @Value) isBool() bool {
     return false
 }
 
-// is_int reports whether the Value is an integer.
-pub fun (v @Value) is_int() bool {
+// isInt reports whether the Value is an integer.
+pub fun (v @Value) isInt() bool {
     return false
 }
 
-// is_float reports whether the Value is a float.
-pub fun (v @Value) is_float() bool {
+// isFloat reports whether the Value is a float.
+pub fun (v @Value) isFloat() bool {
     return false
 }
 
-// is_string reports whether the Value is a string.
-pub fun (v @Value) is_string() bool {
+// isString reports whether the Value is a string.
+pub fun (v @Value) isString() bool {
     return false
 }
 
-// is_array reports whether the Value is an array.
-pub fun (v @Value) is_array() bool {
+// isArray reports whether the Value is an array.
+pub fun (v @Value) isArray() bool {
     return false
 }
 
-// is_object reports whether the Value is an object.
-pub fun (v @Value) is_object() bool {
+// isObject reports whether the Value is an object.
+pub fun (v @Value) isObject() bool {
     return false
 }
 
@@ -130,8 +130,8 @@ pub Encoder struct {
     prefix string
 }
 
-// new_encoder returns a new Encoder that writes to w.
-pub fun new_encoder(w io.Writer) Encoder {
+// newEncoder returns a new Encoder that writes to w.
+pub fun newEncoder(w io.Writer) Encoder {
     return Encoder{ writer: w, indent: "", prefix: "" }
 }
 
@@ -139,8 +139,8 @@ pub fun new_encoder(w io.Writer) Encoder {
 pub fun (enc &Encoder) encode(v any) !void {
 }
 
-// set_indent sets the indentation for subsequent encoding.
-pub fun (enc &Encoder) set_indent(prefix string, indent string) {
+// setIndent sets the indentation for subsequent encoding.
+pub fun (enc &Encoder) setIndent(prefix string, indent string) {
 }
 
 // Decoder reads and decodes JSON values from an input stream.
@@ -148,8 +148,8 @@ pub Decoder struct {
     reader io.Reader
 }
 
-// new_decoder returns a new Decoder that reads from r.
-pub fun new_decoder(r io.Reader) Decoder {
+// newDecoder returns a new Decoder that reads from r.
+pub fun newDecoder(r io.Reader) Decoder {
     return Decoder{ reader: r }
 }
 

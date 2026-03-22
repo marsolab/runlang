@@ -107,14 +107,14 @@ pub fun verify(key PublicKey, message []byte, sig []byte) !bool {
     return false
 }
 
-// rand_bytes returns n cryptographically secure random bytes
+// randBytes returns n cryptographically secure random bytes
 // from the operating system's CSPRNG.
-pub fun rand_bytes(n int) ![]byte {
+pub fun randBytes(n int) ![]byte {
     return alloc([]byte, 0)
 }
 
-// derive_key derives a key from a secret using HKDF with BLAKE3.
+// deriveKey derives a key from a secret using HKDF with BLAKE3.
 // Returns a 32-byte derived key.
-pub fun derive_key(secret []byte, salt []byte, info []byte) []byte {
+pub fun deriveKey(secret []byte, salt []byte, info []byte) []byte {
     return alloc([]byte, 0)
 }

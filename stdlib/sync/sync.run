@@ -13,9 +13,9 @@ pub fun (m &Mutex) lock() {
 pub fun (m &Mutex) unlock() {
 }
 
-// try_lock attempts to acquire the mutex without blocking.
+// tryLock attempts to acquire the mutex without blocking.
 // Returns true if the lock was acquired.
-pub fun (m &Mutex) try_lock() bool {
+pub fun (m &Mutex) tryLock() bool {
     return false
 }
 
@@ -26,20 +26,20 @@ pub RwMutex struct {
     writing bool
 }
 
-// read_lock acquires the read lock.
-pub fun (rw &RwMutex) read_lock() {
+// readLock acquires the read lock.
+pub fun (rw &RwMutex) readLock() {
 }
 
-// read_unlock releases the read lock.
-pub fun (rw &RwMutex) read_unlock() {
+// readUnlock releases the read lock.
+pub fun (rw &RwMutex) readUnlock() {
 }
 
-// write_lock acquires the write lock.
-pub fun (rw &RwMutex) write_lock() {
+// writeLock acquires the write lock.
+pub fun (rw &RwMutex) writeLock() {
 }
 
-// write_unlock releases the write lock.
-pub fun (rw &RwMutex) write_unlock() {
+// writeUnlock releases the write lock.
+pub fun (rw &RwMutex) writeUnlock() {
 }
 
 // WaitGroup waits for a collection of tasks to finish.
@@ -93,9 +93,9 @@ pub fun (a &Atomic) swap(new int) int {
     return 0
 }
 
-// compare_and_swap executes the compare-and-swap operation.
+// compareAndSwap executes the compare-and-swap operation.
 // Returns true if the swap was performed.
-pub fun (a &Atomic) compare_and_swap(old int, new int) bool {
+pub fun (a &Atomic) compareAndSwap(old int, new int) bool {
     return false
 }
 

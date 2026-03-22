@@ -60,7 +60,7 @@ fun handle(w: &http.ResponseWriter, r: @http.Request) {
 pub fun main() {
     http.handlefn("/", handle)
     fmt.println("listening on :8080")
-    http.listen_and_serve(":8080")
+    http.listenAndServe(":8080")
 }
 ```
 
