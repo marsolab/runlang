@@ -1494,7 +1494,7 @@ pub const Parser = struct {
                     .data = .{ .lhs = null_node, .rhs = null_node },
                 });
             },
-            .identifier => {
+            .identifier, .kw_syscall => {
                 const tok = self.pos;
                 self.advance();
                 return self.tree.addNode(.{
@@ -2553,6 +2553,28 @@ test "parse anonymous struct with newline-separated fields" {
         if (node.tag == .field_decl) field_count += 1;
     }
     try std.testing.expectEqual(@as(u32, 3), field_count);
+}
+
+test "parse syscall keyword builtin call" {
+    const source = "fn main() {\n    _ = syscall.getpid()\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_call = false;
+    var found_field_access = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .call) found_call = true;
+        if (node.tag == .field_access) found_field_access = true;
+    }
+    try std.testing.expect(found_call);
+    try std.testing.expect(found_field_access);
 }
 
 test "parse pointer to anonymous struct type" {

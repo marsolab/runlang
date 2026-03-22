@@ -1713,6 +1713,36 @@ const TypeChecker = struct {
         const member_name = self.tokenSlice(self.nodeMainToken(callee_node) + 1);
 
         if (std.mem.eql(u8, package_name, "unsafe") and std.mem.eql(u8, member_name, "alignof")) return "unsafe.alignof";
+        if (std.mem.eql(u8, package_name, "syscall")) {
+            if (std.mem.eql(u8, member_name, "open")) return "syscall.open";
+            if (std.mem.eql(u8, member_name, "read")) return "syscall.read";
+            if (std.mem.eql(u8, member_name, "write")) return "syscall.write";
+            if (std.mem.eql(u8, member_name, "close")) return "syscall.close";
+            if (std.mem.eql(u8, member_name, "lseek")) return "syscall.lseek";
+            if (std.mem.eql(u8, member_name, "args")) return "syscall.args";
+            if (std.mem.eql(u8, member_name, "getenv")) return "syscall.getenv";
+            if (std.mem.eql(u8, member_name, "setenv")) return "syscall.setenv";
+            if (std.mem.eql(u8, member_name, "unsetenv")) return "syscall.unsetenv";
+            if (std.mem.eql(u8, member_name, "environ")) return "syscall.environ";
+            if (std.mem.eql(u8, member_name, "exit")) return "syscall.exit";
+            if (std.mem.eql(u8, member_name, "getpid")) return "syscall.getpid";
+            if (std.mem.eql(u8, member_name, "gethostname")) return "syscall.gethostname";
+            if (std.mem.eql(u8, member_name, "mkdir")) return "syscall.mkdir";
+            if (std.mem.eql(u8, member_name, "rmdir")) return "syscall.rmdir";
+            if (std.mem.eql(u8, member_name, "unlink")) return "syscall.unlink";
+            if (std.mem.eql(u8, member_name, "rename")) return "syscall.rename";
+            if (std.mem.eql(u8, member_name, "symlink")) return "syscall.symlink";
+            if (std.mem.eql(u8, member_name, "readlink")) return "syscall.readlink";
+            if (std.mem.eql(u8, member_name, "chmod")) return "syscall.chmod";
+            if (std.mem.eql(u8, member_name, "chown")) return "syscall.chown";
+            if (std.mem.eql(u8, member_name, "stat")) return "syscall.stat";
+            if (std.mem.eql(u8, member_name, "lstat")) return "syscall.lstat";
+            if (std.mem.eql(u8, member_name, "readdir")) return "syscall.readdir";
+            if (std.mem.eql(u8, member_name, "mkstemp")) return "syscall.mkstemp";
+            if (std.mem.eql(u8, member_name, "getcwd")) return "syscall.getcwd";
+            if (std.mem.eql(u8, member_name, "chdir")) return "syscall.chdir";
+            return null;
+        }
         if (!std.mem.eql(u8, package_name, "simd")) return null;
         if (std.mem.eql(u8, member_name, "hadd")) return "simd.hadd";
         if (std.mem.eql(u8, member_name, "dot")) return "simd.dot";
