@@ -42,6 +42,7 @@ pub fn lowerWithSource(
         .module = ir.Module.init(),
         .current_func = null,
         .current_block = null,
+        .next_fn_is_inline = false,
         .current_src_loc = .{},
         .var_map = .empty,
         .var_lookup = .empty,
@@ -70,6 +71,7 @@ const LoweringContext = struct {
     module: ir.Module,
     current_func: ?*ir.Function,
     current_block: ?*ir.BasicBlock,
+    next_fn_is_inline: bool,
     /// Current source location for debug info, stamped onto emitted instructions.
     current_src_loc: ir.SrcLoc,
 
@@ -402,6 +404,10 @@ const LoweringContext = struct {
         const node = self.tree.nodes.items[node_idx];
         switch (node.tag) {
             .pub_decl => try self.lowerTopLevel(node.data.lhs),
+            .inline_decl => {
+                self.next_fn_is_inline = true;
+                try self.lowerTopLevel(node.data.lhs);
+            },
             .fn_decl => try self.lowerFnDecl(node_idx),
             .import_decl => {},
             else => {},
@@ -437,6 +443,10 @@ const LoweringContext = struct {
 
         const func_id = try self.module.addFunction(self.allocator, mangled);
         self.current_func = self.module.getFunction(func_id);
+        if (self.next_fn_is_inline) {
+            self.current_func.?.is_inline = true;
+            self.next_fn_is_inline = false;
+        }
         self.current_func.?.return_type_name = "void";
         const params_start = node.data.lhs;
         var param_count: u32 = 0;

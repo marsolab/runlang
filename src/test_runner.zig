@@ -59,6 +59,18 @@ pub fn discoverTests(
                 if (inner.tag != .fn_decl) continue;
                 break :blk inner;
             },
+            .inline_decl => blk: {
+                var inner_idx = decl.data.lhs;
+                if (inner_idx == null_node) continue;
+                var inner = tree.nodes.items[inner_idx];
+                if (inner.tag == .pub_decl) {
+                    inner_idx = inner.data.lhs;
+                    if (inner_idx == null_node) continue;
+                    inner = tree.nodes.items[inner_idx];
+                }
+                if (inner.tag != .fn_decl) continue;
+                break :blk inner;
+            },
             else => continue,
         };
 

@@ -52,6 +52,7 @@ pub const Token = struct {
         kw_not,
         kw_asm,
         kw_clobber,
+        kw_inline,
         kw_syscall,
 
         // Operators
@@ -137,6 +138,7 @@ pub const Token = struct {
         .{ "not", .kw_not },
         .{ "asm", .kw_asm },
         .{ "clobber", .kw_clobber },
+        .{ "inline", .kw_inline },
         .{ "syscall", .kw_syscall },
     });
 

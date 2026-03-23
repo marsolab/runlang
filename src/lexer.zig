@@ -309,7 +309,7 @@ test "lex simple variable declaration" {
 }
 
 test "lex keywords" {
-    var lexer = Lexer.init("fn pub var let return package use struct map alloc syscall import");
+    var lexer = Lexer.init("fn pub var let return package use struct map alloc inline syscall import");
     try std.testing.expectEqual(Tag.kw_fun, lexer.next().tag);
     try std.testing.expectEqual(Tag.kw_pub, lexer.next().tag);
     try std.testing.expectEqual(Tag.kw_var, lexer.next().tag);
@@ -320,6 +320,7 @@ test "lex keywords" {
     try std.testing.expectEqual(Tag.kw_struct, lexer.next().tag);
     try std.testing.expectEqual(Tag.kw_map, lexer.next().tag);
     try std.testing.expectEqual(Tag.kw_alloc, lexer.next().tag);
+    try std.testing.expectEqual(Tag.kw_inline, lexer.next().tag);
     try std.testing.expectEqual(Tag.kw_syscall, lexer.next().tag);
     try std.testing.expectEqual(Tag.identifier, lexer.next().tag);
     try std.testing.expectEqual(Tag.eof, lexer.next().tag);

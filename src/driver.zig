@@ -396,6 +396,27 @@ fn validateFileConventions(
             .package_decl => {
                 package_name = tokens[decl.main_token].slice(source);
             },
+            .inline_decl => {
+                // inline always comes first; unwrap to check inner (pub_decl or fn_decl)
+                const inline_inner_idx = decl.data.lhs;
+                if (inline_inner_idx == 0) continue;
+                const inline_inner = tree.nodes.items[inline_inner_idx];
+                if (inline_inner.tag == .pub_decl) {
+                    const fn_idx = inline_inner.data.lhs;
+                    if (fn_idx == 0) continue;
+                    const fn_node = tree.nodes.items[fn_idx];
+                    if (fn_node.tag == .fn_decl) {
+                        const fn_tok = fn_node.main_token;
+                        if (fn_tok + 1 < tokens.len and tokens[fn_tok + 1].tag == .identifier) {
+                            const fn_name = tokens[fn_tok + 1].slice(source);
+                            if (std.mem.eql(u8, fn_name, "main")) {
+                                stderr.writeAll("error: fun main cannot be inline\n") catch {};
+                                return false;
+                            }
+                        }
+                    }
+                }
+            },
             .pub_decl => {
                 const inner_idx = decl.data.lhs;
                 if (inner_idx == 0) continue;

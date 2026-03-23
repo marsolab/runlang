@@ -791,6 +791,25 @@ fn findDefinition(tree: Ast, tokens: []const Token, name: []const u8) ?u32 {
                     else => {},
                 }
             },
+            .inline_decl => {
+                // Unwrap inline_decl → pub_decl or fn_decl
+                var inner_idx = node.data.lhs;
+                if (inner_idx == null_node) continue;
+                var inner = tree.nodes.items[inner_idx];
+                if (inner.tag == .pub_decl) {
+                    inner_idx = inner.data.lhs;
+                    if (inner_idx == null_node) continue;
+                    inner = tree.nodes.items[inner_idx];
+                }
+                if (inner.tag == .fn_decl) {
+                    if (inner.main_token + 1 < tokens.len and
+                        tokens[inner.main_token + 1].tag == .identifier and
+                        std.mem.eql(u8, tokens[inner.main_token + 1].slice(source), name))
+                    {
+                        return inner.main_token + 1;
+                    }
+                }
+            },
             else => {},
         }
     }
@@ -801,6 +820,7 @@ fn keywordDescription(tag: Token.Tag) []const u8 {
     return switch (tag) {
         .kw_fun => "fun — function declaration",
         .kw_pub => "pub — public visibility modifier",
+        .kw_inline => "inline — always inline function modifier",
         .kw_var => "var — mutable variable declaration",
         .kw_let => "let — immutable variable declaration",
         .kw_return => "return — return from function",

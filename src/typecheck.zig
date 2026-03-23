@@ -149,9 +149,8 @@ const TypeChecker = struct {
         // Pass 0: Register interface types so they can be referenced.
         for (decl_indices) |decl_idx| {
             var node = decl_idx;
-            if (self.nodeTag(node) == .pub_decl) {
-                node = self.nodeData(node).lhs;
-            }
+            if (self.nodeTag(node) == .inline_decl) node = self.nodeData(node).lhs;
+            if (self.nodeTag(node) == .pub_decl) node = self.nodeData(node).lhs;
             if (self.nodeTag(node) == .interface_decl) {
                 try self.registerInterfaceType(node);
             }
@@ -160,9 +159,8 @@ const TypeChecker = struct {
         // Pass 0b: Register struct types so they can be referenced in type annotations.
         for (decl_indices) |decl_idx| {
             var node = decl_idx;
-            if (self.nodeTag(node) == .pub_decl) {
-                node = self.nodeData(node).lhs;
-            }
+            if (self.nodeTag(node) == .inline_decl) node = self.nodeData(node).lhs;
+            if (self.nodeTag(node) == .pub_decl) node = self.nodeData(node).lhs;
             if (self.nodeTag(node) == .struct_decl) {
                 try self.registerStructType(node);
             }
@@ -171,9 +169,8 @@ const TypeChecker = struct {
         // Pass 0c: Register sum types (type_alias nodes with variants).
         for (decl_indices) |decl_idx| {
             var node = decl_idx;
-            if (self.nodeTag(node) == .pub_decl) {
-                node = self.nodeData(node).lhs;
-            }
+            if (self.nodeTag(node) == .inline_decl) node = self.nodeData(node).lhs;
+            if (self.nodeTag(node) == .pub_decl) node = self.nodeData(node).lhs;
             if (self.nodeTag(node) == .type_alias) {
                 try self.registerSumType(node);
             }
@@ -185,9 +182,8 @@ const TypeChecker = struct {
         // Pass 1: Register all function signatures so forward/recursive calls work.
         for (decl_indices) |decl_idx| {
             var node = decl_idx;
-            if (self.nodeTag(node) == .pub_decl) {
-                node = self.nodeData(node).lhs;
-            }
+            if (self.nodeTag(node) == .inline_decl) node = self.nodeData(node).lhs;
+            if (self.nodeTag(node) == .pub_decl) node = self.nodeData(node).lhs;
             if (self.nodeTag(node) == .fn_decl) {
                 try self.registerFnType(node);
             }
@@ -196,9 +192,8 @@ const TypeChecker = struct {
         // Pass 2: Type-check bodies and top-level var/let decls.
         for (decl_indices) |decl_idx| {
             var node = decl_idx;
-            if (self.nodeTag(node) == .pub_decl) {
-                node = self.nodeData(node).lhs;
-            }
+            if (self.nodeTag(node) == .inline_decl) node = self.nodeData(node).lhs;
+            if (self.nodeTag(node) == .pub_decl) node = self.nodeData(node).lhs;
             switch (self.nodeTag(node)) {
                 .fn_decl => try self.checkFnDecl(node),
                 .var_decl => try self.checkVarDecl(node),
@@ -210,9 +205,8 @@ const TypeChecker = struct {
         // Pass 3: Check interface satisfaction for all struct declarations.
         for (decl_indices) |decl_idx| {
             var node = decl_idx;
-            if (self.nodeTag(node) == .pub_decl) {
-                node = self.nodeData(node).lhs;
-            }
+            if (self.nodeTag(node) == .inline_decl) node = self.nodeData(node).lhs;
+            if (self.nodeTag(node) == .pub_decl) node = self.nodeData(node).lhs;
             if (self.nodeTag(node) == .struct_decl) {
                 try self.checkInterfaceSatisfaction(node);
             }

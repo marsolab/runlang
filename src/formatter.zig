@@ -59,6 +59,7 @@ pub const Formatter = struct {
             .import_decl => try self.formatImportDecl(node),
             .fn_decl => try self.formatFnDecl(node),
             .pub_decl => try self.formatPubDecl(node),
+            .inline_decl => try self.formatInlineDecl(node),
             .var_decl => try self.formatVarDecl(node),
             .let_decl => try self.formatLetDecl(node),
             .short_var_decl => try self.formatShortVarDecl(node),
@@ -137,6 +138,11 @@ pub const Formatter = struct {
 
     fn formatPubDecl(self: *Formatter, node: Node) !void {
         try self.write("pub ");
+        try self.formatNode(node.data.lhs);
+    }
+
+    fn formatInlineDecl(self: *Formatter, node: Node) !void {
+        try self.write("inline ");
         try self.formatNode(node.data.lhs);
     }
 

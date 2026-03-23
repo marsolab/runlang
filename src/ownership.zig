@@ -95,6 +95,7 @@ const OwnershipAnalyzer = struct {
         const node = self.tree.nodes.items[node_idx];
         switch (node.tag) {
             .pub_decl => try self.analyzeTopLevel(node.data.lhs),
+            .inline_decl => try self.analyzeTopLevel(node.data.lhs),
             .fn_decl => try self.analyzeFnDecl(node_idx),
             else => {},
         }

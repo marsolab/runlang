@@ -115,6 +115,10 @@ pub const Resolver = struct {
                 const inner = self.nodeData(node).lhs;
                 try self.collectTopLevelDeclInner(inner, true);
             },
+            .inline_decl => {
+                const inner = self.nodeData(node).lhs;
+                try self.collectTopLevelDecl(inner);
+            },
             else => try self.collectTopLevelDeclInner(node, false),
         }
     }
@@ -290,6 +294,9 @@ pub const Resolver = struct {
         for (decl_indices) |decl_idx| {
             var node = decl_idx;
             var is_pub = false;
+            if (self.nodeTag(node) == .inline_decl) {
+                node = self.nodeData(node).lhs;
+            }
             if (self.nodeTag(node) == .pub_decl) {
                 is_pub = true;
                 node = self.nodeData(node).lhs;
@@ -401,6 +408,9 @@ pub const Resolver = struct {
 
         for (decl_indices) |decl_idx| {
             var node = decl_idx;
+            if (self.nodeTag(node) == .inline_decl) {
+                node = self.nodeData(node).lhs;
+            }
             if (self.nodeTag(node) == .pub_decl) {
                 node = self.nodeData(node).lhs;
             }
@@ -586,7 +596,7 @@ pub const Resolver = struct {
             .asm_input, .asm_body, .asm_simple_body, .asm_platform => {},
 
             // These are handled by their parent
-            .fn_decl, .pub_decl, .struct_decl, .interface_decl,
+            .fn_decl, .pub_decl, .inline_decl, .struct_decl, .interface_decl,
             .type_alias, .type_decl, .package_decl, .import_decl,
             .field_decl, .method_sig, .param, .variadic_param, .receiver,
             .switch_arm, .root,

@@ -380,6 +380,20 @@ const Interpreter = struct {
                         }
                     }
                 },
+                .inline_decl => {
+                    if (node.data.lhs != Ast.null_node) {
+                        var inner = self.nodes[node.data.lhs];
+                        var fn_node_idx = node.data.lhs;
+                        if (inner.tag == .pub_decl and inner.data.lhs != Ast.null_node) {
+                            fn_node_idx = inner.data.lhs;
+                            inner = self.nodes[fn_node_idx];
+                        }
+                        if (inner.tag == .fn_decl) {
+                            const name = self.getFnName(inner.main_token);
+                            if (std.mem.eql(u8, name, "main")) return fn_node_idx;
+                        }
+                    }
+                },
                 else => {},
             }
         }

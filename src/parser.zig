@@ -107,6 +107,7 @@ pub const Parser = struct {
     fn parseTopLevel(self: *Parser) Error!NodeIndex {
         return switch (self.peekTag()) {
             .kw_pub => self.parsePubDecl(),
+            .kw_inline => self.parseInlineDecl(),
             .kw_fun => self.parseFnDecl(),
             .kw_type => self.parseTypeAlias(),
             .kw_package => self.parsePackageDecl(),
@@ -152,6 +153,26 @@ pub const Parser = struct {
         return self.tree.addNode(.{
             .tag = .pub_decl,
             .main_token = pub_tok,
+            .data = .{ .lhs = inner, .rhs = null_node },
+        });
+    }
+
+    fn parseInlineDecl(self: *Parser) Error!NodeIndex {
+        const inline_tok = self.pos;
+        self.expect(.kw_inline);
+
+        const inner = switch (self.peekTag()) {
+            .kw_fun => try self.parseFnDecl(),
+            .kw_pub => try self.parsePubDecl(),
+            else => blk: {
+                try self.addError(.expected_expression, self.currentLoc(), null);
+                break :blk null_node;
+            },
+        };
+
+        return self.tree.addNode(.{
+            .tag = .inline_decl,
+            .main_token = inline_tok,
             .data = .{ .lhs = inner, .rhs = null_node },
         });
     }
@@ -3219,4 +3240,61 @@ test "parse asm with platform conditionals" {
     }
     try std.testing.expect(found_asm);
     try std.testing.expectEqual(@as(u32, 2), platform_count);
+}
+
+test "parse inline function" {
+    const source = "inline fun add(a int, b int) int {\n    return a + b\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_inline = false;
+    var found_fn = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .inline_decl) found_inline = true;
+        if (node.tag == .fn_decl) found_fn = true;
+    }
+    try std.testing.expect(found_inline);
+    try std.testing.expect(found_fn);
+}
+
+test "parse inline pub function" {
+    const source = "inline pub fun sub(a int, b int) int {\n    return a - b\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_inline = false;
+    var found_pub = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .inline_decl) found_inline = true;
+        if (node.tag == .pub_decl) found_pub = true;
+    }
+    try std.testing.expect(found_inline);
+    try std.testing.expect(found_pub);
+}
+
+test "parse pub inline is error" {
+    const source = "pub inline fun add(a int, b int) int {\n    return a + b\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len > 0);
 }

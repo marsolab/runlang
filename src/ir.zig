@@ -158,6 +158,7 @@ pub const Function = struct {
     return_type_name: []const u8,
     blocks: std.ArrayList(BasicBlock),
     next_ref: Ref,
+    is_inline: bool,
 
     pub const Param = struct {
         name: []const u8,
@@ -172,6 +173,7 @@ pub const Function = struct {
             .return_type_name = "void",
             .blocks = .empty,
             .next_ref = 1, // 0 = null_ref
+            .is_inline = false,
         };
     }
 

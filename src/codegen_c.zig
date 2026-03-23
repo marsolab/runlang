@@ -80,6 +80,7 @@ pub const CCodegen = struct {
 
     fn emitFunctionPrototype(self: *CCodegen, func: *const ir.Function) !void {
         try self.emitIndent();
+        if (func.is_inline) try self.writer().print("static inline ", .{});
         try self.writer().print("{s} {s}(", .{ func.return_type_name, func.name });
         if (func.params.items.len == 0) {
             try self.writer().print("void", .{});
@@ -109,6 +110,7 @@ pub const CCodegen = struct {
 
         // Function signature
         try self.emitIndent();
+        if (func.is_inline) try self.writer().print("static inline ", .{});
         try self.writer().print("{s} {s}(", .{ func.return_type_name, func.name });
         if (func.params.items.len == 0) {
             try self.writer().print("void", .{});

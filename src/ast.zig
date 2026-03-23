@@ -97,6 +97,9 @@ pub const Node = struct {
         /// `pub fn ...` wraps fn_decl
         /// lhs = inner declaration node
         pub_decl,
+        /// `inline fn ...` wraps fn_decl (or pub_decl containing fn_decl)
+        /// lhs = inner declaration node
+        inline_decl,
         /// `var name type = expr` or `var name type` — mutable variable
         /// lhs = type node (or null_node), rhs = init expr (or null_node)
         var_decl,
