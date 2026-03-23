@@ -18,30 +18,33 @@ BINARY_PATH=""
 LIB_PATH=""
 INCLUDE_DIR=""
 OUTPUT_DIR="."
+SIGN_IDENTITY=""
 
 usage() {
     cat <<EOF
-Usage: $0 --version VERSION --binary-path PATH --lib-path PATH --include-dir PATH [--output-dir DIR]
+Usage: $0 --version VERSION --binary-path PATH --lib-path PATH --include-dir PATH [--output-dir DIR] [--sign-identity IDENTITY]
 
 Arguments:
-  --version VERSION      Release version (e.g. 0.1.0) [required]
-  --binary-path PATH     Path to the 'run' binary [required]
-  --lib-path PATH        Path to librunrt.a [required]
-  --include-dir PATH     Path to the include/run directory containing .h files [required]
-  --output-dir DIR       Directory to write the DMG (default: .)
+  --version VERSION        Release version (e.g. 0.1.0) [required]
+  --binary-path PATH       Path to the 'run' binary [required]
+  --lib-path PATH          Path to librunrt.a [required]
+  --include-dir PATH       Path to the include/run directory containing .h files [required]
+  --output-dir DIR         Directory to write the DMG (default: .)
+  --sign-identity IDENTITY Developer ID to sign the binary and DMG (optional)
 EOF
     exit 1
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --version)     VERSION="$2";     shift 2 ;;
-        --binary-path) BINARY_PATH="$2"; shift 2 ;;
-        --lib-path)    LIB_PATH="$2";    shift 2 ;;
-        --include-dir) INCLUDE_DIR="$2"; shift 2 ;;
-        --output-dir)  OUTPUT_DIR="$2";  shift 2 ;;
-        -h|--help)     usage ;;
-        *)             echo "Error: unknown argument: $1" >&2; usage ;;
+        --version)       VERSION="$2";       shift 2 ;;
+        --binary-path)   BINARY_PATH="$2";   shift 2 ;;
+        --lib-path)      LIB_PATH="$2";      shift 2 ;;
+        --include-dir)   INCLUDE_DIR="$2";   shift 2 ;;
+        --output-dir)    OUTPUT_DIR="$2";    shift 2 ;;
+        --sign-identity) SIGN_IDENTITY="$2"; shift 2 ;;
+        -h|--help)       usage ;;
+        *)               echo "Error: unknown argument: $1" >&2; usage ;;
     esac
 done
 
@@ -148,6 +151,17 @@ INSTALLER
 chmod +x "${DMG_CONTENT}/install.sh"
 
 # ---------------------------------------------------------------------------
+# Sign the binary (if identity provided)
+# ---------------------------------------------------------------------------
+
+if [[ -n "$SIGN_IDENTITY" ]]; then
+    echo "==> Signing binary with identity: ${SIGN_IDENTITY}"
+    codesign --force --options runtime --timestamp \
+        --sign "$SIGN_IDENTITY" "${DMG_CONTENT}/bin/run"
+    codesign --verify --verbose=2 "${DMG_CONTENT}/bin/run"
+fi
+
+# ---------------------------------------------------------------------------
 # Create the DMG
 # ---------------------------------------------------------------------------
 
@@ -160,5 +174,10 @@ hdiutil create \
     -ov \
     -format UDZO \
     "${OUTPUT_DIR}/${DMG_NAME}"
+
+if [[ -n "$SIGN_IDENTITY" ]]; then
+    echo "==> Signing DMG..."
+    codesign --force --sign "$SIGN_IDENTITY" "${OUTPUT_DIR}/${DMG_NAME}"
+fi
 
 echo "==> DMG created: ${OUTPUT_DIR}/${DMG_NAME}"
