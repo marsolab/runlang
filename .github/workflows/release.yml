@@ -56,6 +56,28 @@ jobs:
       - name: Build
         run: zig build -Dtarget=${{ matrix.target }} -Doptimize=ReleaseSafe
 
+      - name: Import signing certificate
+        if: matrix.os == 'darwin'
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          chmod +x scripts/codesign-macos.sh
+          ./scripts/codesign-macos.sh import \
+            --certificate-base64 "$MACOS_CERTIFICATE_BASE64" \
+            --certificate-password "$MACOS_CERTIFICATE_PASSWORD" \
+            --keychain-password "$MACOS_KEYCHAIN_PASSWORD"
+
+      - name: Sign binary
+        if: matrix.os == 'darwin'
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          ./scripts/codesign-macos.sh sign \
+            --identity "$MACOS_SIGNING_IDENTITY" \
+            --file zig-out/bin/run
+
       - name: Package tarball
         run: |
           chmod +x scripts/create-release-tarball.sh
@@ -64,6 +86,10 @@ jobs:
             --os "${{ matrix.os }}" \
             --arch "${{ matrix.arch }}" \
             --output-dir dist
+
+      - name: Clean up keychain
+        if: matrix.os == 'darwin' && always()
+        run: ./scripts/codesign-macos.sh cleanup
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -106,6 +132,18 @@ jobs:
           mkdir -p extracted/arm64 extracted/amd64
           tar xzf "artifacts/run-${VERSION}-darwin-arm64.tar.gz" -C extracted/arm64 --strip-components=1
           tar xzf "artifacts/run-${VERSION}-darwin-amd64.tar.gz" -C extracted/amd64 --strip-components=1
+
+      - name: Import signing certificate
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          chmod +x scripts/codesign-macos.sh
+          ./scripts/codesign-macos.sh import \
+            --certificate-base64 "$MACOS_CERTIFICATE_BASE64" \
+            --certificate-password "$MACOS_CERTIFICATE_PASSWORD" \
+            --keychain-password "$MACOS_KEYCHAIN_PASSWORD"
 
       - name: Create universal binary
         run: |
@@ -197,6 +235,14 @@ jobs:
           sed -i '' 's/^          //' dmg-staging/run/install.sh
           chmod +x dmg-staging/run/install.sh
 
+      - name: Sign universal binary
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          ./scripts/codesign-macos.sh sign \
+            --identity "$MACOS_SIGNING_IDENTITY" \
+            --file dmg-staging/run/bin/run
+
       - name: Build DMG
         run: |
           VERSION="${{ steps.version.outputs.version }}"
@@ -209,6 +255,31 @@ jobs:
             -ov \
             -format UDZO \
             "dist/${DMG_NAME}"
+
+      - name: Sign DMG
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          codesign --force --sign "$MACOS_SIGNING_IDENTITY" \
+            "dist/run-${VERSION}-darwin-universal.dmg"
+
+      - name: Notarize DMG
+        env:
+          MACOS_NOTARIZATION_APPLE_ID: ${{ secrets.MACOS_NOTARIZATION_APPLE_ID }}
+          MACOS_NOTARIZATION_TEAM_ID: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
+          MACOS_NOTARIZATION_PASSWORD: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ./scripts/codesign-macos.sh notarize \
+            --apple-id "$MACOS_NOTARIZATION_APPLE_ID" \
+            --team-id "$MACOS_NOTARIZATION_TEAM_ID" \
+            --password "$MACOS_NOTARIZATION_PASSWORD" \
+            --file "dist/run-${VERSION}-darwin-universal.dmg"
+
+      - name: Clean up keychain
+        if: always()
+        run: ./scripts/codesign-macos.sh cleanup
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
