@@ -21,7 +21,7 @@ fun (p &Point) translate(dx f64, dy f64) {
     p.y = p.y + dy
 }
 
-pub fun main() !void {
+pub fun main() ! {
     p := Point{ x: 3.0, y: 4.0 }
     p.translate(1.0, -1.0)
 

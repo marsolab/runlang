@@ -8,7 +8,7 @@ Run is built on a few deliberate principles. Understanding them helps you write 
 
 ## Simplicity over expressiveness
 
-Run optimizes for readability and a small learning curve. There is one way to loop (`for`), one way to handle errors (`!T` with `try` and `switch`), and one way to define types (`struct`). This means less time debating style and more time solving problems.
+Run optimizes for readability and a small learning curve. There is one way to loop (`for`), one way to handle errors (`!T` or bare `!` with `try` and `switch`), and one way to define types (`struct`). This means less time debating style and more time solving problems.
 
 ## No generics
 

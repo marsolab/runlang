@@ -8,7 +8,7 @@ Congratulations — you have completed the Run language tour! Here is a summary 
 - **Control flow** — for loops, if/else, switch, break/continue, defer
 - **Data types** — structs, slices, maps, strings, pointers
 - **Type system** — methods, interfaces, sum types, nullable types, newtypes
-- **Error handling** — error unions with `!T`, `try`, and `switch`
+- **Error handling** — error unions with `!T` and bare `!`, `try`, and `switch`
 - **Closures** — first-class functions and captured variables
 - **Concurrency** — green threads with `run`, channels for communication
 - **Memory model** — generational references, owning and non-owning pointers

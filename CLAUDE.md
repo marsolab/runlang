@@ -48,7 +48,7 @@ These differ from older Zig versions and are critical to get right:
 - Memory safety via generational references (no GC, no borrow checker)
 - No generics by design
 - `&T` (read/write pointer), `@T` (read-only pointer)
-- `!T` error unions with `try` and `switch`
+- `!T` error unions with `try` and `switch`; bare `!` for failable functions with no return value
 - Structs use `type Name struct { }` syntax (name before keyword); interfaces with `implements` block inside struct
 - Go-style methods: `fun (recv &Type) name(params) ret { body }` — receiver in parens between `fun` and method name
 - Newlines are significant tokens

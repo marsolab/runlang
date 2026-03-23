@@ -158,7 +158,7 @@ pub fun (f &File) write(buf []byte) !int {
 }
 
 // Close closes the file.
-pub fun (f &File) close() !void {
+pub fun (f &File) close() ! {
     try syscall.close(f.fd)
 }
 ```

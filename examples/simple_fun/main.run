@@ -1,0 +1,11 @@
+package main
+
+use "fmt"
+
+pub fun main() {
+    fmt.printf("%s %s\n", hi(), there())
+}
+
+fun hi() string { return "Hi" }
+
+pub fun there() string { return "there" }

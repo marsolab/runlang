@@ -111,9 +111,9 @@ defer file.close()
 ```run
 // Core formatting
 pub fun sprintf(format string, args ...any) string
-pub fun printf(format string, args ...any) !void
-pub fun println(args ...any) !void
-pub fun eprintln(args ...any) !void
+pub fun printf(format string, args ...any) !
+pub fun println(args ...any) !
+pub fun eprintln(args ...any) !
 
 // Stringer interface
 pub interface Stringer {
@@ -132,7 +132,7 @@ pub interface Writer {
 }
 
 pub interface Closer {
-    fun close() !void
+    fun close() !
 }
 
 pub interface ReadWriter {
@@ -154,8 +154,8 @@ pub fun newBufferedWriter(w Writer) BufferedWriter
 ```run
 pub fun open(path string) !File
 pub fun create(path string) !File
-pub fun remove(path string) !void
-pub fun mkdir(path string) !void
+pub fun remove(path string) !
+pub fun mkdir(path string) !
 pub fun readDir(path string) ![]DirEntry
 pub fun getenv(key string) string?
 pub fun exit(code int)

@@ -405,6 +405,27 @@ fn validateFileConventions(
                     if (fn_tok + 1 < tokens.len and tokens[fn_tok + 1].tag == .identifier) {
                         const fn_name = tokens[fn_tok + 1].slice(source);
                         if (std.mem.eql(u8, fn_name, "main")) {
+                            const params_start = inner.data.lhs;
+                            const extra = tree.extra_data.items;
+                            const param_count = findParamCount(params_start, extra);
+
+                            if (param_count != 0) {
+                                stderr.writeAll("error: fun main must take no parameters\n") catch {};
+                                return false;
+                            }
+
+                            const receiver = extra[params_start + param_count + 1];
+                            if (receiver != 0) {
+                                stderr.writeAll("error: fun main must not have a receiver\n") catch {};
+                                return false;
+                            }
+
+                            const ret_type = extra[params_start + param_count + 2];
+                            if (ret_type != 0) {
+                                stderr.writeAll("error: fun main must not have a return type\n") catch {};
+                                return false;
+                            }
+
                             has_pub_main = true;
                         }
                     }
@@ -425,6 +446,15 @@ fn validateFileConventions(
     }
 
     return true;
+}
+
+fn findParamCount(start: u32, extra: []const u32) u32 {
+    var n: u32 = 0;
+    while (start + n < extra.len) {
+        if (extra[start + n] == n) return n;
+        n += 1;
+    }
+    return 0;
 }
 
 /// Invoke zig cc to compile generated C source with the runtime library.

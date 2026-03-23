@@ -1777,11 +1777,12 @@ pub const Parser = struct {
     // --- Types ---
 
     fn parseType(self: *Parser) Error!NodeIndex {
-        // Error union: !T
+        // Error union: !T or bare ! (void error union)
         if (self.peekTag() == .bang) {
             const tok = self.pos;
             self.advance();
-            const inner = try self.parseType();
+            // Bare `!` means error union with void success type
+            const inner = if (self.isTypeStart()) try self.parseType() else null_node;
             return self.tree.addNode(.{
                 .tag = .type_error_union,
                 .main_token = tok,
@@ -2512,6 +2513,29 @@ test "parse error union of anonymous struct" {
     }
     try std.testing.expect(found_error_union);
     try std.testing.expect(found_anon_struct_type);
+}
+
+test "parse bare ! void error union return type" {
+    const source = "fn save(path string) ! {\n    try writeFile(path)\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_error_union = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_error_union) {
+            found_error_union = true;
+            // lhs should be null_node (void) for bare !
+            try std.testing.expect(node.data.lhs == 0);
+        }
+    }
+    try std.testing.expect(found_error_union);
 }
 
 test "parse anonymous struct in closure return type" {

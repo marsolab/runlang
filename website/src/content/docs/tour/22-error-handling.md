@@ -4,7 +4,7 @@ sidebar:
   order: 22
 ---
 
-Run uses error unions for error handling, inspired by Zig. A function that can fail returns `!T` — either a value of type `T` or an error.
+Run uses error unions for error handling, inspired by Zig. A function that can fail returns `!T` — either a value of type `T` or an error. A function that returns nothing but can fail uses bare `!`.
 
 ```go
 package main
@@ -35,6 +35,29 @@ fun process() !int {
     data := try readFile("input.txt")
     result := try parse(data)
     return result
+}
+```
+
+## Void error unions
+
+When a function performs a side effect that can fail but has no return value, use bare `!`:
+
+```go
+fun save(path: string, data: string) ! {
+    file := try os.create(path)
+    defer file.close()
+    try file.write(data)
+}
+```
+
+The caller uses `try` or `switch` the same way — the `.ok` branch simply has no value:
+
+```go
+try save("output.txt", content)
+
+switch save("output.txt", content) {
+    .ok :: fmt.println("saved"),
+    .err(e) :: fmt.println("write failed:", e),
 }
 ```
 

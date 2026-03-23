@@ -54,7 +54,7 @@ sprintln(args) string         — concatenate with spaces and newline
 ```
 Reader            interface    — read(buf []byte) !int
 Writer            interface    — write(data []byte) !int
-Closer            interface    — close() !void
+Closer            interface    — close() !
 Seeker            interface    — seek(offset int, whence SeekWhence) !int
 ReadWriter        interface    — Reader + Writer
 ReadCloser        interface    — Reader + Closer
@@ -98,17 +98,17 @@ open_file(path, flags, mode) !File — open with full control
 stat(path) !FileInfo          — file metadata
 lstat(path) !FileInfo         — metadata without following symlinks
 read_file(path) ![]byte       — read entire file
-write_file(path, data) !void  — write entire file
+write_file(path, data) !  — write entire file
 read_dir(path) ![]DirEntry    — list directory contents
-mkdir(path) !void             — create directory
-mkdir_all(path) !void         — create directory tree
-remove(path) !void            — remove file or empty directory
-remove_all(path) !void        — remove tree
-rename(old, new) !void        — rename/move
-symlink(target, link) !void   — create symlink
+mkdir(path) !             — create directory
+mkdir_all(path) !         — create directory tree
+remove(path) !            — remove file or empty directory
+remove_all(path) !        — remove tree
+rename(old, new) !        — rename/move
+symlink(target, link) !   — create symlink
 read_link(path) !string       — read symlink target
-chmod(path, mode) !void       — change permissions
-chown(path, uid, gid) !void   — change ownership
+chmod(path, mode) !       — change permissions
+chown(path, uid, gid) !   — change ownership
 temp_dir() string             — OS temp directory
 create_temp(prefix) !File     — create temp file
 temp_file(prefix) !File       — backward-compatible alias for create_temp
@@ -127,15 +127,15 @@ glob(pattern) ![]string            — match file pattern
 // Process and environment
 args() []string               — command-line arguments
 getenv(key) string?            — get environment variable
-setenv(key, value) !void       — set environment variable
-unsetenv(key) !void            — remove environment variable
+setenv(key, value) !       — set environment variable
+unsetenv(key) !            — remove environment variable
 environ() []string             — all environment variables as KEY=VALUE
 exit(code)                     — terminate process
 getpid() int                   — current process ID
 hostname() !string             — machine hostname
 cwd() !string                  — current working directory
 getwd() !string                — backward-compatible alias for cwd
-chdir(path) !void              — change working directory
+chdir(path) !              — change working directory
 user_home_dir() !string        — user home directory
 
 // stdin, stdout, stderr as package-level File values
@@ -219,7 +219,7 @@ equal_fold(a, b) bool          — case-insensitive comparison
 ```
 Buffer            struct       — growable byte buffer (implements io.Reader, io.Writer)
   write_string(s string) !int
-  write_byte(b byte) !void
+  write_byte(b byte) !
   bytes() []byte
   string() string
   reset()
@@ -639,10 +639,10 @@ resolve_ip(host string) ![]Ip               — DNS lookup
 
 (c &Conn) read(buf []byte) !int
 (c &Conn) write(data []byte) !int
-(c &Conn) close() !void
-(c &Conn) set_deadline(t Time) !void
-(c &Conn) set_read_deadline(t Time) !void
-(c &Conn) set_write_deadline(t Time) !void
+(c &Conn) close() !
+(c &Conn) set_deadline(t Time) !
+(c &Conn) set_read_deadline(t Time) !
+(c &Conn) set_write_deadline(t Time) !
 (c @Conn) local_addr() Addr
 (c @Conn) remote_addr() Addr
 ```
@@ -663,8 +663,8 @@ Handler           interface    — fun serve_http(w &ResponseWriter, r @Request)
 Middleware        type         — fun(next Handler) Handler
 ResponseWriter    struct       — write HTTP responses (implements io.Writer)
 
-listen_and_serve(addr string, handler Handler) !void
-listen_and_serve_tls(addr, cert_file, key_file string, handler Handler) !void
+listen_and_serve(addr string, handler Handler) !
+listen_and_serve_tls(addr, cert_file, key_file string, handler Handler) !
 
 // Router — Patricia trie based, chi-style
 Router            struct       — radix tree request router
@@ -711,7 +711,7 @@ Cookie            struct       — HTTP cookie
 // ResponseWriter helpers
 (w &ResponseWriter) write_header(status_code int)
 (w &ResponseWriter) set_header(key, value string)
-(w &ResponseWriter) write_json(status int, value any) !void
+(w &ResponseWriter) write_json(status int, value any) !
 (w &ResponseWriter) redirect(url string, code int)
 
 // Client
@@ -801,8 +801,8 @@ Stream            struct       — single HTTP/2 stream within a connection
 // net/http uses it automatically for HTTP/2 connections.
 // grpc uses it as its transport layer.
 
-configure_server(srv &http.Server) !void   — enable HTTP/2 on existing HTTP server
-configure_transport(t &http.Transport) !void
+configure_server(srv &http.Server) !   — enable HTTP/2 on existing HTTP server
+configure_transport(t &http.Transport) !
 ```
 
 **Dependencies:** `net`, `net/http`, `io`, `sync`, `crypto/tls`
@@ -823,7 +823,7 @@ StreamDesc        struct       — streaming method descriptor
 
 new_server(opts ...ServerOption) Server
 (s &Server) register_service(desc @ServiceDesc, impl any)
-(s &Server) serve(listener net.Listener) !void
+(s &Server) serve(listener net.Listener) !
 (s &Server) graceful_stop()
 (s &Server) stop()
 
@@ -837,7 +837,7 @@ ServerOption      sum type     — .max_recv_msg_size(int) | .max_send_msg_size(
 // Client
 ClientConn        struct       — gRPC client connection
 dial(target string, opts ...DialOption) !ClientConn
-(cc &ClientConn) close() !void
+(cc &ClientConn) close() !
 
 DialOption        sum type     — .insecure | .block | .timeout(Duration)
                                 | .creds(Credentials)
@@ -847,20 +847,20 @@ DialOption        sum type     — .insecure | .block | .timeout(Duration)
                                 | .default_service_config(string)
 
 // RPC invocation (used by generated code)
-invoke(cc &ClientConn, method string, req any, reply &any, opts ...CallOption) !void
+invoke(cc &ClientConn, method string, req any, reply &any, opts ...CallOption) !
 new_stream(cc &ClientConn, desc @StreamDesc, method string, opts ...CallOption) !ClientStream
 
 // Streaming interfaces
 type ServerStream interface {
-    send(msg any) !void
-    recv(msg &any) !void
-    send_header(Metadata) !void
+    send(msg any) !
+    recv(msg &any) !
+    send_header(Metadata) !
     set_trailer(Metadata)
 }
 type ClientStream interface {
-    send(msg any) !void
-    recv(msg &any) !void
-    close_send() !void
+    send(msg any) !
+    recv(msg &any) !
+    close_send() !
     header() !Metadata
     trailer() Metadata
 }
@@ -889,8 +889,8 @@ new_metadata(pairs ...string) Metadata
 
 // Interceptors
 UnaryServerInterceptor    type — fun(ctx Context, req any, info @UnaryServerInfo, handler UnaryHandler) !any
-StreamServerInterceptor   type — fun(srv any, stream ServerStream, info @StreamServerInfo, handler StreamHandler) !void
-UnaryClientInterceptor    type — fun(ctx Context, method string, req any, reply &any, cc &ClientConn, invoker UnaryInvoker, opts ...CallOption) !void
+StreamServerInterceptor   type — fun(srv any, stream ServerStream, info @StreamServerInfo, handler StreamHandler) !
+UnaryClientInterceptor    type — fun(ctx Context, method string, req any, reply &any, cc &ClientConn, invoker UnaryInvoker, opts ...CallOption) !
 StreamClientInterceptor   type — fun(ctx Context, desc @StreamDesc, cc &ClientConn, method string, streamer Streamer, opts ...CallOption) !ClientStream
 
 // Credentials
@@ -932,10 +932,10 @@ ServingStatus     sum type     — .unknown | .serving | .not_serving
 ```
 Message           interface    — types that can be serialized as protobuf
   proto_marshal() ![]byte
-  proto_unmarshal(data []byte) !void
+  proto_unmarshal(data []byte) !
 
 marshal(msg Message) ![]byte           — encode message to wire format
-unmarshal(data []byte, msg &Message) !void  — decode wire format into message
+unmarshal(data []byte, msg &Message) !  — decode wire format into message
 size(msg @Message) int                 — encoded size in bytes
 
 // Wire types (used by generated code and reflection)
@@ -950,10 +950,10 @@ type FieldDescriptor struct {
 }
 
 // Encoding helpers (used by generated code)
-encode_varint(buf &bytes.Buffer, v int) !void
-encode_bytes(buf &bytes.Buffer, data []byte) !void
-encode_fixed32(buf &bytes.Buffer, v u32) !void
-encode_fixed64(buf &bytes.Buffer, v u64) !void
+encode_varint(buf &bytes.Buffer, v int) !
+encode_bytes(buf &bytes.Buffer, data []byte) !
+encode_fixed32(buf &bytes.Buffer, v u32) !
+encode_fixed64(buf &bytes.Buffer, v u64) !
 decode_varint(data []byte, offset int) !(int, int)
 decode_bytes(data []byte, offset int) !([]byte, int)
 ```
@@ -979,7 +979,7 @@ JsonError         sum type     — .syntaxError | .unexpectedToken | .overflow |
 
 marshal(value any) ![]byte                — encode to JSON bytes
 marshal_indent(value any, indent string) ![]byte
-unmarshal(data []byte, target &any) !void — decode into target
+unmarshal(data []byte, target &any) ! — decode into target
 marshal_string(value any) !string         — encode to JSON string
 
 // Streaming
@@ -987,8 +987,8 @@ Encoder           struct       — streaming JSON encoder (wraps io.Writer)
 Decoder           struct       — streaming JSON decoder (wraps io.Reader)
 new_encoder(w io.Writer) Encoder
 new_decoder(r io.Reader) Decoder
-(e &Encoder) encode(value any) !void
-(d &Decoder) decode(target &any) !void
+(e &Encoder) encode(value any) !
+(d &Decoder) decode(target &any) !
 
 // Value manipulation
 parse(data []byte) !Value      — parse to dynamic Value tree
@@ -1018,9 +1018,9 @@ new_writer(w io.Writer) Writer
 
 (r &Reader) read() ![]string           — read one record
 (r &Reader) read_all() ![][]string     — read all records
-(w &Writer) write(record []string) !void
-(w &Writer) write_all(records [][]string) !void
-(w &Writer) flush() !void
+(w &Writer) write(record []string) !
+(w &Writer) write_all(records [][]string) !
+(w &Writer) flush() !
 ```
 
 **Dependencies:** `io`, `strings`, `bytes`
@@ -1377,9 +1377,9 @@ new_reader(r io.Reader) Reader
 new_writer(w io.Writer) Writer
 (r &Reader) next() !Header?
 (r &Reader) read(buf []byte) !int
-(w &Writer) write_header(hdr @Header) !void
+(w &Writer) write_header(hdr @Header) !
 (w &Writer) write(data []byte) !int
-(w &Writer) close() !void
+(w &Writer) close() !
 ```
 
 **Dependencies:** `io`, `os`, `time`
@@ -1401,7 +1401,7 @@ open_reader(path string) !Reader
 (f &File) open() !io.ReadCloser
 new_writer(w io.Writer) Writer
 (w &Writer) create(name string) !io.Writer
-(w &Writer) close() !void
+(w &Writer) close() !
 ```
 
 **Dependencies:** `io`, `os`, `compress/flate`, `time`
@@ -1467,7 +1467,7 @@ new_with_description(name, description string) FlagSet
 (fs @FlagSet) command_name() string    — matched subcommand name
 
 // Parsing and inspection
-(fs &FlagSet) parse(args []string) !void
+(fs &FlagSet) parse(args []string) !
 (fs &FlagSet) set_description(desc string)
 (fs @FlagSet) args() []string          — non-flag arguments
 (fs @FlagSet) n_arg() int
@@ -1491,7 +1491,7 @@ bool_flag_required(name, usage) &bool
 float_flag_required(name, usage) &f64
 duration_flag_required(name, usage) &time.Duration
 add_command(name, description) &FlagSet
-parse() !void
+parse() !
 args() []string
 usage()
 command() &FlagSet?
@@ -1509,8 +1509,8 @@ command_name() string
 **Key types and functions:**
 ```
 CliError          sum type     — .unknownCommand(string) | .invalidArgs(string) | .flagError(string) | .silentError
-RunFunc           type         — fun(cmd &Command, args []string) !void
-ArgsValidator     type         — fun(cmd @Command, args []string) !void
+RunFunc           type         — fun(cmd &Command, args []string) !
+ArgsValidator     type         — fun(cmd @Command, args []string) !
 Command           struct       — CLI command with flags, subcommands, and hooks
 
 new(name string) Command
@@ -1548,8 +1548,8 @@ new(name string) Command
 (c @Command) has_inherited_flags() bool
 
 // Execution
-(c &Command) execute() !void              — main entry point, parses os.args()
-(c &Command) execute_with(args []string) !void  — testable variant
+(c &Command) execute() !              — main entry point, parses os.args()
+(c &Command) execute_with(args []string) !  — testable variant
 
 // Help and usage
 (c @Command) help()
@@ -1571,7 +1571,7 @@ valid_args(valid []string) ArgsValidator
 
 // Package-level (default app)
 add_command(sub &Command)
-execute() !void
+execute() !
 set_version(version string)
 ```
 
@@ -1614,7 +1614,7 @@ Set               struct       — collection of named metrics (concurrent-safe)
 new_set() Set
 default_set() &Set             — package-level default registry
 
-(s &Set) write_prometheus(w io.Writer) !void      — write all metrics in Prometheus exposition format
+(s &Set) write_prometheus(w io.Writer) !      — write all metrics in Prometheus exposition format
 (s &Set) unregister(name string) bool
 (s &Set) unregister_all()
 (s &Set) list_metric_names() []string
@@ -1715,8 +1715,8 @@ get_or_create_summary_ext(name string, window time.Duration, quantiles []f64) &S
 
 // ─── Global exposition ───────────────────────────────────────────
 
-write_prometheus(w io.Writer, expose_process_metrics bool) !void
-write_process_metrics(w io.Writer) !void    — memory, CPU, FDs, green thread count
+write_prometheus(w io.Writer, expose_process_metrics bool) !
+write_process_metrics(w io.Writer) !    — memory, CPU, FDs, green thread count
 
 // Metric names follow Prometheus conventions:
 //   "http_requests_total"
@@ -1731,12 +1731,12 @@ type PushOptions struct {
     disable_compression bool
 }
 
-init_push(url string, interval time.Duration, extra_labels string) !void
-init_push_with_options(ctx context.Context, url string, interval time.Duration, opts @PushOptions) !void
-push_metrics(url string, extra_labels string) !void
+init_push(url string, interval time.Duration, extra_labels string) !
+init_push_with_options(ctx context.Context, url string, interval time.Duration, opts @PushOptions) !
+push_metrics(url string, extra_labels string) !
 
-(s &Set) init_push(url string, interval time.Duration, extra_labels string) !void
-(s &Set) push_metrics(url string, extra_labels string) !void
+(s &Set) init_push(url string, interval time.Duration, extra_labels string) !
+(s &Set) push_metrics(url string, extra_labels string) !
 
 // ─── Metadata control ────────────────────────────────────────────
 
@@ -1744,10 +1744,10 @@ expose_metadata(enabled bool)  — toggle TYPE/HELP lines in Prometheus output
 
 // ─── Write helpers (for custom metrics writers) ──────────────────
 
-write_counter_int(w io.Writer, name string, value int) !void
-write_counter_float(w io.Writer, name string, value f64) !void
-write_gauge_int(w io.Writer, name string, value int) !void
-write_gauge_float(w io.Writer, name string, value f64) !void
+write_counter_int(w io.Writer, name string, value int) !
+write_counter_float(w io.Writer, name string, value f64) !
+write_gauge_int(w io.Writer, name string, value int) !
+write_gauge_float(w io.Writer, name string, value f64) !
 ```
 
 **Design notes:**
@@ -1897,11 +1897,11 @@ Cmd               struct       — external command configuration
 ProcessError      sum type     — .notFound | .permissionDenied | .exitError(int)
 
 command(name string, args ...string) Cmd
-(c &Cmd) run() !void
+(c &Cmd) run() !
 (c &Cmd) output() ![]byte
 (c &Cmd) combined_output() ![]byte
-(c &Cmd) start() !void
-(c &Cmd) wait() !void
+(c &Cmd) start() !
+(c &Cmd) wait() !
 (c &Cmd) stdin_pipe() !io.WriteCloser
 (c &Cmd) stdout_pipe() !io.ReadCloser
 (c &Cmd) stderr_pipe() !io.ReadCloser
@@ -1941,7 +1941,7 @@ Value             sum type     — .string | .int | .float | .bool | .datetime |
 parse(data string) !Value                — parse TOML string to Value tree
 parse_file(path string) !Value           — read and parse TOML file
 marshal(value any) !string               — encode to TOML string
-unmarshal(data string, target &any) !void — decode into target
+unmarshal(data string, target &any) ! — decode into target
 
 (v Value) get(key string) Value?         — lookup by key
 (v Value) get_string(key string) string? — get string value
@@ -1969,7 +1969,7 @@ YamlError         sum type     — .syntax_error | .duplicate_key | .invalid_anc
 Value             sum type     — .null | .bool | .int | .float | .string | .sequence | .mapping
 
 marshal(value any) ![]byte              — encode to YAML bytes
-unmarshal(data []byte, target &any) !void — decode YAML bytes
+unmarshal(data []byte, target &any) ! — decode YAML bytes
 marshal_string(value any) !string       — encode to YAML string
 parse(data []byte) !Value               — parse to Value tree
 parse_string(s string) !Value           — parse string to Value tree
@@ -2009,13 +2009,13 @@ ProcInst          struct       — target string, inst string
 
 marshal(v any) ![]byte                  — encode to XML
 marshal_indent(v any, prefix, indent string) ![]byte
-unmarshal(data []byte, target &any) !void — decode XML
+unmarshal(data []byte, target &any) ! — decode XML
 
 Encoder           struct       — streaming XML encoder
 Decoder           struct       — streaming XML decoder
 (d Decoder) token() !Token?            — read next token
-(d Decoder) decode(target &any) !void  — decode element
-(d Decoder) skip() !void              — skip current element
+(d Decoder) decode(target &any) !  — decode element
+(d Decoder) skip() !              — skip current element
 ```
 
 **Dependencies:** `io`
@@ -2057,7 +2057,7 @@ FsError           sum type     — .not_found | .permission_denied | .not_direct
 FileMode          sum type     — .regular | .directory | .symlink | .socket | .pipe | .device
 
 FS                interface    — open(name string) !File
-File              interface    — stat() !FileInfo, read(buf) !int, close() !void
+File              interface    — stat() !FileInfo, read(buf) !int, close() !
 ReadDirFS         interface    — FS + read_dir(name string) ![]DirEntry
 StatFS            interface    — FS + stat(name string) !FileInfo
 FileInfo          interface    — name, size, mode, mod_time, is_dir
@@ -2105,7 +2105,7 @@ parse(text string) !Template
 parse_files(filenames ...string) !Template
 must(t Template) Template
 
-(t Template) execute(wr io.Writer, data any) !void
+(t Template) execute(wr io.Writer, data any) !
 (t Template) execute_string(data any) !string
 (t Template) name() string
 ```
@@ -2280,9 +2280,9 @@ node_alloc(node int, size int) &byte     — allocate on specific node
 interleave_alloc(size int) &byte         — interleave across nodes
 
 // Affinity
-bind_thread(node int) !void              — bind current OS thread to node
-bind_green_thread(node int) !void        — prefer scheduling on node
-set_memory_policy(policy Policy) !void
+bind_thread(node int) !              — bind current OS thread to node
+bind_green_thread(node int) !        — prefer scheduling on node
+set_memory_policy(policy Policy) !
 
 Policy            sum type     — .local | .bind(node int) | .interleave | .preferred(node int)
 ```

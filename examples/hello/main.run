@@ -3,5 +3,5 @@ package main
 use "fmt"
 
 pub fun main() {
-    fmt.println("Hello, World!")
+    fmt.println("Hi there! 👋")
 }

@@ -171,8 +171,20 @@ switch readFile("config.txt") {
 }
 ```
 
+A function that returns nothing but can fail uses bare `!`:
+
+```
+fun save(path string) ! {
+    try writeFile(path, data)
+}
+
+// Caller:
+try save("output.txt")
+```
+
 - Error sets are **inferred by the compiler**
 - No generics needed — `!T` is a built-in language construct
+- Bare `!` is equivalent to an error union with a void success type
 
 ### Error Context
 
@@ -313,7 +325,7 @@ switch value {
 ### Defer
 
 ```
-fun process() !void {
+fun process() ! {
     file := try os.open("data.txt")
     defer file.close()
 

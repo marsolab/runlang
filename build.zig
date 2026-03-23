@@ -226,6 +226,20 @@ pub fn build(b: *std.Build) void {
     const runtime_test_step = b.step("test-runtime", "Run runtime C tests");
     runtime_test_step.dependOn(&run_runtime_tests.step);
 
+    // Example build tests
+    const examples_test_exe = b.addExecutable(.{
+        .name = "examples-tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/examples/runner.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_examples_tests = b.addRunArtifact(examples_test_exe);
+    run_examples_tests.step.dependOn(b.getInstallStep());
+    const examples_test_step = b.step("test-examples", "Build all example programs");
+    examples_test_step.dependOn(&run_examples_tests.step);
+
     // E2E compiler tests
     const e2e_test_exe = b.addExecutable(.{
         .name = "e2e-tests",
