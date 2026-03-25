@@ -2,4 +2,101 @@ package errors
 
 use "testing"
 
-// Tests for errors package will go here.
+// test_new verifies that new() creates an error with the correct message.
+test "new creates error with message" (t &testing.T) {
+    var err = new("something failed")
+    t.assertEqual(err.message(), "something failed")
+}
+
+// test_new_empty verifies that new() works with an empty message.
+test "new with empty message" (t &testing.T) {
+    var err = new("")
+    t.assertEqual(err.message(), "")
+}
+
+// test_wrap verifies that wrap() produces a chained error message.
+test "wrap adds context to error" (t &testing.T) {
+    var inner = new("file not found")
+    var outer = wrap(inner, "opening config")
+    t.assertEqual(outer.message(), "opening config: file not found")
+}
+
+// test_wrap_multiple verifies multiple levels of wrapping.
+test "wrap chains multiple levels" (t &testing.T) {
+    var base = new("connection refused")
+    var mid = wrap(base, "connecting to database")
+    var top = wrap(mid, "initializing app")
+    t.assertEqual(top.message(), "initializing app: connecting to database: connection refused")
+}
+
+// test_unwrap_wrapped verifies that unwrap() returns the inner error.
+test "unwrap returns inner error" (t &testing.T) {
+    var inner = new("inner")
+    var outer = wrap(inner, "outer")
+    var result = unwrap(outer)
+    t.assert(result != null)
+    t.assertEqual(result!.message(), "inner")
+}
+
+// test_unwrap_simple verifies that unwrap() returns null for simple errors.
+test "unwrap returns null for simple error" (t &testing.T) {
+    var err = new("simple")
+    var result = unwrap(err)
+    t.assert(result == null)
+}
+
+// test_is_direct verifies that is() matches the error itself.
+test "is matches direct error" (t &testing.T) {
+    var err = new("not found")
+    var target = new("not found")
+    t.assert(is(err, target))
+}
+
+// test_is_wrapped verifies that is() finds a target in a wrapped chain.
+test "is finds target in chain" (t &testing.T) {
+    var base = new("not found")
+    var wrapped = wrap(base, "reading file")
+    var target = new("not found")
+    t.assert(is(wrapped, target))
+}
+
+// test_is_no_match verifies that is() returns false when target is not in chain.
+test "is returns false when not in chain" (t &testing.T) {
+    var err = new("not found")
+    var target = new("permission denied")
+    t.assert(!is(err, target))
+}
+
+// test_is_deeply_nested verifies that is() walks a deep chain.
+test "is walks deep chain" (t &testing.T) {
+    var base = new("timeout")
+    var l1 = wrap(base, "level 1")
+    var l2 = wrap(l1, "level 2")
+    var l3 = wrap(l2, "level 3")
+    var target = new("timeout")
+    t.assert(is(l3, target))
+}
+
+// test_join verifies that join() combines errors.
+test "join combines multiple errors" (t &testing.T) {
+    var e1 = new("error 1")
+    var e2 = new("error 2")
+    var e3 = new("error 3")
+    var joined = join([e1, e2, e3])
+    t.assert(joined != null)
+    t.assertEqual(joined!.message(), "error 1\nerror 2\nerror 3")
+}
+
+// test_join_empty verifies that join() returns null for empty input.
+test "join returns null for empty slice" (t &testing.T) {
+    var joined = join([])
+    t.assert(joined == null)
+}
+
+// test_join_single verifies that join() works with a single error.
+test "join with single error" (t &testing.T) {
+    var err = new("only one")
+    var joined = join([err])
+    t.assert(joined != null)
+    t.assertEqual(joined!.message(), "only one")
+}

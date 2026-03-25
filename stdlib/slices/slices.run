@@ -2,90 +2,264 @@ package slices
 
 // contains reports whether v is present in s.
 pub fun contains(s []any, v any) bool {
+    for item in s {
+        if item == v {
+            return true
+        }
+    }
     return false
 }
 
 // index returns the index of the first occurrence of v in s,
 // or null if v is not present.
 pub fun index(s []any, v any) int? {
+    var i = 0
+    for i < len(s) {
+        if s[i] == v {
+            return .some(i)
+        }
+        i = i + 1
+    }
     return null
 }
 
 // lastIndex returns the index of the last occurrence of v in s,
 // or null if v is not present.
 pub fun lastIndex(s []any, v any) int? {
+    var i = len(s) - 1
+    for i >= 0 {
+        if s[i] == v {
+            return .some(i)
+        }
+        i = i - 1
+    }
     return null
 }
 
 // compact removes consecutive duplicate elements from s.
 pub fun compact(s []any) []any {
-    return alloc([]any, 0)
+    if len(s) == 0 {
+        return alloc([]any, 0)
+    }
+    var result = alloc([]any, 0)
+    result = append(result, s[0])
+    var i = 1
+    for i < len(s) {
+        if s[i] != s[i - 1] {
+            result = append(result, s[i])
+        }
+        i = i + 1
+    }
+    return result
 }
 
 // sortFunc sorts s in-place using the provided comparison function.
 // cmp(a, b) should return a negative number when a < b, zero when a == b,
 // and a positive number when a > b.
+// Uses insertion sort for simplicity and correctness.
 pub fun sortFunc(s []any, cmp fun(a any, b any) int) {
+    var i = 1
+    for i < len(s) {
+        var key = s[i]
+        var j = i - 1
+        for j >= 0 {
+            if cmp(s[j], key) <= 0 {
+                break
+            }
+            s[j + 1] = s[j]
+            j = j - 1
+        }
+        s[j + 1] = key
+        i = i + 1
+    }
 }
 
 // isSortedFunc reports whether s is sorted according to the comparison function.
 pub fun isSortedFunc(s []any, cmp fun(a any, b any) int) bool {
-    return false
+    var i = 1
+    for i < len(s) {
+        if cmp(s[i - 1], s[i]) > 0 {
+            return false
+        }
+        i = i + 1
+    }
+    return true
 }
 
 // reverse reverses the elements of s in place.
 pub fun reverse(s []any) {
+    var lo = 0
+    var hi = len(s) - 1
+    for lo < hi {
+        var tmp = s[lo]
+        s[lo] = s[hi]
+        s[hi] = tmp
+        lo = lo + 1
+        hi = hi - 1
+    }
 }
 
 // grow increases the capacity of s by at least n additional elements.
 pub fun grow(s []any, n int) []any {
-    return alloc([]any, 0)
+    var result = alloc([]any, len(s) + n)
+    var i = 0
+    for i < len(s) {
+        result[i] = s[i]
+        i = i + 1
+    }
+    return result
 }
 
 // insert inserts the value v at index i, shifting subsequent elements right.
 pub fun insert(s []any, i int, v any) []any {
-    return alloc([]any, 0)
+    var result = alloc([]any, len(s) + 1)
+    // Copy elements before i.
+    var j = 0
+    for j < i {
+        result[j] = s[j]
+        j = j + 1
+    }
+    // Insert the new value.
+    result[i] = v
+    // Copy elements after i.
+    j = i
+    for j < len(s) {
+        result[j + 1] = s[j]
+        j = j + 1
+    }
+    return result
 }
 
 // delete removes the element at index i from s.
 pub fun delete(s []any, i int) []any {
-    return alloc([]any, 0)
+    var result = alloc([]any, len(s) - 1)
+    // Copy elements before i.
+    var j = 0
+    for j < i {
+        result[j] = s[j]
+        j = j + 1
+    }
+    // Copy elements after i.
+    j = i + 1
+    for j < len(s) {
+        result[j - 1] = s[j]
+        j = j + 1
+    }
+    return result
 }
 
 // clone returns a shallow copy of s.
 pub fun clone(s []any) []any {
-    return alloc([]any, 0)
+    var result = alloc([]any, len(s))
+    var i = 0
+    for i < len(s) {
+        result[i] = s[i]
+        i = i + 1
+    }
+    return result
 }
 
 // equal reports whether two slices are equal: the same length and all
 // elements equal.
 pub fun equal(a []any, b []any) bool {
-    return false
+    if len(a) != len(b) {
+        return false
+    }
+    var i = 0
+    for i < len(a) {
+        if a[i] != b[i] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
 }
 
 // minFunc returns the minimum element of s according to the comparison function.
 pub fun minFunc(s []any, cmp fun(a any, b any) int) any {
-    return null
+    if len(s) == 0 {
+        return null
+    }
+    var result = s[0]
+    var i = 1
+    for i < len(s) {
+        if cmp(s[i], result) < 0 {
+            result = s[i]
+        }
+        i = i + 1
+    }
+    return result
 }
 
 // maxFunc returns the maximum element of s according to the comparison function.
 pub fun maxFunc(s []any, cmp fun(a any, b any) int) any {
-    return null
+    if len(s) == 0 {
+        return null
+    }
+    var result = s[0]
+    var i = 1
+    for i < len(s) {
+        if cmp(s[i], result) > 0 {
+            result = s[i]
+        }
+        i = i + 1
+    }
+    return result
 }
 
 // binarySearchFunc searches for target in a sorted slice using the
 // comparison function. Returns the index if found, or null.
 pub fun binarySearchFunc(s []any, target any, cmp fun(a any, b any) int) int? {
+    var lo = 0
+    var hi = len(s) - 1
+    for lo <= hi {
+        var mid = lo + (hi - lo) / 2
+        var c = cmp(s[mid], target)
+        if c == 0 {
+            return .some(mid)
+        }
+        if c < 0 {
+            lo = mid + 1
+        } else {
+            hi = mid - 1
+        }
+    }
     return null
 }
 
 // chunk splits s into sub-slices of the given size.
 // The last chunk may have fewer elements.
 pub fun chunk(s []any, size int) [][]any {
-    return alloc([][]any, 0)
+    if size <= 0 {
+        return alloc([][]any, 0)
+    }
+    var result = alloc([][]any, 0)
+    var i = 0
+    for i < len(s) {
+        var end = i + size
+        if end > len(s) {
+            end = len(s)
+        }
+        result = append(result, s[i..end])
+        i = i + size
+    }
+    return result
 }
 
 // concat returns a new slice concatenating the provided slices.
 pub fun concat(slices_list [][]any) []any {
-    return alloc([]any, 0)
+    // Calculate total length.
+    var total = 0
+    for sl in slices_list {
+        total = total + len(sl)
+    }
+    var result = alloc([]any, 0)
+    for sl in slices_list {
+        var i = 0
+        for i < len(sl) {
+            result = append(result, sl[i])
+            i = i + 1
+        }
+    }
+    return result
 }

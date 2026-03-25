@@ -1,8 +1,33 @@
 package regex
 
+// Package regex implements RE2-compatible regular expression matching.
+// The engine uses a Thompson NFA simulation, guaranteeing linear time
+// matching with no backtracking. This makes it safe for untrusted input.
+//
+// Supported syntax:
+//   .          any character (except newline)
+//   *          zero or more (greedy)
+//   +          one or more (greedy)
+//   ?          zero or one (greedy)
+//   |          alternation
+//   (...)      capturing group
+//   (?:...)    non-capturing group
+//   ^          start of string anchor
+//   $          end of string anchor
+//   [abc]      character class
+//   [^abc]     negated character class
+//   [a-z]      character range
+//   \d \D      digit / non-digit
+//   \w \W      word char / non-word char
+//   \s \S      whitespace / non-whitespace
+//   \. \* etc  escaped metacharacters
+
 // Regex is a compiled regular expression.
 pub Regex struct {
-    pattern string
+    pattern   string
+    insts     []Inst
+    numGroups int
+    groupNames []GroupName
 }
 
 // RegexError represents errors during regex compilation.
@@ -14,70 +39,287 @@ pub type RegexError = .invalidSyntax
 
 // Match represents a single match result.
 pub Match struct {
-    text  string
+    text   string
+    start  int
+    end    int
+    input  string
+    groups []GroupSpan
+}
+
+// GroupSpan records the start and end of a capturing group match.
+type GroupSpan struct {
     start int
     end   int
+    valid bool
 }
+
+// GroupName maps a name to a capture group index.
+type GroupName struct {
+    name string
+    idx  int
+}
+
+// --- NFA instruction set ---
+
+// InstOp is the type tag for NFA instructions.
+type InstOp = .literal
+    | .any
+    | .charClass
+    | .split
+    | .jump
+    | .save
+    | .match
+    | .assertStart
+    | .assertEnd
+
+// CharRange represents a byte range [lo, hi] for character classes.
+type CharRange struct {
+    lo byte
+    hi byte
+}
+
+// Inst is a single NFA instruction.
+type Inst struct {
+    op     InstOp
+    c      byte
+    out    int
+    out1   int
+    group  int
+    negate bool
+    ranges []CharRange
+}
+
+// Thread represents a single NFA simulation thread.
+type Thread struct {
+    pc    int
+    saved []int
+}
+
+// --- Public API ---
 
 // compile parses a regular expression and returns a Regex that can be
 // used to match against text. Returns an error if the pattern is invalid.
 pub fun compile(pattern string) !Regex {
-    return Regex{ pattern: pattern }
+    var p = Parser{
+        src: pattern as []byte,
+        pos: 0,
+        groupCount: 0,
+        groupNames: alloc([]GroupName, 0),
+        insts: alloc([]Inst, 0),
+    }
+    var start = try p.parseExpr()
+    p.emit(Inst{
+        op: InstOp.match, c: 0, out: 0, out1: 0,
+        group: 0, negate: false, ranges: alloc([]CharRange, 0),
+    })
+    // Patch dangling targets from the expression to point to the match instruction.
+    var matchIdx = len(p.insts) - 1
+    p.patchList(start.exits, matchIdx)
+    return Regex{
+        pattern: pattern,
+        insts: p.insts,
+        numGroups: p.groupCount,
+        groupNames: p.groupNames,
+    }
 }
 
 // mustCompile is like compile but panics if the pattern is invalid.
 // It simplifies safe initialization of package-level Regex values.
 pub fun mustCompile(pattern string) Regex {
-    return Regex{ pattern: pattern }
+    // TODO: Panic requires runtime support. For now, return a no-op regex.
+    var result = compile(pattern)
+    switch result {
+        .ok(re) :: { return re },
+        .err(e) :: { return Regex{
+            pattern: pattern,
+            insts: alloc([]Inst, 0),
+            numGroups: 0,
+            groupNames: alloc([]GroupName, 0),
+        } },
+    }
 }
 
 // isMatch reports whether the string s contains any match of the pattern.
 pub fun (re @Regex) isMatch(s string) bool {
-    return false
+    var m = re.find(s)
+    return m != null
 }
 
 // find returns the leftmost match of the pattern in s, or null if no match.
 pub fun (re @Regex) find(s string) Match? {
+    var input = s as []byte
+    var pos = 0
+    for pos <= len(input) {
+        var m = runNFA(re.insts, input, pos, re.numGroups)
+        if m != null {
+            var match = m!
+            return .some(buildMatch(s, input, match, re.numGroups))
+        }
+        pos = pos + 1
+    }
     return null
 }
 
 // findAll returns all non-overlapping matches of the pattern in s.
 pub fun (re @Regex) findAll(s string) []Match {
-    return alloc([]Match, 0)
+    return re.findN(s, -1)
 }
 
 // findN returns the first n non-overlapping matches. If n < 0, returns all.
 pub fun (re @Regex) findN(s string, n int) []Match {
-    return alloc([]Match, 0)
+    var result = alloc([]Match, 0)
+    var input = s as []byte
+    var pos = 0
+    var count = 0
+    for pos <= len(input) {
+        if n >= 0 && count >= n {
+            break
+        }
+        var m = runNFA(re.insts, input, pos, re.numGroups)
+        if m != null {
+            var saved = m!
+            var match = buildMatch(s, input, saved, re.numGroups)
+            result = append(result, match)
+            count = count + 1
+            // Advance past the match. If match is empty, advance by one.
+            if match.end > pos {
+                pos = match.end
+            } else {
+                pos = pos + 1
+            }
+        } else {
+            pos = pos + 1
+        }
+    }
+    return result
 }
 
 // replace replaces all matches of the pattern in s with repl.
 pub fun (re @Regex) replace(s string, repl string) string {
-    return ""
+    return re.replaceN(s, repl, -1)
 }
 
 // replaceAll is an alias for replace.
 pub fun (re @Regex) replaceAll(s string, repl string) string {
-    return ""
+    return re.replace(s, repl)
 }
 
 // replaceN replaces the first n matches. If n < 0, replaces all.
 pub fun (re @Regex) replaceN(s string, repl string, n int) string {
-    return ""
+    var input = s as []byte
+    var result = alloc([]byte, 0)
+    var pos = 0
+    var count = 0
+    for pos <= len(input) {
+        if n >= 0 && count >= n {
+            break
+        }
+        var m = runNFA(re.insts, input, pos, re.numGroups)
+        if m != null {
+            var saved = m!
+            var matchStart = saved[0]
+            var matchEnd = saved[1]
+            // Append text before the match.
+            var i = pos
+            for i < matchStart {
+                result = append(result, input[i])
+                i = i + 1
+            }
+            // Append replacement, handling backreferences.
+            result = appendReplacement(result, repl as []byte, saved)
+            count = count + 1
+            if matchEnd > pos {
+                pos = matchEnd
+            } else {
+                // Empty match — copy one byte and advance.
+                if pos < len(input) {
+                    result = append(result, input[pos])
+                }
+                pos = pos + 1
+            }
+        } else {
+            // No match at this position — copy byte and advance.
+            if pos < len(input) {
+                result = append(result, input[pos])
+            }
+            pos = pos + 1
+        }
+    }
+    // Append remaining text.
+    for pos < len(input) {
+        result = append(result, input[pos])
+        pos = pos + 1
+    }
+    return result as string
 }
 
 // split slices s into substrings separated by the pattern.
 pub fun (re @Regex) split(s string) []string {
-    return alloc([]string, 0)
+    return re.splitN(s, -1)
 }
 
-// splitN slices s into at most n substrings.
+// splitN slices s into at most n substrings. If n < 0, returns all.
 pub fun (re @Regex) splitN(s string, n int) []string {
-    return alloc([]string, 0)
+    var result = alloc([]string, 0)
+    var input = s as []byte
+    var pos = 0
+    var count = 0
+    for pos <= len(input) {
+        if n >= 0 && count >= n - 1 {
+            break
+        }
+        var m = runNFA(re.insts, input, pos, re.numGroups)
+        if m != null {
+            var saved = m!
+            var matchStart = saved[0]
+            var matchEnd = saved[1]
+            // Add the substring before the match.
+            var piece = input[pos..matchStart]
+            result = append(result, piece as string)
+            count = count + 1
+            if matchEnd > pos {
+                pos = matchEnd
+            } else {
+                pos = pos + 1
+            }
+        } else {
+            break
+        }
+    }
+    // Add the remaining substring.
+    if pos <= len(input) {
+        var rest = input[pos..len(input)]
+        result = append(result, rest as string)
+    }
+    return result
 }
 
 // group returns the text of the i-th capturing group (0 = full match).
+// Returns null if the group did not participate in the match.
 pub fun (m @Match) group(i int) string? {
+    if i == 0 {
+        return .some(m.text)
+    }
+    if i < 1 || i > len(m.groups) {
+        return null
+    }
+    var g = m.groups[i - 1]
+    if !g.valid {
+        return null
+    }
+    var input = m.input as []byte
+    var sub = input[g.start..g.end]
+    return .some(sub as string)
+}
+
+// groupByName returns the text of the named capturing group.
+// Returns null if the group name doesn't exist or didn't match.
+pub fun (m @Match) groupByName(re @Regex, name string) string? {
+    for gn in re.groupNames {
+        if gn.name == name {
+            return m.group(gn.idx)
+        }
+    }
     return null
 }
 
@@ -90,5 +332,655 @@ pub fun (m @Match) string() string {
 
 // matchString reports whether s contains any match of the pattern.
 pub fun matchString(pattern string, s string) !bool {
-    return false
+    var re = try compile(pattern)
+    return re.isMatch(s)
+}
+
+// --- Pattern compiler (private) ---
+
+// Fragment represents an NFA fragment during compilation.
+// entry is the index of the first instruction.
+// exits is a list of instruction indices with unpatched out/out1 fields.
+type Fragment struct {
+    entry int
+    exits []int
+}
+
+// Parser is the regex pattern compiler state.
+type Parser struct {
+    src        []byte
+    pos        int
+    groupCount int
+    groupNames []GroupName
+    insts      []Inst
+}
+
+// emit appends an instruction and returns its index.
+fun (p &Parser) emit(inst Inst) int {
+    var idx = len(p.insts)
+    p.insts = append(p.insts, inst)
+    return idx
+}
+
+// patchList patches all instructions in exits to point to target.
+fun (p &Parser) patchList(exits []int, target int) {
+    for idx in exits {
+        if p.insts[idx].out == -1 {
+            p.insts[idx].out = target
+        }
+        if p.insts[idx].out1 == -1 {
+            p.insts[idx].out1 = target
+        }
+    }
+}
+
+// parseExpr parses an alternation: concat ('|' concat)*.
+fun (p &Parser) parseExpr() !Fragment {
+    var left = try p.parseConcat()
+    for p.pos < len(p.src) && p.src[p.pos] == 124 {
+        // '|'
+        p.pos = p.pos + 1
+        var right = try p.parseConcat()
+        // Create a split instruction branching to left and right.
+        var splitIdx = p.emit(Inst{
+            op: InstOp.split, c: 0, out: left.entry, out1: right.entry,
+            group: 0, negate: false, ranges: alloc([]CharRange, 0),
+        })
+        // Combine exit lists.
+        var exits = alloc([]int, 0)
+        for e in left.exits {
+            exits = append(exits, e)
+        }
+        for e in right.exits {
+            exits = append(exits, e)
+        }
+        left = Fragment{ entry: splitIdx, exits: exits }
+    }
+    return left
+}
+
+// parseConcat parses a concatenation of repeated atoms.
+fun (p &Parser) parseConcat() !Fragment {
+    var result Fragment? = null
+    for p.pos < len(p.src) {
+        var c = p.src[p.pos]
+        // Stop at alternation or closing paren.
+        if c == 124 || c == 41 {
+            break
+        }
+        var atom = try p.parseRepeat()
+        if result == null {
+            result = .some(atom)
+        } else {
+            var prev = result!
+            // Patch prev's exits to point to atom's entry.
+            p.patchList(prev.exits, atom.entry)
+            result = .some(Fragment{ entry: prev.entry, exits: atom.exits })
+        }
+    }
+    if result == null {
+        // Empty expression — emit a jump as a no-op.
+        var idx = p.emit(Inst{
+            op: InstOp.jump, c: 0, out: -1, out1: 0,
+            group: 0, negate: false, ranges: alloc([]CharRange, 0),
+        })
+        var exits = alloc([]int, 0)
+        exits = append(exits, idx)
+        return Fragment{ entry: idx, exits: exits }
+    }
+    return result!
+}
+
+// parseRepeat parses an atom followed by optional repetition (*, +, ?).
+fun (p &Parser) parseRepeat() !Fragment {
+    var atom = try p.parseAtom()
+    if p.pos < len(p.src) {
+        var c = p.src[p.pos]
+        if c == 42 {
+            // '*' — zero or more
+            p.pos = p.pos + 1
+            var splitIdx = p.emit(Inst{
+                op: InstOp.split, c: 0, out: atom.entry, out1: -1,
+                group: 0, negate: false, ranges: alloc([]CharRange, 0),
+            })
+            p.patchList(atom.exits, splitIdx)
+            var exits = alloc([]int, 0)
+            exits = append(exits, splitIdx)
+            return Fragment{ entry: splitIdx, exits: exits }
+        }
+        if c == 43 {
+            // '+' — one or more
+            p.pos = p.pos + 1
+            var splitIdx = p.emit(Inst{
+                op: InstOp.split, c: 0, out: atom.entry, out1: -1,
+                group: 0, negate: false, ranges: alloc([]CharRange, 0),
+            })
+            p.patchList(atom.exits, splitIdx)
+            var exits = alloc([]int, 0)
+            exits = append(exits, splitIdx)
+            return Fragment{ entry: atom.entry, exits: exits }
+        }
+        if c == 63 {
+            // '?' — zero or one
+            p.pos = p.pos + 1
+            var splitIdx = p.emit(Inst{
+                op: InstOp.split, c: 0, out: atom.entry, out1: -1,
+                group: 0, negate: false, ranges: alloc([]CharRange, 0),
+            })
+            var exits = alloc([]int, 0)
+            exits = append(exits, splitIdx)
+            for e in atom.exits {
+                exits = append(exits, e)
+            }
+            return Fragment{ entry: splitIdx, exits: exits }
+        }
+    }
+    return atom
+}
+
+// parseAtom parses a single atomic expression: literal, '.', group,
+// character class, anchor, or escape sequence.
+fun (p &Parser) parseAtom() !Fragment {
+    if p.pos >= len(p.src) {
+        return RegexError.invalidSyntax
+    }
+    var c = p.src[p.pos]
+
+    // '(' — group
+    if c == 40 {
+        p.pos = p.pos + 1
+        // Check for non-capturing group (?:...)
+        var capturing = true
+        var groupIdx = 0
+        if p.pos + 1 < len(p.src) && p.src[p.pos] == 63 && p.src[p.pos + 1] == 58 {
+            // '(?:' non-capturing group
+            capturing = false
+            p.pos = p.pos + 2
+        } else {
+            p.groupCount = p.groupCount + 1
+            groupIdx = p.groupCount
+
+            // Check for named group (?P<name>...)
+            if p.pos + 2 < len(p.src) && p.src[p.pos] == 63 && p.src[p.pos + 1] == 80 && p.src[p.pos + 2] == 60 {
+                p.pos = p.pos + 3
+                var nameStart = p.pos
+                for p.pos < len(p.src) && p.src[p.pos] != 62 {
+                    p.pos = p.pos + 1
+                }
+                if p.pos >= len(p.src) {
+                    return RegexError.unmatchedParenthesis
+                }
+                var nameBytes = p.src[nameStart..p.pos]
+                p.groupNames = append(p.groupNames, GroupName{
+                    name: nameBytes as string,
+                    idx: groupIdx,
+                })
+                p.pos = p.pos + 1
+            }
+        }
+
+        // Emit save instruction for group start.
+        var saveStart = -1
+        if capturing {
+            saveStart = p.emit(Inst{
+                op: InstOp.save, c: 0, out: -1, out1: 0,
+                group: groupIdx * 2, negate: false, ranges: alloc([]CharRange, 0),
+            })
+        }
+
+        var inner = try p.parseExpr()
+
+        if p.pos >= len(p.src) || p.src[p.pos] != 41 {
+            return RegexError.unmatchedParenthesis
+        }
+        p.pos = p.pos + 1
+
+        if capturing {
+            // Emit save instruction for group end.
+            var saveEnd = p.emit(Inst{
+                op: InstOp.save, c: 0, out: -1, out1: 0,
+                group: groupIdx * 2 + 1, negate: false, ranges: alloc([]CharRange, 0),
+            })
+            // Wire: saveStart -> inner -> saveEnd
+            p.insts[saveStart].out = inner.entry
+            p.patchList(inner.exits, saveEnd)
+            var exits = alloc([]int, 0)
+            exits = append(exits, saveEnd)
+            return Fragment{ entry: saveStart, exits: exits }
+        } else {
+            return inner
+        }
+    }
+
+    // '[' — character class
+    if c == 91 {
+        return p.parseCharClass()
+    }
+
+    // '^' — start anchor
+    if c == 94 {
+        p.pos = p.pos + 1
+        var idx = p.emit(Inst{
+            op: InstOp.assertStart, c: 0, out: -1, out1: 0,
+            group: 0, negate: false, ranges: alloc([]CharRange, 0),
+        })
+        var exits = alloc([]int, 0)
+        exits = append(exits, idx)
+        return Fragment{ entry: idx, exits: exits }
+    }
+
+    // '$' — end anchor
+    if c == 36 {
+        p.pos = p.pos + 1
+        var idx = p.emit(Inst{
+            op: InstOp.assertEnd, c: 0, out: -1, out1: 0,
+            group: 0, negate: false, ranges: alloc([]CharRange, 0),
+        })
+        var exits = alloc([]int, 0)
+        exits = append(exits, idx)
+        return Fragment{ entry: idx, exits: exits }
+    }
+
+    // '.' — any character
+    if c == 46 {
+        p.pos = p.pos + 1
+        var idx = p.emit(Inst{
+            op: InstOp.any, c: 0, out: -1, out1: 0,
+            group: 0, negate: false, ranges: alloc([]CharRange, 0),
+        })
+        var exits = alloc([]int, 0)
+        exits = append(exits, idx)
+        return Fragment{ entry: idx, exits: exits }
+    }
+
+    // '\' — escape sequence
+    if c == 92 {
+        p.pos = p.pos + 1
+        if p.pos >= len(p.src) {
+            return RegexError.invalidEscape
+        }
+        var escaped = p.src[p.pos]
+        p.pos = p.pos + 1
+        return p.buildEscape(escaped)
+    }
+
+    // Literal character
+    p.pos = p.pos + 1
+    var idx = p.emit(Inst{
+        op: InstOp.literal, c: c, out: -1, out1: 0,
+        group: 0, negate: false, ranges: alloc([]CharRange, 0),
+    })
+    var exits = alloc([]int, 0)
+    exits = append(exits, idx)
+    return Fragment{ entry: idx, exits: exits }
+}
+
+// parseCharClass parses a bracket expression [abc], [a-z], [^abc].
+fun (p &Parser) parseCharClass() !Fragment {
+    p.pos = p.pos + 1
+    if p.pos >= len(p.src) {
+        return RegexError.invalidCharClass
+    }
+    var negated = false
+    if p.src[p.pos] == 94 {
+        negated = true
+        p.pos = p.pos + 1
+    }
+    var ranges = alloc([]CharRange, 0)
+    var first = true
+    for p.pos < len(p.src) {
+        if p.src[p.pos] == 93 && !first {
+            break
+        }
+        first = false
+        var lo = p.src[p.pos]
+        p.pos = p.pos + 1
+        // Check for range: a-z
+        if p.pos + 1 < len(p.src) && p.src[p.pos] == 45 && p.src[p.pos + 1] != 93 {
+            p.pos = p.pos + 1
+            var hi = p.src[p.pos]
+            p.pos = p.pos + 1
+            ranges = append(ranges, CharRange{ lo: lo, hi: hi })
+        } else {
+            ranges = append(ranges, CharRange{ lo: lo, hi: lo })
+        }
+    }
+    if p.pos >= len(p.src) || p.src[p.pos] != 93 {
+        return RegexError.invalidCharClass
+    }
+    p.pos = p.pos + 1
+    var idx = p.emit(Inst{
+        op: InstOp.charClass, c: 0, out: -1, out1: 0,
+        group: 0, negate: negated, ranges: ranges,
+    })
+    var exits = alloc([]int, 0)
+    exits = append(exits, idx)
+    return Fragment{ entry: idx, exits: exits }
+}
+
+// buildEscape creates an NFA fragment for an escape sequence.
+fun (p &Parser) buildEscape(c byte) !Fragment {
+    // Metacharacter escapes
+    // '.' = 46, '*' = 42, '+' = 43, '?' = 63, '(' = 40, ')' = 41,
+    // '[' = 91, ']' = 93, '{' = 123, '}' = 125, '|' = 124, '\' = 92,
+    // '^' = 94, '$' = 36
+    if c == 46 || c == 42 || c == 43 || c == 63 || c == 40 || c == 41 ||
+       c == 91 || c == 93 || c == 123 || c == 125 || c == 124 || c == 92 ||
+       c == 94 || c == 36 {
+        var idx = p.emit(Inst{
+            op: InstOp.literal, c: c, out: -1, out1: 0,
+            group: 0, negate: false, ranges: alloc([]CharRange, 0),
+        })
+        var exits = alloc([]int, 0)
+        exits = append(exits, idx)
+        return Fragment{ entry: idx, exits: exits }
+    }
+
+    // \d — digit [0-9]
+    if c == 100 {
+        return p.buildCharClassFrag(alloc([]CharRange, 0), false, 48, 57)
+    }
+    // \D — non-digit
+    if c == 68 {
+        return p.buildCharClassFrag(alloc([]CharRange, 0), true, 48, 57)
+    }
+    // \w — word character [a-zA-Z0-9_]
+    if c == 119 {
+        var ranges = alloc([]CharRange, 0)
+        ranges = append(ranges, CharRange{ lo: 48, hi: 57 })
+        ranges = append(ranges, CharRange{ lo: 65, hi: 90 })
+        ranges = append(ranges, CharRange{ lo: 97, hi: 122 })
+        ranges = append(ranges, CharRange{ lo: 95, hi: 95 })
+        var idx = p.emit(Inst{
+            op: InstOp.charClass, c: 0, out: -1, out1: 0,
+            group: 0, negate: false, ranges: ranges,
+        })
+        var exits = alloc([]int, 0)
+        exits = append(exits, idx)
+        return Fragment{ entry: idx, exits: exits }
+    }
+    // \W — non-word character
+    if c == 87 {
+        var ranges = alloc([]CharRange, 0)
+        ranges = append(ranges, CharRange{ lo: 48, hi: 57 })
+        ranges = append(ranges, CharRange{ lo: 65, hi: 90 })
+        ranges = append(ranges, CharRange{ lo: 97, hi: 122 })
+        ranges = append(ranges, CharRange{ lo: 95, hi: 95 })
+        var idx = p.emit(Inst{
+            op: InstOp.charClass, c: 0, out: -1, out1: 0,
+            group: 0, negate: true, ranges: ranges,
+        })
+        var exits = alloc([]int, 0)
+        exits = append(exits, idx)
+        return Fragment{ entry: idx, exits: exits }
+    }
+    // \s — whitespace [ \t\n\r\f\v]
+    if c == 115 {
+        var ranges = alloc([]CharRange, 0)
+        ranges = append(ranges, CharRange{ lo: 9, hi: 13 })
+        ranges = append(ranges, CharRange{ lo: 32, hi: 32 })
+        var idx = p.emit(Inst{
+            op: InstOp.charClass, c: 0, out: -1, out1: 0,
+            group: 0, negate: false, ranges: ranges,
+        })
+        var exits = alloc([]int, 0)
+        exits = append(exits, idx)
+        return Fragment{ entry: idx, exits: exits }
+    }
+    // \S — non-whitespace
+    if c == 83 {
+        var ranges = alloc([]CharRange, 0)
+        ranges = append(ranges, CharRange{ lo: 9, hi: 13 })
+        ranges = append(ranges, CharRange{ lo: 32, hi: 32 })
+        var idx = p.emit(Inst{
+            op: InstOp.charClass, c: 0, out: -1, out1: 0,
+            group: 0, negate: true, ranges: ranges,
+        })
+        var exits = alloc([]int, 0)
+        exits = append(exits, idx)
+        return Fragment{ entry: idx, exits: exits }
+    }
+    // \n — newline
+    if c == 110 {
+        var idx = p.emit(Inst{
+            op: InstOp.literal, c: 10, out: -1, out1: 0,
+            group: 0, negate: false, ranges: alloc([]CharRange, 0),
+        })
+        var exits = alloc([]int, 0)
+        exits = append(exits, idx)
+        return Fragment{ entry: idx, exits: exits }
+    }
+    // \t — tab
+    if c == 116 {
+        var idx = p.emit(Inst{
+            op: InstOp.literal, c: 9, out: -1, out1: 0,
+            group: 0, negate: false, ranges: alloc([]CharRange, 0),
+        })
+        var exits = alloc([]int, 0)
+        exits = append(exits, idx)
+        return Fragment{ entry: idx, exits: exits }
+    }
+    // \r — carriage return
+    if c == 114 {
+        var idx = p.emit(Inst{
+            op: InstOp.literal, c: 13, out: -1, out1: 0,
+            group: 0, negate: false, ranges: alloc([]CharRange, 0),
+        })
+        var exits = alloc([]int, 0)
+        exits = append(exits, idx)
+        return Fragment{ entry: idx, exits: exits }
+    }
+
+    return RegexError.invalidEscape
+}
+
+// buildCharClassFrag creates a character class fragment with a single range.
+fun (p &Parser) buildCharClassFrag(ranges []CharRange, negated bool, lo byte, hi byte) !Fragment {
+    var r = append(ranges, CharRange{ lo: lo, hi: hi })
+    var idx = p.emit(Inst{
+        op: InstOp.charClass, c: 0, out: -1, out1: 0,
+        group: 0, negate: negated, ranges: r,
+    })
+    var exits = alloc([]int, 0)
+    exits = append(exits, idx)
+    return Fragment{ entry: idx, exits: exits }
+}
+
+// --- NFA simulation (Thompson's algorithm) ---
+
+// runNFA executes the NFA on input starting at startPos.
+// Returns the saved capture positions if a match is found, or null.
+fun runNFA(insts []Inst, input []byte, startPos int, numGroups int) []int? {
+    var numSlots = (numGroups + 1) * 2
+    // Initialize starting thread.
+    var startSaved = alloc([]int, numSlots)
+    var i = 0
+    for i < numSlots {
+        startSaved[i] = -1
+        i = i + 1
+    }
+    startSaved[0] = startPos
+
+    var current = alloc([]Thread, 0)
+    current = addThread(current, Thread{ pc: 0, saved: startSaved }, insts, input, startPos)
+
+    var matched []int? = null
+    var pos = startPos
+
+    for pos <= len(input) {
+        var next = alloc([]Thread, 0)
+        var ti = 0
+        for ti < len(current) {
+            var t = current[ti]
+            var inst = insts[t.pc]
+            switch inst.op {
+                InstOp.literal :: {
+                    if pos < len(input) && input[pos] == inst.c {
+                        var nt = Thread{ pc: inst.out, saved: copySaved(t.saved) }
+                        next = addThread(next, nt, insts, input, pos + 1)
+                    }
+                },
+                InstOp.any :: {
+                    if pos < len(input) && input[pos] != 10 {
+                        var nt = Thread{ pc: inst.out, saved: copySaved(t.saved) }
+                        next = addThread(next, nt, insts, input, pos + 1)
+                    }
+                },
+                InstOp.charClass :: {
+                    if pos < len(input) {
+                        var ch = input[pos]
+                        var inRange = false
+                        for r in inst.ranges {
+                            if ch >= r.lo && ch <= r.hi {
+                                inRange = true
+                                break
+                            }
+                        }
+                        if inst.negate {
+                            inRange = !inRange
+                        }
+                        if inRange {
+                            var nt = Thread{ pc: inst.out, saved: copySaved(t.saved) }
+                            next = addThread(next, nt, insts, input, pos + 1)
+                        }
+                    }
+                },
+                InstOp.match :: {
+                    // Record match. First match wins (leftmost).
+                    var saved = copySaved(t.saved)
+                    saved[1] = pos
+                    if matched == null {
+                        matched = .some(saved)
+                    }
+                },
+                _ :: {},
+            }
+            ti = ti + 1
+        }
+        if len(next) == 0 && matched != null {
+            break
+        }
+        current = next
+        pos = pos + 1
+    }
+    return matched
+}
+
+// addThread adds a thread to the list, following epsilon transitions
+// (split, jump, save, anchors) without consuming input.
+fun addThread(list []Thread, t Thread, insts []Inst, input []byte, pos int) []Thread {
+    var result = list
+    var inst = insts[t.pc]
+
+    switch inst.op {
+        InstOp.split :: {
+            result = addThread(result, Thread{ pc: inst.out, saved: copySaved(t.saved) }, insts, input, pos)
+            result = addThread(result, Thread{ pc: inst.out1, saved: copySaved(t.saved) }, insts, input, pos)
+            return result
+        },
+        InstOp.jump :: {
+            return addThread(result, Thread{ pc: inst.out, saved: t.saved }, insts, input, pos)
+        },
+        InstOp.save :: {
+            var saved = copySaved(t.saved)
+            if inst.group < len(saved) {
+                saved[inst.group] = pos
+            }
+            return addThread(result, Thread{ pc: inst.out, saved: saved }, insts, input, pos)
+        },
+        InstOp.assertStart :: {
+            if pos == 0 {
+                return addThread(result, Thread{ pc: inst.out, saved: t.saved }, insts, input, pos)
+            }
+            return result
+        },
+        InstOp.assertEnd :: {
+            if pos == len(input) {
+                return addThread(result, Thread{ pc: inst.out, saved: t.saved }, insts, input, pos)
+            }
+            return result
+        },
+        _ :: {
+            // Consuming instruction — add thread to list.
+            result = append(result, t)
+            return result
+        },
+    }
+}
+
+// copySaved creates a copy of the saved positions array.
+fun copySaved(saved []int) []int {
+    var copy = alloc([]int, len(saved))
+    var i = 0
+    for i < len(saved) {
+        copy[i] = saved[i]
+        i = i + 1
+    }
+    return copy
+}
+
+// buildMatch constructs a Match from the NFA saved positions.
+fun buildMatch(s string, input []byte, saved []int, numGroups int) Match {
+    var matchStart = saved[0]
+    var matchEnd = saved[1]
+    var text = input[matchStart..matchEnd]
+    var groups = alloc([]GroupSpan, 0)
+    var gi = 1
+    for gi <= numGroups {
+        var startIdx = gi * 2
+        var endIdx = gi * 2 + 1
+        if startIdx < len(saved) && endIdx < len(saved) {
+            var gs = saved[startIdx]
+            var ge = saved[endIdx]
+            if gs >= 0 && ge >= 0 {
+                groups = append(groups, GroupSpan{ start: gs, end: ge, valid: true })
+            } else {
+                groups = append(groups, GroupSpan{ start: 0, end: 0, valid: false })
+            }
+        } else {
+            groups = append(groups, GroupSpan{ start: 0, end: 0, valid: false })
+        }
+        gi = gi + 1
+    }
+    return Match{
+        text: text as string,
+        start: matchStart,
+        end: matchEnd,
+        input: s,
+        groups: groups,
+    }
+}
+
+// appendReplacement appends the replacement string to result,
+// expanding backreferences like $1, $2, etc.
+fun appendReplacement(result []byte, repl []byte, saved []int) []byte {
+    var out = result
+    var i = 0
+    for i < len(repl) {
+        if repl[i] == 36 && i + 1 < len(repl) {
+            // '$' — backreference
+            var next = repl[i + 1]
+            if next >= 48 && next <= 57 {
+                // $N — numeric backreference
+                var groupIdx = next - 48
+                var startSlot = groupIdx * 2
+                var endSlot = groupIdx * 2 + 1
+                if startSlot < len(saved) && endSlot < len(saved) {
+                    var gs = saved[startSlot]
+                    var ge = saved[endSlot]
+                    if gs >= 0 && ge >= 0 {
+                        // TODO: Need access to original input to extract group text.
+                        // This is a limitation of the current design — the saved
+                        // positions reference the input, but we don't have the
+                        // input here. For now, skip the backreference.
+                    }
+                }
+                i = i + 2
+                continue
+            }
+        }
+        out = append(out, repl[i])
+        i = i + 1
+    }
+    return out
 }

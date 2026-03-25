@@ -6,93 +6,413 @@ pub type Iterator interface {
     next() any?
 }
 
+// Pair holds an index-value or key-value pair for enumerate and zip.
+pub Pair struct {
+    first  any
+    second any
+}
+
+// --- Private iterator structs ---
+
+SliceIterator struct {
+    implements {
+        Iterator
+    }
+
+    items []any
+    pos   int
+}
+
+fun (it &SliceIterator) next() any? {
+    if it.pos >= len(it.items) {
+        return null
+    }
+    var val = it.items[it.pos]
+    it.pos = it.pos + 1
+    return .some(val)
+}
+
+RangeIterator struct {
+    implements {
+        Iterator
+    }
+
+    current int
+    end     int
+}
+
+fun (it &RangeIterator) next() any? {
+    if it.current >= it.end {
+        return null
+    }
+    var val = it.current
+    it.current = it.current + 1
+    return .some(val)
+}
+
+MapIterator struct {
+    implements {
+        Iterator
+    }
+
+    source Iterator
+    f      fun(any) any
+}
+
+fun (it &MapIterator) next() any? {
+    var val = it.source.next()
+    if val == null {
+        return null
+    }
+    return .some(it.f(val!))
+}
+
+FilterIterator struct {
+    implements {
+        Iterator
+    }
+
+    source Iterator
+    f      fun(any) bool
+}
+
+fun (it &FilterIterator) next() any? {
+    for {
+        var val = it.source.next()
+        if val == null {
+            return null
+        }
+        if it.f(val!) {
+            return val
+        }
+    }
+}
+
+TakeIterator struct {
+    implements {
+        Iterator
+    }
+
+    source    Iterator
+    remaining int
+}
+
+fun (it &TakeIterator) next() any? {
+    if it.remaining <= 0 {
+        return null
+    }
+    it.remaining = it.remaining - 1
+    return it.source.next()
+}
+
+SkipIterator struct {
+    implements {
+        Iterator
+    }
+
+    source    Iterator
+    remaining int
+    skipped   bool
+}
+
+fun (it &SkipIterator) next() any? {
+    if !it.skipped {
+        var i = 0
+        for i < it.remaining {
+            var val = it.source.next()
+            if val == null {
+                it.skipped = true
+                return null
+            }
+            i = i + 1
+        }
+        it.skipped = true
+    }
+    return it.source.next()
+}
+
+ZipIterator struct {
+    implements {
+        Iterator
+    }
+
+    a Iterator
+    b Iterator
+}
+
+fun (it &ZipIterator) next() any? {
+    var va = it.a.next()
+    var vb = it.b.next()
+    if va == null {
+        return null
+    }
+    if vb == null {
+        return null
+    }
+    return .some(Pair{ first: va!, second: vb! })
+}
+
+ChainIterator struct {
+    implements {
+        Iterator
+    }
+
+    a     Iterator
+    b     Iterator
+    first bool
+}
+
+fun (it &ChainIterator) next() any? {
+    if it.first {
+        var val = it.a.next()
+        if val != null {
+            return val
+        }
+        it.first = false
+    }
+    return it.b.next()
+}
+
+EnumerateIterator struct {
+    implements {
+        Iterator
+    }
+
+    source Iterator
+    index  int
+}
+
+fun (it &EnumerateIterator) next() any? {
+    var val = it.source.next()
+    if val == null {
+        return null
+    }
+    var idx = it.index
+    it.index = it.index + 1
+    return .some(Pair{ first: idx, second: val! })
+}
+
+FlatMapIterator struct {
+    implements {
+        Iterator
+    }
+
+    source  Iterator
+    f       fun(any) Iterator
+    current Iterator
+    started bool
+}
+
+fun (it &FlatMapIterator) next() any? {
+    for {
+        if it.started {
+            if it.current != null {
+                var val = it.current.next()
+                if val != null {
+                    return val
+                }
+            }
+        }
+        // Get next inner iterator from source.
+        var outer = it.source.next()
+        if outer == null {
+            return null
+        }
+        it.current = it.f(outer!)
+        it.started = true
+    }
+}
+
+TakeWhileIterator struct {
+    implements {
+        Iterator
+    }
+
+    source Iterator
+    f      fun(any) bool
+    done   bool
+}
+
+fun (it &TakeWhileIterator) next() any? {
+    if it.done {
+        return null
+    }
+    var val = it.source.next()
+    if val == null {
+        it.done = true
+        return null
+    }
+    if !it.f(val!) {
+        it.done = true
+        return null
+    }
+    return val
+}
+
+SkipWhileIterator struct {
+    implements {
+        Iterator
+    }
+
+    source   Iterator
+    f        fun(any) bool
+    skipping bool
+}
+
+fun (it &SkipWhileIterator) next() any? {
+    if it.skipping {
+        for {
+            var val = it.source.next()
+            if val == null {
+                return null
+            }
+            if !it.f(val!) {
+                it.skipping = false
+                return val
+            }
+        }
+    }
+    return it.source.next()
+}
+
+// --- Public factory functions ---
+
 // fromSlice creates an iterator over the elements of a slice.
 pub fun fromSlice(s []any) Iterator {
-    return null
+    return SliceIterator{ items: s, pos: 0 }
 }
 
 // range creates an iterator over integers in [start, end).
 pub fun range(start int, end int) Iterator {
-    return null
+    return RangeIterator{ current: start, end: end }
 }
 
 // map returns an iterator that applies f to each element.
 pub fun map(it Iterator, f fun(any) any) Iterator {
-    return null
+    return MapIterator{ source: it, f: f }
 }
 
 // filter returns an iterator that yields only elements where f returns true.
 pub fun filter(it Iterator, f fun(any) bool) Iterator {
-    return null
+    return FilterIterator{ source: it, f: f }
 }
 
 // reduce reduces the iterator to a single value by applying f
 // to an accumulator and each element.
 pub fun reduce(it Iterator, init any, f fun(acc any, item any) any) any {
-    return null
+    var acc = init
+    for {
+        var val = it.next()
+        if val == null {
+            break
+        }
+        acc = f(acc, val!)
+    }
+    return acc
 }
 
 // take returns an iterator that yields at most n elements.
 pub fun take(it Iterator, n int) Iterator {
-    return null
+    return TakeIterator{ source: it, remaining: n }
 }
 
 // skip returns an iterator that skips the first n elements.
 pub fun skip(it Iterator, n int) Iterator {
-    return null
+    return SkipIterator{ source: it, remaining: n, skipped: false }
 }
 
-// zip combines two iterators element-wise into an iterator of pairs.
+// zip combines two iterators element-wise into an iterator of Pairs.
 pub fun zip(a Iterator, b Iterator) Iterator {
-    return null
+    return ZipIterator{ a: a, b: b }
 }
 
 // chain chains two iterators sequentially.
 pub fun chain(a Iterator, b Iterator) Iterator {
-    return null
+    return ChainIterator{ a: a, b: b, first: true }
 }
 
-// enumerate wraps an iterator to yield (index, item) pairs.
+// enumerate wraps an iterator to yield Pair{index, item} values.
 pub fun enumerate(it Iterator) Iterator {
-    return null
+    return EnumerateIterator{ source: it, index: 0 }
 }
 
 // count consumes the iterator and returns the number of elements.
 pub fun count(it Iterator) int {
-    return 0
+    var n = 0
+    for {
+        var val = it.next()
+        if val == null {
+            break
+        }
+        n = n + 1
+    }
+    return n
 }
 
 // anyMatch reports whether f returns true for any element.
 pub fun anyMatch(it Iterator, f fun(any) bool) bool {
+    for {
+        var val = it.next()
+        if val == null {
+            break
+        }
+        if f(val!) {
+            return true
+        }
+    }
     return false
 }
 
 // allMatch reports whether f returns true for all elements.
 pub fun allMatch(it Iterator, f fun(any) bool) bool {
-    return false
+    for {
+        var val = it.next()
+        if val == null {
+            break
+        }
+        if !f(val!) {
+            return false
+        }
+    }
+    return true
 }
 
 // collect consumes the iterator and collects all elements into a slice.
 pub fun collect(it Iterator) []any {
-    return alloc([]any, 0)
+    var result = alloc([]any, 0)
+    for {
+        var val = it.next()
+        if val == null {
+            break
+        }
+        result = append(result, val!)
+    }
+    return result
 }
 
 // forEach applies f to each element in the iterator.
 pub fun forEach(it Iterator, f fun(any)) {
+    for {
+        var val = it.next()
+        if val == null {
+            break
+        }
+        f(val!)
+    }
 }
 
 // flatMap applies f to each element and flattens the resulting iterators.
 pub fun flatMap(it Iterator, f fun(any) Iterator) Iterator {
-    return null
+    return FlatMapIterator{ source: it, f: f, current: null, started: false }
 }
 
 // takeWhile returns an iterator that yields elements while f returns true.
 pub fun takeWhile(it Iterator, f fun(any) bool) Iterator {
-    return null
+    return TakeWhileIterator{ source: it, f: f, done: false }
 }
 
 // skipWhile returns an iterator that skips elements while f returns true,
 // then yields the rest.
 pub fun skipWhile(it Iterator, f fun(any) bool) Iterator {
-    return null
+    return SkipWhileIterator{ source: it, f: f, skipping: true }
 }

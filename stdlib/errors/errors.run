@@ -1,13 +1,15 @@
 package errors
 
+use "fmt"
+
 // Error is the interface for all error values.
-pub interface Error {
+pub type Error interface {
     // message returns the error message.
     message() string
 }
 
 // Wrapper is the interface for errors that wrap other errors.
-pub interface Wrapper {
+pub type Wrapper interface {
     // unwrap returns the wrapped error, or null if none.
     unwrap() Error?
 }
@@ -37,14 +39,43 @@ pub WrappedError struct {
     cause Error
 }
 
-// message returns the error message with context.
+// message returns the full error message including the wrapped context.
+// Format: "context: inner error message" (Go convention).
 pub fun (e @WrappedError) message() string {
-    return ""
+    return e.msg + ": " + e.cause.message()
 }
 
 // unwrap returns the wrapped inner error.
 pub fun (e @WrappedError) unwrap() Error? {
-    return null
+    return .some(e.cause)
+}
+
+// JoinedError combines multiple errors into a single error value.
+JoinedError struct {
+    implements (
+        Error,
+    )
+
+    errs []Error
+}
+
+// message returns all error messages joined by newlines.
+pub fun (e @JoinedError) message() string {
+    if len(e.errs) == 0 {
+        return ""
+    }
+    var result = e.errs[0].message()
+    var i = 1
+    for i < len(e.errs) {
+        result = result + "\n" + e.errs[i].message()
+        i = i + 1
+    }
+    return result
+}
+
+// errors returns the list of underlying errors.
+pub fun (e @JoinedError) errors() []Error {
+    return e.errs
 }
 
 // new creates a simple error with the given message.
@@ -60,29 +91,71 @@ pub fun wrap(err Error, msg string) Error {
 
 // wrapF wraps an error with a formatted context message.
 pub fun wrapF(err Error, format string, args ...any) Error {
-    return WrappedError{ msg: "", cause: err }
+    return WrappedError{ msg: fmt.sprintf(format, args...), cause: err }
 }
 
 // unwrap returns the error wrapped by err, or null if err does
 // not implement the Wrapper interface.
 pub fun unwrap(err Error) Error? {
+    // Check if err implements the Wrapper interface.
+    var w = err as Wrapper
+    if w != null {
+        return w.unwrap()
+    }
     return null
 }
 
 // is reports whether any error in err's chain matches target.
-// An error is considered a match if it is equal to the target.
+// An error is considered a match if its message equals the target's message.
 pub fun is(err Error, target Error) bool {
+    var current Error? = .some(err)
+    for current != null {
+        var e = current!
+        if e.message() == target.message() {
+            return true
+        }
+        // Try to unwrap to continue walking the chain.
+        var w = e as Wrapper
+        if w != null {
+            current = w.unwrap()
+        } else {
+            current = null
+        }
+    }
     return false
 }
 
 // as attempts to find the first error in err's chain that matches
 // the target type and assigns it to target.
+// Note: Full type narrowing requires runtime type information from the compiler.
 pub fun as(err Error, target &any) bool {
+    var current Error? = .some(err)
+    for current != null {
+        var e = current!
+        // TODO: Runtime type checking requires compiler support.
+        // When available, this will check if e's concrete type matches
+        // the type pointed to by target, and if so, assign it.
+        var w = e as Wrapper
+        if w != null {
+            current = w.unwrap()
+        } else {
+            current = null
+        }
+    }
     return false
 }
 
 // join combines multiple errors into a single error.
-// Returns null if all errors are null.
+// Returns null if all errors are null or the slice is empty.
 pub fun join(errs []Error) Error? {
-    return null
+    var valid = alloc([]Error, 0)
+    for e in errs {
+        if e != null {
+            valid = append(valid, e)
+        }
+    }
+    if len(valid) == 0 {
+        return null
+    }
+    return .some(JoinedError{ errs: valid })
 }

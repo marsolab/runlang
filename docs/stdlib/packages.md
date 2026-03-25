@@ -319,48 +319,91 @@ choice(s []any) any            — random element
 
 ### `testing` — Test Framework
 
-**Purpose:** Test context, assertions, benchmarking support.
+**Purpose:** Test context, composable assertion operators, table-driven tests, fuzzing, and benchmarking.
+Uses the `test` and `bench` language keywords — tests are first-class language constructs.
+Assertion operators inspired by [go-testdeep](https://github.com/maxatome/go-testdeep).
+
+**Language constructs:**
+```
+test "name" (t) { body }                              — unit test block
+for test "name" in ["case" :: {}, ...] (t) { body }   — table-driven test
+for test "name" in [...] as { fields } (t) { body }   — table-driven with destructuring
+test "name" fuzz(params) (t) { body }                  — fuzz test
+test "name" fuzz(params) seed [...] (t) { body }       — fuzz test with seed corpus
+bench "name" (b) { body }                              — benchmark block
+for bench "name" in ["case" :: {}, ...] (b) { body }  — table-driven benchmark
+test beforeAll { }                                 — file-level setup
+test afterAll { }                                  — file-level teardown
+test beforeEach { }                                — per-test setup
+test afterEach { }                                 — per-test teardown
+```
 
 **Key types and functions:**
 ```
-T                 struct       — test context
-  log(msg)
-  logf(format, args)
-  fail()
-  fail_now()
-  error(msg)
-  errorf(format, args)
-  fatal(msg)
-  fatalf(format, args)
-  skip(msg)
+Operator          struct       — comparison operator for t.expect
 
-B                 struct       — benchmark context
-  reset_timer()
-  start_timer()
-  stop_timer()
-  report_metric(name, value, unit)
-  n int                        — iteration count
+T                 struct       — test context (explicit `t` parameter)
+  expect(got, operator)        — single assertion method
+  log(msg)                     — log message (shown on failure or -v)
+  logf(format, args)           — formatted log
+  fail()                       — mark failed, continue
+  failNow()                    — mark failed, stop
+  error(msg)                   — log + fail
+  errorf(format, args)         — formatted log + fail
+  fatal(msg)                   — log + fail + stop
+  fatalf(format, args)         — formatted log + fail + stop
+  skip(reason)                 — skip this test
+  run(name) (t) { }            — launch a subtest
+  parallel()                   — mark safe for parallel execution
+  name() string                — current test name
+  deadline() int               — timeout deadline
+  tempDir() string             — auto-cleaned temp directory
+
+  // Operator methods (return Operator for use with t.expect)
+  eq(want)                     — deep equality
+  ne(want)                     — not equal
+  gt(bound), gte(bound)        — greater than / greater or equal
+  lt(bound), lte(bound)        — less than / less or equal
+  between(lo, hi)              — range [lo, hi]
+  isTrue(), isFalse()          — boolean checks
+  isNil(), notNil()            — null checks
+  isErr(), isOk()              — error union checks
+  hasPrefix(s), hasSuffix(s)   — string prefix/suffix
+  contains(v)                  — substring or element containment
+  matches(pattern)             — regex match
+  hasLen(n), hasCap(n)         — length/capacity
+  isEmpty(), notEmpty()        — emptiness
+  containsAll(items...)        — all items present
+  containsAny(items...)        — at least one present
+  all(ops...), any(ops...)     — AND / OR composition
+  none(ops...), not(op)        — NOR / negation
+  approx(want, tol)            — approximate equality
+  typeOf(name)                 — type check
+
+B                 struct       — benchmark context (explicit `b` parameter)
+  n int                        — iteration count (set by framework)
+  resetTimer()                 — exclude setup from timing
+  startTimer()                 — resume timing
+  stopTimer()                  — pause timing
+  reportMetric(name, val, unit) — custom metric
+  bytesPerOp(n)                — for throughput calculation
+  run(name) (b) { }            — sub-benchmark
+
+F                 struct       — fuzz context
+  add(args)                    — add seed corpus entry
 
 TestResult        struct       — test run summary
   passed int
   failed int
   skipped int
+  fuzzed int
+  benched int
   total() int
   ok() bool
-
-// Assertion functions
-expect(condition, msg)
-expect_eq(expected, actual)
-expect_ne(a, b)
-expect_true(condition)
-expect_false(condition)
-expect_error(result)
-expect_no_error(result)
-expect_nil(value)
 ```
 
 **Dependencies:** `fmt`, `strings`
-**Status:** Stub exists
+**Status:** Stub exists (redesigned)
 
 ---
 

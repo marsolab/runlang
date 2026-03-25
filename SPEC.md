@@ -669,6 +669,87 @@ language-level support without requiring user-facing generics.
 - Native codegen via **Zig's own backend** (no LLVM dependency)
 - File extension: `.run`
 
+## Testing
+
+Run has first-class testing built into the language via the `test` and `bench` keywords.
+Tests combine Zig's `test` blocks with Go's explicit test context and a composable
+operator system.
+
+### Test Blocks
+
+```
+use "testing"
+
+test "addition works" (t) {
+    t.expect(add(2, 3), t.eq(5))
+    t.expect(add(-1, 1), t.eq(0))
+}
+```
+
+- `test` blocks are top-level declarations
+- String description is human-readable (not an identifier)
+- `(t)` receives the test context `&T` explicitly (like Go)
+- `t.expect(got, operator)` is the single assertion method
+- Operators (`t.eq`, `t.gt`, `t.contains`, etc.) are methods on `T`
+- Tests are stripped from production builds
+
+### Table-Driven Tests
+
+```
+for test "parseInt" in [
+    "simple"   :: { input: "42",  want: 42 },
+    "negative" :: { input: "-7",  want: -7 },
+    "zero"     :: { input: "0",   want: 0  },
+] (t) {
+    result := try parseInt(row.input)
+    t.expect(result, t.eq(row.want))
+}
+```
+
+- `for test` / `for bench` introduces a table-driven variant
+- Each case is `"name" :: { fields }` — reuses `::` from `switch`
+- Row fields accessed via `row` binding, or destructured with `as { fields }`
+
+### Fuzzing
+
+```
+test "json roundtrip" fuzz(data []byte) (t) {
+    parsed := parseJson(data) or return
+    output := toJson(parsed)
+    reparsed := try parseJson(output)
+    t.expect(reparsed, t.eq(parsed))
+}
+```
+
+- `fuzz(params)` declares fuzz inputs (`[]byte`, `string`, `int`, `f64`, `bool`)
+- Optional `seed [...]` provides a seed corpus
+- `or return` skips inputs that don't meet preconditions
+
+### Benchmarks
+
+```
+bench "sort 1000" (b) {
+    data := generateRandomSlice(1000)
+    b.resetTimer()
+    for _ in 0..b.n {
+        sort(data)
+    }
+}
+```
+
+- `bench` blocks receive `(b)` — the benchmark context `&B`, explicitly
+- `b.n` is the iteration count set by the framework
+- Table-driven benchmarks via `for bench "name" in ["case" :: {}, ...]`
+
+### Lifecycle Hooks
+
+```
+test beforeAll { }    // once before all tests in file
+test afterAll { }     // once after all tests in file
+test beforeEach { }   // before each test
+test afterEach { }    // after each test
+```
+
 ## Standard Library (Go-level comprehensive)
 
 - `io` — readers, writers, buffered I/O

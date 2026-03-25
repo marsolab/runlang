@@ -51,6 +51,34 @@ pub type ReadSeeker interface {
     seek(offset int, whence SeekWhence) !int
 }
 
+// WriteSeeker is the interface that combines Writer and Seeker.
+pub type WriteSeeker interface {
+    write(buf []byte) !int
+    seek(offset int, whence SeekWhence) !int
+}
+
+// ReadWriteSeeker is the interface that combines Reader, Writer, and Seeker.
+pub type ReadWriteSeeker interface {
+    read(buf []byte) !int
+    write(buf []byte) !int
+    seek(offset int, whence SeekWhence) !int
+}
+
+// StringWriter is the interface for types that can write strings directly.
+pub type StringWriter interface {
+    writeString(s string) !int
+}
+
+// ByteWriter is the interface for types that can write a single byte.
+pub type ByteWriter interface {
+    writeByte(c byte) !void
+}
+
+// ByteReader is the interface for types that can read a single byte.
+pub type ByteReader interface {
+    readByte() !byte
+}
+
 // SeekWhence specifies how to interpret a seek offset.
 pub type SeekWhence = .start | .current | .end
 
@@ -289,6 +317,102 @@ fun (mw &MultiWriter) write(buf []byte) !int {
     return len(buf)
 }
 
+// TeeReader wraps a Reader and copies everything read into a Writer.
+// Reading from a TeeReader reads from the underlying reader and
+// simultaneously writes the data to the writer.
+TeeReader struct {
+    implements {
+        Reader
+    }
+
+    reader Reader
+    writer Writer
+}
+
+// read reads from the underlying reader and writes the data to the writer.
+fun (tr &TeeReader) read(buf []byte) !int {
+    var n = try tr.reader.read(buf)
+    if n > 0 {
+        var wbuf = alloc([]byte, n)
+        var i = 0
+        for i < n {
+            wbuf[i] = buf[i]
+            i = i + 1
+        }
+        try tr.writer.write(wbuf)
+    }
+    return n
+}
+
+// SectionReader reads from a section of a ReadSeeker starting at a
+// given offset and limited to a fixed number of bytes.
+pub SectionReader struct {
+    implements {
+        Reader
+        Seeker
+    }
+
+    reader ReadSeeker
+    base   int
+    off    int
+    limit  int
+}
+
+// read reads from the section, respecting the offset and limit.
+pub fun (sr &SectionReader) read(buf []byte) !int {
+    if sr.off >= sr.limit {
+        return 0
+    }
+    var max = sr.limit - sr.off
+    var readBuf = buf
+    if len(buf) > max {
+        readBuf = alloc([]byte, max)
+    }
+    try sr.reader.seek(sr.base + sr.off, .start)
+    var n = try sr.reader.read(readBuf)
+    if len(buf) > max {
+        var i = 0
+        for i < n {
+            buf[i] = readBuf[i]
+            i = i + 1
+        }
+    }
+    sr.off = sr.off + n
+    return n
+}
+
+// seek seeks within the section boundaries.
+pub fun (sr &SectionReader) seek(offset int, whence SeekWhence) !int {
+    switch whence {
+        .start :: { sr.off = offset },
+        .current :: { sr.off = sr.off + offset },
+        .end :: { sr.off = sr.limit - sr.base + offset },
+    }
+    if sr.off < 0 {
+        sr.off = 0
+    }
+    return sr.off
+}
+
+// NopCloser wraps a Reader as a ReadCloser with a no-op close method.
+NopCloser struct {
+    implements {
+        Reader
+        Closer
+    }
+
+    reader Reader
+}
+
+// read delegates to the underlying reader.
+fun (nc &NopCloser) read(buf []byte) !int {
+    return try nc.reader.read(buf)
+}
+
+// close does nothing and returns success.
+fun (nc &NopCloser) close() !void {
+}
+
 // PipeReader is the read half of an in-process pipe.
 // Data written to the corresponding PipeWriter becomes available for reading.
 pub PipeReader struct {
@@ -468,6 +592,36 @@ pub fun multiReader(readers ...Reader) Reader {
 // If any writer returns an error, that error is returned.
 pub fun multiWriter(writers ...Writer) Writer {
     return MultiWriter{ writers: writers }
+}
+
+// teeReader returns a Reader that writes to w what it reads from r.
+// All data read from r is written to w. There is no internal buffering;
+// the write must complete before the read completes.
+pub fun teeReader(r Reader, w Writer) Reader {
+    return TeeReader{ reader: r, writer: w }
+}
+
+// sectionReader returns a SectionReader that reads from r starting at
+// offset off and stops after n bytes.
+pub fun sectionReader(r ReadSeeker, off int, n int) SectionReader {
+    return SectionReader{ reader: r, base: off, off: 0, limit: off + n }
+}
+
+// nopCloser wraps a Reader as a ReadCloser with a no-op close method.
+pub fun nopCloser(r Reader) ReadCloser {
+    return NopCloser{ reader: r }
+}
+
+// writeString writes the string s to w. If w implements StringWriter,
+// the writeString method is called directly. Otherwise s is converted
+// to bytes and written via write.
+pub fun writeString(w Writer, s string) !int {
+    var sw = w as StringWriter
+    if sw != null {
+        return try sw.writeString(s)
+    }
+    var buf = s as []byte
+    return try w.write(buf)
 }
 
 // pipe creates an in-process pipe. Data written to the PipeWriter becomes

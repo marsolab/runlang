@@ -1,15 +1,41 @@
 package testing
 
-// T is the test context passed to each test function.
-// It provides methods for logging, failing, and skipping tests.
+// Operator represents a test comparison operator used with the `expect` keyword.
+// Operators are created via methods on T (t.eq, t.gt, t.contains, etc.)
+// and describe how to compare a value against an expectation.
+pub Operator struct {
+    kind    OperatorKind
+    want    any
+    extra   any
+    inner   []Operator
+}
+
+// OperatorKind enumerates the built-in comparison operators.
+pub type OperatorKind = .eq | .ne | .gt | .gte | .lt | .lte | .between
+    | .isTrue | .isFalse | .isNil | .notNil | .isErr | .isOk
+    | .hasPrefix | .hasSuffix | .contains | .matches
+    | .hasLen | .hasCap | .isEmpty | .notEmpty
+    | .containsAll | .containsAny
+    | .all | .any | .none | .not
+    | .approx | .typeOf
+
+// --- Test Context ---
+
+// T is the test context passed explicitly to test blocks via (t).
+// Provides logging, failure control, subtests, and operator methods.
 pub T struct {
-    name    string
-    failed  bool
-    skipped bool
-    log_buf []string
+    name      string
+    failed    bool
+    skipped   bool
+    logBuf    []string
+    parent    &T?
+    parallel_ bool
+    deadline_ int
+    tempDir_  string?
 }
 
 // log records a message in the test log.
+// Messages are only printed on failure or when running with -v.
 pub fun (t &T) log(msg string) {
 }
 
@@ -21,7 +47,7 @@ pub fun (t &T) logf(format string, args ...any) {
 pub fun (t &T) fail() {
 }
 
-// failNow marks the test as failed and stops execution.
+// failNow marks the test as failed and stops execution immediately.
 pub fun (t &T) failNow() {
 }
 
@@ -33,49 +59,212 @@ pub fun (t &T) error(msg string) {
 pub fun (t &T) errorf(format string, args ...any) {
 }
 
-// fatal logs a message, marks the test as failed, and stops execution.
+// fatal logs a message, marks the test as failed, and stops immediately.
 pub fun (t &T) fatal(msg string) {
 }
 
-// fatalf logs a formatted message, marks the test as failed, and stops execution.
+// fatalf logs a formatted message, marks the test as failed, and stops immediately.
 pub fun (t &T) fatalf(format string, args ...any) {
 }
 
 // skip marks the test as skipped and stops execution.
-pub fun (t &T) skip(msg string) {
+pub fun (t &T) skip(reason string) {
 }
 
-// expect asserts that a condition is true. If not, the test is marked as failed
-// with the given message.
-pub fun expect(condition bool, msg string) {
+// run launches a subtest with the given name and body.
+// Subtests run as independent test units with their own T context.
+pub fun (t &T) run(name string, body fun(t &T)) {
 }
 
-// expectEq asserts that expected and actual are equal.
-pub fun expectEq(expected any, actual any) {
+// expect asserts that got matches the given operator.
+// On failure, reports source location, got vs want, and operator description.
+pub fun (t &T) expect(got any, op Operator) {
 }
 
-// expectNe asserts that a and b are not equal.
-pub fun expectNe(a any, b any) {
+// parallel marks this test as safe to run in parallel with other
+// parallel-marked tests. Must be called before any test logic.
+pub fun (t &T) parallel() {
 }
 
-// expectTrue asserts that the condition is true.
-pub fun expectTrue(condition bool) {
+// name returns the fully-qualified name of the current test/subtest.
+pub fun (t @T) name() string {
+    return t.name
 }
 
-// expectFalse asserts that the condition is false.
-pub fun expectFalse(condition bool) {
+// deadline returns the test timeout deadline as a unix timestamp in nanoseconds.
+// Returns 0 if no deadline is set.
+pub fun (t @T) deadline() int {
+    return t.deadline_
 }
 
-// expectError asserts that the given error union contains an error.
-pub fun expectError(result any) {
+// tempDir returns a temporary directory that is automatically cleaned up
+// after the test completes. Each call returns the same directory.
+pub fun (t &T) tempDir() string {
+    return ""
 }
 
-// fail marks the current test as failed with the given message.
-pub fun fail(msg string) {
+// failed returns whether the test has been marked as failed.
+pub fun (t @T) failed() bool {
+    return t.failed
 }
 
-// B is the benchmark context passed to each benchmark function.
-// It provides timing control and iteration counting.
+// skipped returns whether the test has been marked as skipped.
+pub fun (t @T) skipped() bool {
+    return t.skipped
+}
+
+// --- Operators ---
+// Methods on T that return Operator values for use with the `expect` keyword.
+// Usage: expect(got, t.eq(want))
+
+// eq returns an operator that asserts deep equality (==).
+pub fun (t @T) eq(want any) Operator {
+    return Operator{ kind: .eq, want: want }
+}
+
+// ne returns an operator that asserts inequality (!=).
+pub fun (t @T) ne(want any) Operator {
+    return Operator{ kind: .ne, want: want }
+}
+
+// gt returns an operator that asserts got > bound.
+pub fun (t @T) gt(bound any) Operator {
+    return Operator{ kind: .gt, want: bound }
+}
+
+// gte returns an operator that asserts got >= bound.
+pub fun (t @T) gte(bound any) Operator {
+    return Operator{ kind: .gte, want: bound }
+}
+
+// lt returns an operator that asserts got < bound.
+pub fun (t @T) lt(bound any) Operator {
+    return Operator{ kind: .lt, want: bound }
+}
+
+// lte returns an operator that asserts got <= bound.
+pub fun (t @T) lte(bound any) Operator {
+    return Operator{ kind: .lte, want: bound }
+}
+
+// between returns an operator that asserts lo <= got <= hi.
+pub fun (t @T) between(lo any, hi any) Operator {
+    return Operator{ kind: .between, want: lo, extra: hi }
+}
+
+// isTrue returns an operator that asserts got is true.
+pub fun (t @T) isTrue() Operator {
+    return Operator{ kind: .isTrue }
+}
+
+// isFalse returns an operator that asserts got is false.
+pub fun (t @T) isFalse() Operator {
+    return Operator{ kind: .isFalse }
+}
+
+// isNil returns an operator that asserts got is null.
+pub fun (t @T) isNil() Operator {
+    return Operator{ kind: .isNil }
+}
+
+// notNil returns an operator that asserts got is not null.
+pub fun (t @T) notNil() Operator {
+    return Operator{ kind: .notNil }
+}
+
+// isErr returns an operator that asserts an error union holds an error.
+pub fun (t @T) isErr() Operator {
+    return Operator{ kind: .isErr }
+}
+
+// isOk returns an operator that asserts an error union holds a success value.
+pub fun (t @T) isOk() Operator {
+    return Operator{ kind: .isOk }
+}
+
+// hasPrefix returns an operator that asserts the string starts with prefix.
+pub fun (t @T) hasPrefix(prefix string) Operator {
+    return Operator{ kind: .hasPrefix, want: prefix }
+}
+
+// hasSuffix returns an operator that asserts the string ends with suffix.
+pub fun (t @T) hasSuffix(suffix string) Operator {
+    return Operator{ kind: .hasSuffix, want: suffix }
+}
+
+// contains returns an operator that asserts substring or element containment.
+pub fun (t @T) contains(needle any) Operator {
+    return Operator{ kind: .contains, want: needle }
+}
+
+// matches returns an operator that asserts a regex match.
+pub fun (t @T) matches(pattern string) Operator {
+    return Operator{ kind: .matches, want: pattern }
+}
+
+// hasLen returns an operator that asserts length equals n.
+pub fun (t @T) hasLen(n int) Operator {
+    return Operator{ kind: .hasLen, want: n }
+}
+
+// hasCap returns an operator that asserts capacity equals n.
+pub fun (t @T) hasCap(n int) Operator {
+    return Operator{ kind: .hasCap, want: n }
+}
+
+// isEmpty returns an operator that asserts length is 0.
+pub fun (t @T) isEmpty() Operator {
+    return Operator{ kind: .isEmpty }
+}
+
+// notEmpty returns an operator that asserts length is > 0.
+pub fun (t @T) notEmpty() Operator {
+    return Operator{ kind: .notEmpty }
+}
+
+// containsAll returns an operator that asserts all items are present.
+pub fun (t @T) containsAll(items ...any) Operator {
+    return Operator{ kind: .containsAll, want: items }
+}
+
+// containsAny returns an operator that asserts at least one item is present.
+pub fun (t @T) containsAny(items ...any) Operator {
+    return Operator{ kind: .containsAny, want: items }
+}
+
+// all returns an operator that asserts all inner operators match (AND).
+pub fun (t @T) all(ops ...Operator) Operator {
+    return Operator{ kind: .all, inner: ops }
+}
+
+// any returns an operator that asserts at least one inner operator matches (OR).
+pub fun (t @T) any(ops ...Operator) Operator {
+    return Operator{ kind: .any, inner: ops }
+}
+
+// none returns an operator that asserts no inner operator matches (NOR).
+pub fun (t @T) none(ops ...Operator) Operator {
+    return Operator{ kind: .none, inner: ops }
+}
+
+// not returns an operator that negates another operator.
+pub fun (t @T) not(op Operator) Operator {
+    return Operator{ kind: .not, inner: []Operator{op} }
+}
+
+// approx returns an operator that asserts numeric approximate equality.
+pub fun (t @T) approx(want f64, tolerance f64) Operator {
+    return Operator{ kind: .approx, want: want, extra: tolerance }
+}
+
+// typeOf returns an operator that asserts the value's type.
+pub fun (t @T) typeOf(typeName string) Operator {
+    return Operator{ kind: .typeOf, want: typeName }
+}
+
+// --- Benchmark Context ---
+
+// B is the benchmark context passed explicitly to bench blocks via (b).
 pub B struct {
     name     string
     n        int
@@ -85,46 +274,67 @@ pub B struct {
 }
 
 // resetTimer resets the benchmark timer and counters.
-// It does not affect whether the timer is running.
+// Call this after expensive setup that should not be measured.
 pub fun (b &B) resetTimer() {
 }
 
-// startTimer starts timing the benchmark. This function is called
-// automatically before a benchmark function is invoked.
+// startTimer starts or resumes timing.
+// Called automatically before the benchmark body executes.
 pub fun (b &B) startTimer() {
 }
 
-// stopTimer stops timing the benchmark.
+// stopTimer pauses timing. Use with startTimer to exclude
+// sections from measurement.
 pub fun (b &B) stopTimer() {
 }
 
-// reportMetric adds a custom reported metric to the benchmark results.
-pub fun (b &B) reportMetric(n f64, unit string) {
+// reportMetric adds a custom metric to the benchmark results.
+pub fun (b &B) reportMetric(name string, value f64, unit string) {
 }
 
-// setBytes records the number of bytes processed in a single
-// benchmark iteration. This is used to compute throughput.
-pub fun (b &B) setBytes(n int) {
+// bytesPerOp sets the number of bytes processed per benchmark iteration.
+// Used to compute throughput (MB/s) in results.
+pub fun (b &B) bytesPerOp(n int) {
 }
 
-// runN runs the benchmark function f n times.
-pub fun (b &B) runN(n int, f fun(b &B)) {
+// run launches a sub-benchmark.
+pub fun (b &B) run(name string, body fun(b &B)) {
 }
+
+// --- Test Results ---
 
 // TestResult holds the summary of a test run.
 pub TestResult struct {
     passed   int
     failed   int
     skipped  int
+    fuzzed   int
+    benched  int
     failures []string
+    duration int
 }
 
 // total returns the total number of tests run.
 pub fun (r @TestResult) total() int {
-    return 0
+    return r.passed + r.failed + r.skipped
 }
 
-// ok returns true if all tests passed.
+// ok returns true if all tests passed (no failures).
 pub fun (r @TestResult) ok() bool {
-    return false
+    return r.failed == 0
+}
+
+// --- Fuzz Context ---
+
+// F is the fuzz context, available inside fuzz test blocks for
+// adding seed corpus entries programmatically.
+pub F struct {
+    name     string
+    corpus   [][]byte
+    fuzzFunc fun(data []byte)
+}
+
+// add adds a seed corpus entry. Each argument is one entry.
+// The types must match the fuzz function parameters.
+pub fun (f &F) add(args ...any) {
 }

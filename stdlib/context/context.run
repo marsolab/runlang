@@ -1,5 +1,6 @@
 package context
 
+use "sync"
 use "time"
 
 // Context carries a deadline, cancellation signal, and request-scoped values
@@ -25,45 +26,304 @@ pub type ContextError = .cancelled
 
 // CancelFunc tells an operation to abandon its work.
 // It does not wait for the work to stop.
+// Calling a CancelFunc multiple times after the first call is a no-op.
 pub type CancelFunc = fun()
 
-// background returns a non-nil, empty Context. It is never cancelled,
-// has no values, and has no deadline. It is typically used by the main
-// function, initialization, and tests.
-pub fun background() Context {
-    return null
+// CancelResult holds a derived context and its cancel function.
+pub type CancelResult struct {
+    ctx    Context
+    cancel CancelFunc
 }
 
-// todo returns a non-nil, empty Context. Code should use context.todo
+// --- Root contexts ---
+
+// empty returns a non-nil, empty Context. It is never cancelled,
+// has no values, and has no deadline. It is typically used by the main
+// function, initialization, and tests.
+pub fun empty() Context {
+    return backgroundCtx{}
+}
+
+// TODO returns a non-nil, empty Context. Code should use context.TODO
 // when it's unclear which Context to use or the function has not yet
 // been extended to accept a Context parameter.
-pub fun todo() Context {
-    return null
+pub fun TODO() Context {
+    return backgroundCtx{}
 }
+
+// --- Derivation functions ---
 
 // withCancel returns a copy of parent with a new done channel.
 // The returned context's done channel is closed when the returned
 // cancel function is called or when the parent context's done
 // channel is closed, whichever happens first.
-pub fun withCancel(parent Context) struct { ctx Context, cancel CancelFunc } {
-    return .{ ctx: parent, cancel: fun() {} }
+pub fun withCancel(parent Context) CancelResult {
+    var ch = alloc(chan struct{})
+    var ctx = cancelCtx{
+        parent: parent,
+        doneChan: ch,
+        error: null,
+        children: alloc([]&cancelCtx, 0),
+        mu: sync.Mutex{ locked: false },
+    }
+    // TODO: Spawn a green thread to watch parent.done() and propagate
+    // cancellation when the parent is cancelled. Requires runtime support:
+    //   go fun() {
+    //       select {
+    //           parent.done() :: ctx.cancel(.cancelled),
+    //       }
+    //   }()
+    var ctxRef = &ctx
+    var cancelFn = fun() {
+        ctxRef.cancel(.cancelled)
+    }
+    return CancelResult{ ctx: ctx, cancel: cancelFn }
 }
 
 // withTimeout returns withDeadline(parent, time.now().add(timeout)).
-pub fun withTimeout(parent Context, timeout time.Duration) struct { ctx Context, cancel CancelFunc } {
-    return .{ ctx: parent, cancel: fun() {} }
+pub fun withTimeout(parent Context, timeout time.Duration) CancelResult {
+    var dl = time.now().add(timeout)
+    return withDeadline(parent, dl)
 }
 
 // withDeadline returns a copy of the parent context with the deadline
 // adjusted to be no later than d. If the parent's deadline is already
 // earlier than d, withDeadline(parent, d) is semantically equivalent
 // to parent.
-pub fun withDeadline(parent Context, deadline time.Time) struct { ctx Context, cancel CancelFunc } {
-    return .{ ctx: parent, cancel: fun() {} }
+pub fun withDeadline(parent Context, deadline time.Time) CancelResult {
+    // Check if parent already has an earlier deadline.
+    var parentDl = parent.deadline()
+    if parentDl != null {
+        var pd = parentDl!
+        if pd.before(deadline) {
+            // Parent's deadline is earlier; just use withCancel.
+            return withCancel(parent)
+        }
+    }
+
+    var ch = alloc(chan struct{})
+    var inner = cancelCtx{
+        parent: parent,
+        doneChan: ch,
+        error: null,
+        children: alloc([]&cancelCtx, 0),
+        mu: sync.Mutex{ locked: false },
+    }
+    var ctx = timerCtx{
+        ctx: inner,
+        dl: deadline,
+        timer: time.newTimer(0),
+    }
+
+    // Compute duration until deadline.
+    var dur = time.until(deadline)
+    if dur <= 0 {
+        // Deadline already passed; cancel immediately.
+        ctx.ctx.cancel(.deadlineExceeded)
+        return CancelResult{ ctx: ctx, cancel: fun() {} }
+    }
+
+    // Set up timer to fire at deadline.
+    ctx.timer = time.newTimer(dur)
+    // TODO: Spawn green thread to wait on timer and cancel context:
+    //   go fun() {
+    //       select {
+    //           ctx.timer.c :: ctx.ctx.cancel(.deadlineExceeded),
+    //           parent.done() :: ctx.ctx.cancel(.cancelled),
+    //       }
+    //   }()
+
+    var ctxRef = &ctx.ctx
+    var cancelFn = fun() {
+        ctxRef.cancel(.cancelled)
+        ctx.timer.stop()
+    }
+    return CancelResult{ ctx: ctx, cancel: cancelFn }
 }
 
 // withValue returns a copy of parent in which the value associated
 // with key is val.
+//
+// Use context values only for request-scoped data that transits
+// processes and API boundaries, not for passing optional parameters
+// to functions.
 pub fun withValue(parent Context, key string, val any) Context {
-    return parent
+    return valueCtx{ parent: parent, key: key, val: val }
+}
+
+// --- Concrete context implementations ---
+
+// backgroundCtx is the root context. It is never cancelled, has no
+// values, and has no deadline.
+type backgroundCtx struct {
+    implements (
+        Context,
+    )
+}
+
+// deadline returns null — background contexts have no deadline.
+fun (c @backgroundCtx) deadline() time.Time? {
+    return null
+}
+
+// done returns a channel that is never closed.
+// TODO: Requires a sentinel channel that blocks forever. The runtime
+// should provide a way to create such a channel.
+fun (c @backgroundCtx) done() chan struct {} {
+    return alloc(chan struct{})
+}
+
+// err returns null — background contexts are never cancelled.
+fun (c @backgroundCtx) err() ContextError? {
+    return null
+}
+
+// value returns null — background contexts carry no values.
+fun (c @backgroundCtx) value(key string) any? {
+    return null
+}
+
+// cancelCtx is a context that can be cancelled. When cancelled, it
+// closes its done channel and propagates cancellation to all children.
+type cancelCtx struct {
+    implements (
+        Context,
+    )
+
+    parent   Context
+    doneChan chan struct {}
+    error    ContextError?
+    children []&cancelCtx
+    mu       sync.Mutex
+}
+
+// deadline delegates to the parent context's deadline.
+fun (c @cancelCtx) deadline() time.Time? {
+    return c.parent.deadline()
+}
+
+// done returns the channel that is closed when this context is cancelled.
+fun (c @cancelCtx) done() chan struct {} {
+    return c.doneChan
+}
+
+// err returns the error that caused this context to be cancelled, or null.
+fun (c @cancelCtx) err() ContextError? {
+    return c.error
+}
+
+// value delegates to the parent context's value lookup.
+fun (c @cancelCtx) value(key string) any? {
+    return c.parent.value(key)
+}
+
+// cancel marks the context as cancelled with the given error,
+// closes the done channel, and cancels all child contexts.
+fun (c &cancelCtx) cancel(err ContextError) {
+    c.mu.lock()
+    if c.error != null {
+        // Already cancelled.
+        c.mu.unlock()
+        return
+    }
+    c.error = .some(err)
+    // TODO: Close the done channel. Requires runtime support:
+    //   close(c.doneChan)
+
+    // Propagate cancellation to all children.
+    for child in c.children {
+        child.cancel(err)
+    }
+    c.children = alloc([]&cancelCtx, 0)
+    c.mu.unlock()
+}
+
+// addChild registers a child cancelCtx for propagation.
+fun (c &cancelCtx) addChild(child &cancelCtx) {
+    c.mu.lock()
+    c.children = append(c.children, child)
+    c.mu.unlock()
+}
+
+// removeChild unregisters a child cancelCtx.
+fun (c &cancelCtx) removeChild(child &cancelCtx) {
+    c.mu.lock()
+    var newChildren = alloc([]&cancelCtx, 0)
+    for ch in c.children {
+        // TODO: Pointer identity comparison requires runtime support.
+        // For now, keep all children (minor leak on cancel).
+        newChildren = append(newChildren, ch)
+    }
+    c.children = newChildren
+    c.mu.unlock()
+}
+
+// timerCtx extends cancelCtx with a deadline. When the deadline expires,
+// the context is automatically cancelled with .deadlineExceeded.
+type timerCtx struct {
+    implements (
+        Context,
+    )
+
+    ctx   cancelCtx
+    dl    time.Time
+    timer time.Timer
+}
+
+// deadline returns this context's deadline.
+fun (t @timerCtx) deadline() time.Time? {
+    return .some(t.dl)
+}
+
+// done returns the done channel from the underlying cancelCtx.
+fun (t @timerCtx) done() chan struct {} {
+    return t.ctx.done()
+}
+
+// err returns the cancellation error from the underlying cancelCtx.
+fun (t @timerCtx) err() ContextError? {
+    return t.ctx.err()
+}
+
+// value delegates to the underlying cancelCtx's value lookup.
+fun (t @timerCtx) value(key string) any? {
+    return t.ctx.value(key)
+}
+
+// valueCtx carries a single key-value pair. Value lookups check the
+// local key first, then delegate to the parent context. This creates
+// a linked list of values up the context tree.
+type valueCtx struct {
+    implements (
+        Context,
+    )
+
+    parent Context
+    key    string
+    val    any
+}
+
+// deadline delegates to the parent context's deadline.
+fun (v @valueCtx) deadline() time.Time? {
+    return v.parent.deadline()
+}
+
+// done delegates to the parent context's done channel.
+fun (v @valueCtx) done() chan struct {} {
+    return v.parent.done()
+}
+
+// err delegates to the parent context's error.
+fun (v @valueCtx) err() ContextError? {
+    return v.parent.err()
+}
+
+// value returns the value for the given key. If the key matches this
+// context's key, the local value is returned. Otherwise, the lookup
+// is delegated to the parent context.
+fun (v @valueCtx) value(key string) any? {
+    if key == v.key {
+        return .some(v.val)
+    }
+    return v.parent.value(key)
 }
