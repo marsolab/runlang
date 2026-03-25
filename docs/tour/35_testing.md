@@ -59,7 +59,7 @@ The most common test pattern — testing a function with many inputs — is a
 first-class language construct. Use `for` with named cases separated by `::`:
 
 ```run
-test "add" for [
+for test "add" in [
     "positive"    :: { a: 2,  b: 3,  want: 5   },
     "negative"    :: { a: -1, b: -2, want: -3   },
     "zeros"       :: { a: 0,  b: 0,  want: 0    },
@@ -73,7 +73,7 @@ Each case runs as a separate subtest. The string before `::` is the case name,
 the struct after `::` is the test data accessed via `row`:
 
 ```run
-test "parseInt" for [
+for test "parseInt" in [
     "simple"     :: { input: "42",   want: 42 },
     "negative"   :: { input: "-7",   want: -7 },
     "whitespace" :: { input: " 12 ", want: 12 },
@@ -86,7 +86,7 @@ test "parseInt" for [
 For concise access to row fields, use destructuring with `as`:
 
 ```run
-test "add" for [
+for test "add" in [
     "positive" :: { a: 2, b: 3, want: 5 },
     "zeros"    :: { a: 0, b: 0, want: 0 },
 ] as { a, b, want } (t) {
@@ -159,7 +159,7 @@ bench "sort 1000 elements" (b) {
 Table-driven benchmarks compare different sizes:
 
 ```run
-bench "sort" for [
+for bench "sort" in [
     "10 elements"   :: { size: 10    },
     "100 elements"  :: { size: 100   },
     "1000 elements" :: { size: 1000  },

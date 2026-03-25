@@ -123,7 +123,7 @@ construct using `for` with named cases. Each case uses the `::` separator
 ```run
 use "testing"
 
-test "add" for [
+for test "add" in [
     "positive"    :: { a: 2,  b: 3,  want: 5  },
     "negative"    :: { a: -1, b: -2, want: -3  },
     "zeros"       :: { a: 0,  b: 0,  want: 0   },
@@ -134,7 +134,7 @@ test "add" for [
 ```
 
 Key properties:
-- `for` introduces the case table — reuses the existing `for` keyword
+- `for test` / `for bench` introduces the table-driven variant
 - Each case is `"name" :: { fields }` — reuses the `::` separator from `switch`
 - The string before `::` is the **subtest name**, shown in output
 - The struct after `::` is the **test data**, accessed via the implicit `row` binding
@@ -145,7 +145,7 @@ Key properties:
 More table-driven examples:
 
 ```run
-test "parseInt" for [
+for test "parseInt" in [
     "simple"        :: { input: "42",    want: 42    },
     "negative"      :: { input: "-7",    want: -7    },
     "zero"          :: { input: "0",     want: 0     },
@@ -156,7 +156,7 @@ test "parseInt" for [
     t.expect(result, t.eq(row.want))
 }
 
-test "http status codes" for [
+for test "http status codes" in [
     "ok"          :: { code: 200, class: "success" },
     "created"     :: { code: 201, class: "success" },
     "bad request" :: { code: 400, class: "client"  },
@@ -166,7 +166,7 @@ test "http status codes" for [
     t.expect(classifyStatus(row.code), t.eq(row.class))
 }
 
-test "validate email" for [
+for test "validate email" in [
     "valid simple" :: { email: "a@b.com",   valid: true  },
     "valid dots"   :: { email: "a.b@c.com", valid: true  },
     "missing @"    :: { email: "abc.com",   valid: false },
@@ -184,7 +184,7 @@ test "validate email" for [
 Rows can also bind with destructuring for conciseness:
 
 ```run
-test "string trimming" for [
+for test "string trimming" in [
     "leading"  :: { input: "  hello", want: "hello" },
     "trailing" :: { input: "hello  ", want: "hello" },
     "both"     :: { input: " hello ", want: "hello" },
@@ -301,7 +301,7 @@ bench "map lookup" (b) {
 Table-driven benchmarks:
 
 ```run
-bench "sort" for [
+for bench "sort" in [
     "10 elements"    :: { size: 10    },
     "100 elements"   :: { size: 100   },
     "1000 elements"  :: { size: 1000  },
@@ -314,7 +314,7 @@ bench "sort" for [
     }
 }
 
-bench "hash functions" for [
+for bench "hash functions" in [
     "fnv32"   :: { hashFn: fnv32   },
     "murmur3" :: { hashFn: murmur3 },
     "xxhash"  :: { hashFn: xxhash  },
@@ -456,12 +456,12 @@ math/
 | Syntax | Purpose |
 |--------|---------|
 | `test "name" (t) { }` | Unit test block |
-| `test "name" for ["case" :: {}, ...] (t) { }` | Table-driven test |
-| `test "name" for [...] as { fields } (t) { }` | Table-driven test with destructuring |
+| `for test "name" in ["case" :: {}, ...] (t) { }` | Table-driven test |
+| `for test "name" in [...] as { fields } (t) { }` | Table-driven test with destructuring |
 | `test "name" fuzz(params) (t) { }` | Fuzz test |
 | `test "name" fuzz(params) seed [...] (t) { }` | Fuzz test with seed corpus |
 | `bench "name" (b) { }` | Benchmark block |
-| `bench "name" for ["case" :: {}, ...] (b) { }` | Table-driven benchmark |
+| `for bench "name" in ["case" :: {}, ...] (b) { }` | Table-driven benchmark |
 | `test beforeAll { }` | File-level setup |
 | `test afterAll { }` | File-level teardown |
 | `test beforeEach { }` | Per-test setup |
@@ -493,7 +493,7 @@ math/
 | Test context | `t *testing.T` (explicit) | implicit | `t` (explicit) |
 | Assertions | Third-party (testify) | `try std.testing.expect()` | `t.expect(got, t.op())` |
 | Operators | go-testdeep (third-party) | N/A | `t.eq`, `t.gt`, ... (built-in) |
-| Table-driven | Manual struct + loop | Manual | `test ... for ["name" :: {}, ...]` |
+| Table-driven | Manual struct + loop | Manual | `for test ... in ["name" :: {}, ...]` |
 | Subtests | `t.Run("name", func(t *T))` | N/A | `t.run("name") (t) { }` |
 | Fuzzing | `func FuzzX(f *testing.F)` | `std.testing.fuzz` | `test ... fuzz(params)` |
 | Benchmarks | `func BenchX(b *testing.B)` | Manual timing | `bench "name" (b) { }` |
