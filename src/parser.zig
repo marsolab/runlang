@@ -698,7 +698,7 @@ pub const Parser = struct {
             self.skipNewlines();
 
             const impl_start = try self.parseImplementsBlock();
-            implements_rhs = @intCast(impl_start);
+            implements_rhs = impl_start;
 
             self.expectToken(.r_brace);
         }
