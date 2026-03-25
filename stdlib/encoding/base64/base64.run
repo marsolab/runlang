@@ -6,26 +6,26 @@ pub Encoding struct {
     padding  byte
 }
 
-// std_encoding is the standard base64 encoding per RFC 4648.
-pub var std_encoding = Encoding{
+// stdEncoding is the standard base64 encoding per RFC 4648.
+pub var stdEncoding = Encoding{
     alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
     padding: 61,
 }
 
-// url_encoding is the URL-safe base64 encoding per RFC 4648.
-pub var url_encoding = Encoding{
+// urlEncoding is the URL-safe base64 encoding per RFC 4648.
+pub var urlEncoding = Encoding{
     alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
     padding: 61,
 }
 
-// raw_std_encoding is the standard raw, unpadded base64 encoding.
-pub var raw_std_encoding = Encoding{
+// rawStdEncoding is the standard raw, unpadded base64 encoding.
+pub var rawStdEncoding = Encoding{
     alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
     padding: 0,
 }
 
-// raw_url_encoding is the URL-safe raw, unpadded base64 encoding.
-pub var raw_url_encoding = Encoding{
+// rawUrlEncoding is the URL-safe raw, unpadded base64 encoding.
+pub var rawUrlEncoding = Encoding{
     alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
     padding: 0,
 }

@@ -4,8 +4,8 @@ use "io"
 
 // SplitFunc is the signature of the split function used to tokenize the input.
 // The arguments are an initial substring of the remaining unprocessed data
-// and a flag, at_eof, reporting whether the Reader has no more data to give.
-pub type SplitFunc = fun(data []byte, at_eof bool) struct { advance int, token []byte, err bool }
+// and a flag, atEof, reporting whether the Reader has no more data to give.
+pub type SplitFunc = fun(data []byte, atEof bool) struct { advance int, token []byte, err bool }
 
 // Scanner provides a convenient interface for reading data such as
 // a file of newline-delimited lines of text.
@@ -15,7 +15,7 @@ pub Scanner struct {
     buf     []byte
     token   []byte
     done    bool
-    err_val bool
+    errVal bool
 }
 
 // newScanner returns a new Scanner to read from r.
@@ -27,7 +27,7 @@ pub fun newScanner(r io.Reader) Scanner {
         buf: alloc([]byte, 4096),
         token: alloc([]byte, 0),
         done: false,
-        err_val: false,
+        errVal: false,
     }
 }
 
@@ -64,24 +64,24 @@ pub fun (s &Scanner) buffer(buf []byte, max int) {
 
 // scanLines is a split function for a Scanner that returns each line of
 // text, stripping any trailing end-of-line marker.
-pub fun scanLines(data []byte, at_eof bool) struct { advance int, token []byte, err bool } {
+pub fun scanLines(data []byte, atEof bool) struct { advance int, token []byte, err bool } {
     return .{ advance: 0, token: alloc([]byte, 0), err: false }
 }
 
 // scanWords is a split function for a Scanner that returns each
 // space-delimited word of text.
-pub fun scanWords(data []byte, at_eof bool) struct { advance int, token []byte, err bool } {
+pub fun scanWords(data []byte, atEof bool) struct { advance int, token []byte, err bool } {
     return .{ advance: 0, token: alloc([]byte, 0), err: false }
 }
 
 // scanBytes is a split function for a Scanner that returns each byte
 // as a token.
-pub fun scanBytes(data []byte, at_eof bool) struct { advance int, token []byte, err bool } {
+pub fun scanBytes(data []byte, atEof bool) struct { advance int, token []byte, err bool } {
     return .{ advance: 0, token: alloc([]byte, 0), err: false }
 }
 
 // scanRunes is a split function for a Scanner that returns each
 // UTF-8 encoded rune as a token.
-pub fun scanRunes(data []byte, at_eof bool) struct { advance int, token []byte, err bool } {
+pub fun scanRunes(data []byte, atEof bool) struct { advance int, token []byte, err bool } {
     return .{ advance: 0, token: alloc([]byte, 0), err: false }
 }

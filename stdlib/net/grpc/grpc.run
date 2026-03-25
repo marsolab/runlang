@@ -66,38 +66,38 @@ pub type StreamHandler = fun(ctx context.Context, stream @ServerStream) !void
 pub type ServerStream interface {
     send(msg []byte) !void
     recv() ![]byte
-    send_header(md Metadata) !void
-    set_trailer(md Metadata)
+    sendHeader(md Metadata) !void
+    setTrailer(md Metadata)
 }
 
 // ClientStream is the interface for client-side streaming.
 pub type ClientStream interface {
     send(msg []byte) !void
     recv() ![]byte
-    close_send() !void
+    closeSend() !void
     header() !Metadata
     trailer() Metadata
 }
 
 // ServiceDesc describes a gRPC service.
 pub ServiceDesc struct {
-    service_name string
+    serviceName string
     methods      []MethodDesc
     streams      []StreamDesc
 }
 
 // MethodDesc describes a unary RPC method.
 pub MethodDesc struct {
-    method_name string
+    methodName string
     handler     UnaryHandler
 }
 
 // StreamDesc describes a streaming RPC method.
 pub StreamDesc struct {
-    stream_name    string
+    streamName    string
     handler        StreamHandler
-    server_streams bool
-    client_streams bool
+    serverStreams bool
+    clientStreams bool
 }
 
 // Server is a gRPC server.
@@ -134,7 +134,7 @@ pub ClientConn struct {
 // DialOption configures how to establish the connection.
 pub DialOption struct {
     insecure bool
-    tls_config tls.Config?
+    tlsConfig tls.Config?
     timeout    time.Duration
 }
 
@@ -159,10 +159,10 @@ pub fun (cc &ClientConn) newStream(ctx context.Context, method string) !ClientSt
 
 // withInsecure returns a DialOption that disables transport security.
 pub fun withInsecure() DialOption {
-    return DialOption{ insecure: true, tls_config: null, timeout: 0 }
+    return DialOption{ insecure: true, tlsConfig: null, timeout: 0 }
 }
 
 // withTimeout returns a DialOption with a connection timeout.
 pub fun withTimeout(d time.Duration) DialOption {
-    return DialOption{ insecure: false, tls_config: null, timeout: d }
+    return DialOption{ insecure: false, tlsConfig: null, timeout: d }
 }

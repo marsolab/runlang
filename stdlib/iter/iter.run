@@ -1,5 +1,10 @@
 package iter
 
+// unwrap extracts the value from an optional, assuming it is non-null.
+fun unwrap(val any?) any {
+    return val
+}
+
 // Iterator is the interface for lazy iteration over sequences.
 pub type Iterator interface {
     // next returns the next element, or null when exhausted.
@@ -64,7 +69,7 @@ fun (it &MapIterator) next() any? {
     if val == null {
         return null
     }
-    return .some(it.f(val!))
+    return .some(it.f(unwrap(val)))
 }
 
 FilterIterator struct {
@@ -82,7 +87,7 @@ fun (it &FilterIterator) next() any? {
         if val == null {
             return null
         }
-        if it.f(val!) {
+        if it.f(unwrap(val)) {
             return val
         }
     }
@@ -149,7 +154,7 @@ fun (it &ZipIterator) next() any? {
     if vb == null {
         return null
     }
-    return .some(Pair{ first: va!, second: vb! })
+    return .some(Pair{ first: unwrap(va), second: unwrap(vb) })
 }
 
 ChainIterator struct {
@@ -189,7 +194,7 @@ fun (it &EnumerateIterator) next() any? {
     }
     var idx = it.index
     it.index = it.index + 1
-    return .some(Pair{ first: idx, second: val! })
+    return .some(Pair{ first: idx, second: unwrap(val) })
 }
 
 FlatMapIterator struct {
@@ -218,7 +223,7 @@ fun (it &FlatMapIterator) next() any? {
         if outer == null {
             return null
         }
-        it.current = it.f(outer!)
+        it.current = it.f(unwrap(outer))
         it.started = true
     }
 }
@@ -242,7 +247,7 @@ fun (it &TakeWhileIterator) next() any? {
         it.done = true
         return null
     }
-    if !it.f(val!) {
+    if !it.f(unwrap(val)) {
         it.done = true
         return null
     }
@@ -266,7 +271,7 @@ fun (it &SkipWhileIterator) next() any? {
             if val == null {
                 return null
             }
-            if !it.f(val!) {
+            if !it.f(unwrap(val)) {
                 it.skipping = false
                 return val
             }
@@ -306,7 +311,7 @@ pub fun reduce(it Iterator, init any, f fun(acc any, item any) any) any {
         if val == null {
             break
         }
-        acc = f(acc, val!)
+        acc = f(acc, unwrap(val))
     }
     return acc
 }
@@ -356,7 +361,7 @@ pub fun anyMatch(it Iterator, f fun(any) bool) bool {
         if val == null {
             break
         }
-        if f(val!) {
+        if f(unwrap(val)) {
             return true
         }
     }
@@ -370,7 +375,7 @@ pub fun allMatch(it Iterator, f fun(any) bool) bool {
         if val == null {
             break
         }
-        if !f(val!) {
+        if !f(unwrap(val)) {
             return false
         }
     }
@@ -385,7 +390,7 @@ pub fun collect(it Iterator) []any {
         if val == null {
             break
         }
-        result = append(result, val!)
+        result = append(result, unwrap(val))
     }
     return result
 }
@@ -397,7 +402,7 @@ pub fun forEach(it Iterator, f fun(any)) {
         if val == null {
             break
         }
-        f(val!)
+        f(unwrap(val))
     }
 }
 

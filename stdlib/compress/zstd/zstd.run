@@ -3,15 +3,15 @@ package zstd
 use "io"
 
 // ZstdError represents errors during Zstandard compression/decompression.
-pub type ZstdError = .corrupt_input
-    | .window_too_large
-    | .dictionary_mismatch
-    | .unexpected_eof
+pub type ZstdError = .corruptInput
+    | .windowTooLarge
+    | .dictionaryMismatch
+    | .unexpectedEof
 
 // Compression level constants.
-pub let default_compression = 3
-pub let best_speed = 1
-pub let best_compression = 19
+pub let defaultCompression = 3
+pub let bestSpeed = 1
+pub let bestCompression = 19
 
 // compress compresses data using the default compression level.
 pub fun compress(data []byte) ![]byte {

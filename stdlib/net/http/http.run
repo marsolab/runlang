@@ -127,13 +127,13 @@ pub fun parseStatus(code int) !Status {
 }
 
 // Content-type constants for common MIME types.
-pub let content_type_json = "application/json"
-pub let content_type_xml = "application/xml"
-pub let content_type_form = "application/x-www-form-urlencoded"
-pub let content_type_multipart = "multipart/form-data"
-pub let content_type_text = "text/plain"
-pub let content_type_html = "text/html"
-pub let content_type_octet_stream = "application/octet-stream"
+pub let contentTypeJson = "application/json"
+pub let contentTypeXml = "application/xml"
+pub let contentTypeForm = "application/x-www-form-urlencoded"
+pub let contentTypeMultipart = "multipart/form-data"
+pub let contentTypeText = "text/plain"
+pub let contentTypeHtml = "text/html"
+pub let contentTypeOctetStream = "application/octet-stream"
 
 // HttpError represents HTTP-related errors.
 pub type HttpError = .timeout
@@ -173,7 +173,7 @@ pub type RoundTripper interface {
 
 // CookieJar manages storage and use of cookies in HTTP requests.
 pub type CookieJar interface {
-    set_cookies(u string, cookies []Cookie)
+    setCookies(u string, cookies []Cookie)
     cookies(u string) []Cookie
 }
 
@@ -237,10 +237,10 @@ pub Cookie struct {
     path      string
     domain    string
     expires   time.Time
-    max_age   int
+    maxAge   int
     secure    bool
-    http_only bool
-    same_site SameSite
+    httpOnly bool
+    sameSite SameSite
 }
 
 // string returns the serialized Set-Cookie header value for the cookie.
@@ -260,10 +260,10 @@ pub fun parseCookie(line string) !Cookie {
         path: "",
         domain: "",
         expires: time.Time{},
-        max_age: 0,
+        maxAge: 0,
         secure: false,
-        http_only: false,
-        same_site: .defaultMode,
+        httpOnly: false,
+        sameSite: .defaultMode,
     }
 }
 
@@ -275,10 +275,10 @@ pub fun parseSetCookie(line string) !Cookie {
         path: "",
         domain: "",
         expires: time.Time{},
-        max_age: 0,
+        maxAge: 0,
         secure: false,
-        http_only: false,
-        same_site: .defaultMode,
+        httpOnly: false,
+        sameSite: .defaultMode,
     }
 }
 
@@ -304,8 +304,8 @@ pub Request struct {
     body              io.ReadCloser?
     host              string
     proto             string
-    content_length    int
-    transfer_encoding []string
+    contentLength    int
+    transferEncoding []string
     close             bool
     form              url.Values?
     remoteAddr       string
@@ -321,10 +321,10 @@ pub fun (r @Request) cookie(name string) !Cookie {
         path: "",
         domain: "",
         expires: time.Time{},
-        max_age: 0,
+        maxAge: 0,
         secure: false,
-        http_only: false,
-        same_site: .defaultMode,
+        httpOnly: false,
+        sameSite: .defaultMode,
     }
 }
 
@@ -346,8 +346,8 @@ pub fun (r @Request) withContext(ctx context.Context) Request {
         body: r.body,
         host: r.host,
         proto: r.proto,
-        content_length: r.content_length,
-        transfer_encoding: r.transfer_encoding,
+        contentLength: r.contentLength,
+        transferEncoding: r.transferEncoding,
         close: r.close,
         form: r.form,
         remoteAddr: r.remoteAddr,
@@ -409,8 +409,8 @@ pub fun (r @Request) clone() Request {
         body: r.body,
         host: r.host,
         proto: r.proto,
-        content_length: r.content_length,
-        transfer_encoding: r.transfer_encoding,
+        contentLength: r.contentLength,
+        transferEncoding: r.transferEncoding,
         close: r.close,
         form: r.form,
         remoteAddr: r.remoteAddr,
@@ -425,7 +425,7 @@ pub Response struct {
     header         Header
     body           io.ReadCloser?
     proto          string
-    content_length int
+    contentLength int
     request        @Request?
     uncompressed   bool
 }
@@ -505,16 +505,16 @@ pub Router struct {
     }
 
     middlewares         []Middleware
-    not_found           HandlerFunc?
-    method_not_allowed  HandlerFunc?
+    notFound           HandlerFunc?
+    methodNotAllowed  HandlerFunc?
 }
 
 // newRouter returns a new Router.
 pub fun newRouter() Router {
     return Router{
         middlewares: alloc([]Middleware, 0),
-        not_found: null,
-        method_not_allowed: null,
+        notFound: null,
+        methodNotAllowed: null,
     }
 }
 
@@ -570,8 +570,8 @@ pub fun (r &Router) use(mw ...Middleware) {
 pub fun (r @Router) with(mw ...Middleware) Router {
     return Router{
         middlewares: alloc([]Middleware, 0),
-        not_found: null,
-        method_not_allowed: null,
+        notFound: null,
+        methodNotAllowed: null,
     }
 }
 
@@ -596,11 +596,11 @@ pub fun (r &Router) methodNotAllowedHandler(handler HandlerFunc) {
 pub Server struct {
     addr             string
     handler          Handler
-    read_timeout     time.Duration
-    write_timeout    time.Duration
-    idle_timeout     time.Duration
-    max_header_bytes int
-    base_context     context.Context?
+    readTimeout     time.Duration
+    writeTimeout    time.Duration
+    idleTimeout     time.Duration
+    maxHeaderBytes int
+    baseContext     context.Context?
 }
 
 // newServer creates a new Server with the given address and handler.
@@ -608,11 +608,11 @@ pub fun newServer(addr string, handler Handler) Server {
     return Server{
         addr: addr,
         handler: handler,
-        read_timeout: 0,
-        write_timeout: 0,
-        idle_timeout: 0,
-        max_header_bytes: 0,
-        base_context: null,
+        readTimeout: 0,
+        writeTimeout: 0,
+        idleTimeout: 0,
+        maxHeaderBytes: 0,
+        baseContext: null,
     }
 }
 
@@ -621,7 +621,7 @@ pub fun (s &Server) listenAndServe() !void {
 }
 
 // listenAndServeTls listens and serves HTTPS using the provided certificate and key files.
-pub fun (s &Server) listenAndServeTls(cert_file string, key_file string) !void {
+pub fun (s &Server) listenAndServeTls(certFile string, keyFile string) !void {
 }
 
 // serve accepts incoming connections on the listener and serves HTTP for each.
@@ -646,15 +646,15 @@ pub Transport struct {
         RoundTripper
     }
 
-    max_idle_conns           int
-    max_idle_conns_per_host  int
-    max_conns_per_host       int
-    idle_conn_timeout        time.Duration
-    tls_handshake_timeout    time.Duration
+    maxIdleConns           int
+    maxIdleConnsPerHost  int
+    maxConnsPerHost       int
+    idleConnTimeout        time.Duration
+    tlsHandshakeTimeout    time.Duration
     dialTimeout             time.Duration
-    response_header_timeout  time.Duration
-    disable_keep_alives      bool
-    force_attempt_http2      bool
+    responseHeaderTimeout  time.Duration
+    disableKeepAlives      bool
+    forceAttemptHttp2      bool
 }
 
 // roundTrip executes a single HTTP transaction and returns a Response.
@@ -664,7 +664,7 @@ pub fun (t &Transport) roundTrip(req @Request) !Response {
         header: Header{ data: alloc(map[string][]string) },
         body: null,
         proto: "",
-        content_length: 0,
+        contentLength: 0,
         request: null,
         uncompressed: false,
     }
@@ -679,17 +679,17 @@ pub Client struct {
     timeout        time.Duration
     transport      Transport?
     jar            CookieJar?
-    check_redirect fun(req @Request, via []@Request) !void
-    max_redirects  int
+    checkRedirect fun(req @Request, via []@Request) !void
+    maxRedirects  int
 }
 
-// default_client is the default HTTP client used by package-level functions.
-pub var default_client = Client{
+// defaultClient is the default HTTP client used by package-level functions.
+pub var defaultClient = Client{
     timeout: 0,
     transport: null,
     jar: null,
-    check_redirect: null,
-    max_redirects: 10,
+    checkRedirect: null,
+    maxRedirects: 10,
 }
 
 // newClient creates a new Client with sensible defaults.
@@ -698,8 +698,8 @@ pub fun newClient() Client {
         timeout: 0,
         transport: null,
         jar: null,
-        check_redirect: null,
-        max_redirects: 10,
+        checkRedirect: null,
+        maxRedirects: 10,
     }
 }
 
@@ -710,7 +710,7 @@ pub fun (c &Client) do(req @Request) !Response {
         header: Header{ data: alloc(map[string][]string) },
         body: null,
         proto: "",
-        content_length: 0,
+        contentLength: 0,
         request: null,
         uncompressed: false,
     }
@@ -723,20 +723,20 @@ pub fun (c &Client) get(u string) !Response {
         header: Header{ data: alloc(map[string][]string) },
         body: null,
         proto: "",
-        content_length: 0,
+        contentLength: 0,
         request: null,
         uncompressed: false,
     }
 }
 
 // post issues a POST request to the specified URL with the given content type and body.
-pub fun (c &Client) post(u string, content_type string, body io.Reader) !Response {
+pub fun (c &Client) post(u string, contentType string, body io.Reader) !Response {
     return Response{
         status: .ok,
         header: Header{ data: alloc(map[string][]string) },
         body: null,
         proto: "",
-        content_length: 0,
+        contentLength: 0,
         request: null,
         uncompressed: false,
     }
@@ -749,7 +749,7 @@ pub fun (c &Client) head(u string) !Response {
         header: Header{ data: alloc(map[string][]string) },
         body: null,
         proto: "",
-        content_length: 0,
+        contentLength: 0,
         request: null,
         uncompressed: false,
     }
@@ -763,7 +763,7 @@ pub fun (c &Client) postForm(u string, data url.Values) !Response {
         header: Header{ data: alloc(map[string][]string) },
         body: null,
         proto: "",
-        content_length: 0,
+        contentLength: 0,
         request: null,
         uncompressed: false,
     }
@@ -775,22 +775,22 @@ pub fun (c &Client) closeIdleConnections() {
 
 // CorsOptions configures Cross-Origin Resource Sharing (CORS) behavior.
 pub CorsOptions struct {
-    allowed_origins   []string
-    allowed_methods   []string
-    allowed_headers   []string
-    exposed_headers   []string
-    allow_credentials bool
-    max_age           int
+    allowedOrigins   []string
+    allowedMethods   []string
+    allowedHeaders   []string
+    exposedHeaders   []string
+    allowCredentials bool
+    maxAge           int
 }
 
 // MetricsOptions configures HTTP metrics collection.
 // Labels (method, path, status) are added automatically per route.
 pub MetricsOptions struct {
     set                &metrics.Set?
-    request_counter    string
-    duration_histogram string
-    in_flight_gauge    string
-    response_size      string
+    requestCounter    string
+    durationHistogram string
+    inFlightGauge    string
+    responseSize      string
 }
 
 // logMiddleware returns middleware that logs each request.
@@ -828,7 +828,7 @@ pub fun get(u string) !Response {
         header: Header{ data: alloc(map[string][]string) },
         body: null,
         proto: "",
-        content_length: 0,
+        contentLength: 0,
         request: null,
         uncompressed: false,
     }
@@ -836,13 +836,13 @@ pub fun get(u string) !Response {
 
 // post issues a POST request to the specified URL with the given body
 // using the default client.
-pub fun post(u string, content_type string, body io.Reader) !Response {
+pub fun post(u string, contentType string, body io.Reader) !Response {
     return Response{
         status: .ok,
         header: Header{ data: alloc(map[string][]string) },
         body: null,
         proto: "",
-        content_length: 0,
+        contentLength: 0,
         request: null,
         uncompressed: false,
     }
@@ -855,7 +855,7 @@ pub fun head(u string) !Response {
         header: Header{ data: alloc(map[string][]string) },
         body: null,
         proto: "",
-        content_length: 0,
+        contentLength: 0,
         request: null,
         uncompressed: false,
     }
@@ -868,7 +868,7 @@ pub fun postForm(u string, data url.Values) !Response {
         header: Header{ data: alloc(map[string][]string) },
         body: null,
         proto: "",
-        content_length: 0,
+        contentLength: 0,
         request: null,
         uncompressed: false,
     }
@@ -879,11 +879,11 @@ pub fun listenAndServe(addr string, handler Handler) !void {
 }
 
 // listenAndServeTls creates a new Server and listens for HTTPS on the given address.
-pub fun listenAndServeTls(addr string, cert_file string, key_file string, handler Handler) !void {
+pub fun listenAndServeTls(addr string, certFile string, keyFile string, handler Handler) !void {
 }
 
 // newRequest creates a new Request with the given method, URL, and optional body.
-pub fun newRequest(method Method, raw_url string, body io.Reader?) !Request {
+pub fun newRequest(method Method, rawUrl string, body io.Reader?) !Request {
     return Request{
         method: method,
         url: url.Url{
@@ -891,7 +891,7 @@ pub fun newRequest(method Method, raw_url string, body io.Reader?) !Request {
             host: "",
             port: "",
             path: "",
-            raw_path: "",
+            rawPath: "",
             query: "",
             fragment: "",
             user: "",
@@ -901,8 +901,8 @@ pub fun newRequest(method Method, raw_url string, body io.Reader?) !Request {
         body: null,
         host: "",
         proto: "HTTP/1.1",
-        content_length: 0,
-        transfer_encoding: alloc([]string, 0),
+        contentLength: 0,
+        transferEncoding: alloc([]string, 0),
         close: false,
         form: null,
         remoteAddr: "",
@@ -912,8 +912,8 @@ pub fun newRequest(method Method, raw_url string, body io.Reader?) !Request {
 }
 
 // newRequestWithContext creates a new Request with the given context.
-pub fun newRequestWithContext(ctx context.Context, method Method, raw_url string, body io.Reader?) !Request {
-    return newRequest(method, raw_url, body)
+pub fun newRequestWithContext(ctx context.Context, method Method, rawUrl string, body io.Reader?) !Request {
+    return newRequest(method, rawUrl, body)
 }
 
 // urlParam extracts a URL parameter by name from the request, as set by the router.

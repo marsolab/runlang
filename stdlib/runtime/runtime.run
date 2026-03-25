@@ -2,12 +2,12 @@ package runtime
 
 // MemStats contains memory allocation statistics.
 pub MemStats struct {
-    alloc_count         int
-    free_count          int
-    bytes_allocated     int
-    bytes_freed         int
-    generation_checks   int
-    generation_failures int
+    allocCount         int
+    freeCount          int
+    bytesAllocated     int
+    bytesFreed         int
+    generationChecks   int
+    generationFailures int
 }
 
 // numCpu returns the number of logical CPUs available to the process.
@@ -29,7 +29,7 @@ pub fun gomaxprocs(n int) int {
 
 // memStats returns current memory allocation statistics.
 pub fun memStats() MemStats {
-    return .{ alloc_count: 0, free_count: 0, bytes_allocated: 0, bytes_freed: 0, generation_checks: 0, generation_failures: 0 }
+    return .{ allocCount: 0, freeCount: 0, bytesAllocated: 0, bytesFreed: 0, generationChecks: 0, generationFailures: 0 }
 }
 
 // version returns the Run runtime version string.

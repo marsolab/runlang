@@ -3,11 +3,11 @@ package xml
 use "io"
 
 // XmlError represents errors during XML encoding/decoding.
-pub type XmlError = .syntax_error
-    | .unexpected_eof
-    | .invalid_character
-    | .unclosed_tag
-    | .mismatched_tag
+pub type XmlError = .syntaxError
+    | .unexpectedEof
+    | .invalidCharacter
+    | .unclosedTag
+    | .mismatchedTag
 
 // Name represents an XML name with local and namespace parts.
 pub Name struct {
@@ -39,11 +39,11 @@ pub ProcInst struct {
 }
 
 // Token represents an XML token returned by the Decoder.
-pub type Token = .start_element(StartElement)
-    | .end_element(EndElement)
-    | .char_data(string)
+pub type Token = .startElement(StartElement)
+    | .endElement(EndElement)
+    | .charData(string)
     | .comment(string)
-    | .proc_inst(ProcInst)
+    | .procInst(ProcInst)
     | .directive(string)
 
 // marshal encodes a value as XML bytes.

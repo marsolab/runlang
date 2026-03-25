@@ -59,7 +59,7 @@ pub fun equalFunc(a map[any]any, b map[any]any, eq fun(v1 any, v2 any) bool) boo
         if vb == null {
             return false
         }
-        if !eq(va, vb) {
+        if not eq(va, vb) {
             return false
         }
     }

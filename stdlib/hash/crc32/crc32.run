@@ -15,14 +15,14 @@ pub Table struct {
     entries [256]int
 }
 
-// ieee_table is the Table for the IEEE polynomial (most common).
-pub var ieee_table = makeTable(0xedb88320)
+// ieeeTable is the Table for the IEEE polynomial (most common).
+pub var ieeeTable = makeTable(0xedb88320)
 
-// castagnoli_table is the Table for the Castagnoli polynomial.
-pub var castagnoli_table = makeTable(0x82f63b78)
+// castagnoliTable is the Table for the Castagnoli polynomial.
+pub var castagnoliTable = makeTable(0x82f63b78)
 
-// koopman_table is the Table for the Koopman polynomial.
-pub var koopman_table = makeTable(0xeb31d82e)
+// koopmanTable is the Table for the Koopman polynomial.
+pub var koopmanTable = makeTable(0xeb31d82e)
 
 // makeTable returns a Table constructed from the specified polynomial.
 pub fun makeTable(poly int) Table {

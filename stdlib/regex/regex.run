@@ -22,6 +22,23 @@ package regex
 //   \s \S      whitespace / non-whitespace
 //   \. \* etc  escaped metacharacters
 
+// --- Helper functions ---
+
+// toBytes converts a string to a byte slice.
+fun toBytes(s string) []byte {
+    return __builtin_to_bytes(s)
+}
+
+// toString converts a byte slice to a string.
+fun toString(b []byte) string {
+    return __builtin_to_string(b)
+}
+
+// unwrap extracts the value from an optional, panicking if null.
+fun unwrap(val any?) any {
+    return __builtin_unwrap(val)
+}
+
 // Regex is a compiled regular expression.
 pub Regex struct {
     pattern   string
@@ -101,7 +118,7 @@ type Thread struct {
 // used to match against text. Returns an error if the pattern is invalid.
 pub fun compile(pattern string) !Regex {
     var p = Parser{
-        src: pattern as []byte,
+        src: toBytes(pattern),
         pos: 0,
         groupCount: 0,
         groupNames: alloc([]GroupName, 0),
@@ -147,12 +164,12 @@ pub fun (re @Regex) isMatch(s string) bool {
 
 // find returns the leftmost match of the pattern in s, or null if no match.
 pub fun (re @Regex) find(s string) Match? {
-    var input = s as []byte
+    var input = toBytes(s)
     var pos = 0
     for pos <= len(input) {
         var m = runNFA(re.insts, input, pos, re.numGroups)
         if m != null {
-            var match = m!
+            var match = unwrap(m)
             return .some(buildMatch(s, input, match, re.numGroups))
         }
         pos = pos + 1
@@ -168,16 +185,16 @@ pub fun (re @Regex) findAll(s string) []Match {
 // findN returns the first n non-overlapping matches. If n < 0, returns all.
 pub fun (re @Regex) findN(s string, n int) []Match {
     var result = alloc([]Match, 0)
-    var input = s as []byte
+    var input = toBytes(s)
     var pos = 0
     var count = 0
     for pos <= len(input) {
-        if n >= 0 && count >= n {
+        if n >= 0 and count >= n {
             break
         }
         var m = runNFA(re.insts, input, pos, re.numGroups)
         if m != null {
-            var saved = m!
+            var saved = unwrap(m)
             var match = buildMatch(s, input, saved, re.numGroups)
             result = append(result, match)
             count = count + 1
@@ -206,17 +223,17 @@ pub fun (re @Regex) replaceAll(s string, repl string) string {
 
 // replaceN replaces the first n matches. If n < 0, replaces all.
 pub fun (re @Regex) replaceN(s string, repl string, n int) string {
-    var input = s as []byte
+    var input = toBytes(s)
     var result = alloc([]byte, 0)
     var pos = 0
     var count = 0
     for pos <= len(input) {
-        if n >= 0 && count >= n {
+        if n >= 0 and count >= n {
             break
         }
         var m = runNFA(re.insts, input, pos, re.numGroups)
         if m != null {
-            var saved = m!
+            var saved = unwrap(m)
             var matchStart = saved[0]
             var matchEnd = saved[1]
             // Append text before the match.
@@ -226,7 +243,7 @@ pub fun (re @Regex) replaceN(s string, repl string, n int) string {
                 i = i + 1
             }
             // Append replacement, handling backreferences.
-            result = appendReplacement(result, repl as []byte, saved)
+            result = appendReplacement(result, toBytes(repl), saved)
             count = count + 1
             if matchEnd > pos {
                 pos = matchEnd
@@ -250,7 +267,7 @@ pub fun (re @Regex) replaceN(s string, repl string, n int) string {
         result = append(result, input[pos])
         pos = pos + 1
     }
-    return result as string
+    return toString(result)
 }
 
 // split slices s into substrings separated by the pattern.
@@ -261,21 +278,21 @@ pub fun (re @Regex) split(s string) []string {
 // splitN slices s into at most n substrings. If n < 0, returns all.
 pub fun (re @Regex) splitN(s string, n int) []string {
     var result = alloc([]string, 0)
-    var input = s as []byte
+    var input = toBytes(s)
     var pos = 0
     var count = 0
     for pos <= len(input) {
-        if n >= 0 && count >= n - 1 {
+        if n >= 0 and count >= n - 1 {
             break
         }
         var m = runNFA(re.insts, input, pos, re.numGroups)
         if m != null {
-            var saved = m!
+            var saved = unwrap(m)
             var matchStart = saved[0]
             var matchEnd = saved[1]
             // Add the substring before the match.
             var piece = input[pos..matchStart]
-            result = append(result, piece as string)
+            result = append(result, toString(piece))
             count = count + 1
             if matchEnd > pos {
                 pos = matchEnd
@@ -289,7 +306,7 @@ pub fun (re @Regex) splitN(s string, n int) []string {
     // Add the remaining substring.
     if pos <= len(input) {
         var rest = input[pos..len(input)]
-        result = append(result, rest as string)
+        result = append(result, toString(rest))
     }
     return result
 }
@@ -300,16 +317,16 @@ pub fun (m @Match) group(i int) string? {
     if i == 0 {
         return .some(m.text)
     }
-    if i < 1 || i > len(m.groups) {
+    if i < 1 or i > len(m.groups) {
         return null
     }
     var g = m.groups[i - 1]
     if !g.valid {
         return null
     }
-    var input = m.input as []byte
+    var input = toBytes(m.input)
     var sub = input[g.start..g.end]
-    return .some(sub as string)
+    return .some(toString(sub))
 }
 
 // groupByName returns the text of the named capturing group.
@@ -377,7 +394,7 @@ fun (p &Parser) patchList(exits []int, target int) {
 // parseExpr parses an alternation: concat ('|' concat)*.
 fun (p &Parser) parseExpr() !Fragment {
     var left = try p.parseConcat()
-    for p.pos < len(p.src) && p.src[p.pos] == 124 {
+    for p.pos < len(p.src) and p.src[p.pos] == 124 {
         // '|'
         p.pos = p.pos + 1
         var right = try p.parseConcat()
@@ -405,14 +422,14 @@ fun (p &Parser) parseConcat() !Fragment {
     for p.pos < len(p.src) {
         var c = p.src[p.pos]
         // Stop at alternation or closing paren.
-        if c == 124 || c == 41 {
+        if c == 124 or c == 41 {
             break
         }
         var atom = try p.parseRepeat()
         if result == null {
             result = .some(atom)
         } else {
-            var prev = result!
+            var prev = unwrap(result)
             // Patch prev's exits to point to atom's entry.
             p.patchList(prev.exits, atom.entry)
             result = .some(Fragment{ entry: prev.entry, exits: atom.exits })
@@ -428,7 +445,7 @@ fun (p &Parser) parseConcat() !Fragment {
         exits = append(exits, idx)
         return Fragment{ entry: idx, exits: exits }
     }
-    return result!
+    return unwrap(result)
 }
 
 // parseRepeat parses an atom followed by optional repetition (*, +, ?).
@@ -492,7 +509,7 @@ fun (p &Parser) parseAtom() !Fragment {
         // Check for non-capturing group (?:...)
         var capturing = true
         var groupIdx = 0
-        if p.pos + 1 < len(p.src) && p.src[p.pos] == 63 && p.src[p.pos + 1] == 58 {
+        if p.pos + 1 < len(p.src) and p.src[p.pos] == 63 and p.src[p.pos + 1] == 58 {
             // '(?:' non-capturing group
             capturing = false
             p.pos = p.pos + 2
@@ -501,10 +518,10 @@ fun (p &Parser) parseAtom() !Fragment {
             groupIdx = p.groupCount
 
             // Check for named group (?P<name>...)
-            if p.pos + 2 < len(p.src) && p.src[p.pos] == 63 && p.src[p.pos + 1] == 80 && p.src[p.pos + 2] == 60 {
+            if p.pos + 2 < len(p.src) and p.src[p.pos] == 63 and p.src[p.pos + 1] == 80 and p.src[p.pos + 2] == 60 {
                 p.pos = p.pos + 3
                 var nameStart = p.pos
-                for p.pos < len(p.src) && p.src[p.pos] != 62 {
+                for p.pos < len(p.src) and p.src[p.pos] != 62 {
                     p.pos = p.pos + 1
                 }
                 if p.pos >= len(p.src) {
@@ -512,7 +529,7 @@ fun (p &Parser) parseAtom() !Fragment {
                 }
                 var nameBytes = p.src[nameStart..p.pos]
                 p.groupNames = append(p.groupNames, GroupName{
-                    name: nameBytes as string,
+                    name: toString(nameBytes),
                     idx: groupIdx,
                 })
                 p.pos = p.pos + 1
@@ -530,7 +547,7 @@ fun (p &Parser) parseAtom() !Fragment {
 
         var inner = try p.parseExpr()
 
-        if p.pos >= len(p.src) || p.src[p.pos] != 41 {
+        if p.pos >= len(p.src) or p.src[p.pos] != 41 {
             return RegexError.unmatchedParenthesis
         }
         p.pos = p.pos + 1
@@ -629,14 +646,14 @@ fun (p &Parser) parseCharClass() !Fragment {
     var ranges = alloc([]CharRange, 0)
     var first = true
     for p.pos < len(p.src) {
-        if p.src[p.pos] == 93 && !first {
+        if p.src[p.pos] == 93 and !first {
             break
         }
         first = false
         var lo = p.src[p.pos]
         p.pos = p.pos + 1
         // Check for range: a-z
-        if p.pos + 1 < len(p.src) && p.src[p.pos] == 45 && p.src[p.pos + 1] != 93 {
+        if p.pos + 1 < len(p.src) and p.src[p.pos] == 45 and p.src[p.pos + 1] != 93 {
             p.pos = p.pos + 1
             var hi = p.src[p.pos]
             p.pos = p.pos + 1
@@ -645,7 +662,7 @@ fun (p &Parser) parseCharClass() !Fragment {
             ranges = append(ranges, CharRange{ lo: lo, hi: lo })
         }
     }
-    if p.pos >= len(p.src) || p.src[p.pos] != 93 {
+    if p.pos >= len(p.src) or p.src[p.pos] != 93 {
         return RegexError.invalidCharClass
     }
     p.pos = p.pos + 1
@@ -664,9 +681,9 @@ fun (p &Parser) buildEscape(c byte) !Fragment {
     // '.' = 46, '*' = 42, '+' = 43, '?' = 63, '(' = 40, ')' = 41,
     // '[' = 91, ']' = 93, '{' = 123, '}' = 125, '|' = 124, '\' = 92,
     // '^' = 94, '$' = 36
-    if c == 46 || c == 42 || c == 43 || c == 63 || c == 40 || c == 41 ||
-       c == 91 || c == 93 || c == 123 || c == 125 || c == 124 || c == 92 ||
-       c == 94 || c == 36 {
+    if c == 46 or c == 42 or c == 43 or c == 63 or c == 40 or c == 41 or
+       c == 91 or c == 93 or c == 123 or c == 125 or c == 124 or c == 92 or
+       c == 94 or c == 36 {
         var idx = p.emit(Inst{
             op: InstOp.literal, c: c, out: -1, out1: 0,
             group: 0, negate: false, ranges: alloc([]CharRange, 0),
@@ -815,13 +832,13 @@ fun runNFA(insts []Inst, input []byte, startPos int, numGroups int) []int? {
             var inst = insts[t.pc]
             switch inst.op {
                 InstOp.literal :: {
-                    if pos < len(input) && input[pos] == inst.c {
+                    if pos < len(input) and input[pos] == inst.c {
                         var nt = Thread{ pc: inst.out, saved: copySaved(t.saved) }
                         next = addThread(next, nt, insts, input, pos + 1)
                     }
                 },
                 InstOp.any :: {
-                    if pos < len(input) && input[pos] != 10 {
+                    if pos < len(input) and input[pos] != 10 {
                         var nt = Thread{ pc: inst.out, saved: copySaved(t.saved) }
                         next = addThread(next, nt, insts, input, pos + 1)
                     }
@@ -831,7 +848,7 @@ fun runNFA(insts []Inst, input []byte, startPos int, numGroups int) []int? {
                         var ch = input[pos]
                         var inRange = false
                         for r in inst.ranges {
-                            if ch >= r.lo && ch <= r.hi {
+                            if ch >= r.lo and ch <= r.hi {
                                 inRange = true
                                 break
                             }
@@ -857,7 +874,7 @@ fun runNFA(insts []Inst, input []byte, startPos int, numGroups int) []int? {
             }
             ti = ti + 1
         }
-        if len(next) == 0 && matched != null {
+        if len(next) == 0 and matched != null {
             break
         }
         current = next
@@ -929,10 +946,10 @@ fun buildMatch(s string, input []byte, saved []int, numGroups int) Match {
     for gi <= numGroups {
         var startIdx = gi * 2
         var endIdx = gi * 2 + 1
-        if startIdx < len(saved) && endIdx < len(saved) {
+        if startIdx < len(saved) and endIdx < len(saved) {
             var gs = saved[startIdx]
             var ge = saved[endIdx]
-            if gs >= 0 && ge >= 0 {
+            if gs >= 0 and ge >= 0 {
                 groups = append(groups, GroupSpan{ start: gs, end: ge, valid: true })
             } else {
                 groups = append(groups, GroupSpan{ start: 0, end: 0, valid: false })
@@ -943,7 +960,7 @@ fun buildMatch(s string, input []byte, saved []int, numGroups int) Match {
         gi = gi + 1
     }
     return Match{
-        text: text as string,
+        text: toString(text),
         start: matchStart,
         end: matchEnd,
         input: s,
@@ -957,18 +974,18 @@ fun appendReplacement(result []byte, repl []byte, saved []int) []byte {
     var out = result
     var i = 0
     for i < len(repl) {
-        if repl[i] == 36 && i + 1 < len(repl) {
+        if repl[i] == 36 and i + 1 < len(repl) {
             // '$' — backreference
             var next = repl[i + 1]
-            if next >= 48 && next <= 57 {
+            if next >= 48 and next <= 57 {
                 // $N — numeric backreference
                 var groupIdx = next - 48
                 var startSlot = groupIdx * 2
                 var endSlot = groupIdx * 2 + 1
-                if startSlot < len(saved) && endSlot < len(saved) {
+                if startSlot < len(saved) and endSlot < len(saved) {
                     var gs = saved[startSlot]
                     var ge = saved[endSlot]
-                    if gs >= 0 && ge >= 0 {
+                    if gs >= 0 and ge >= 0 {
                         // TODO: Need access to original input to extract group text.
                         // This is a limitation of the current design — the saved
                         // positions reference the input, but we don't have the
