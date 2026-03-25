@@ -225,9 +225,8 @@ pub const Resolver = struct {
     }
 
     fn collectInterfaceDecl(self: *Resolver, node: NodeIndex, is_pub: bool) ResolveError!void {
-        // interface_decl: main_token = kw_type, name is next token
         const main_tok = self.nodeMainToken(node);
-        const name_tok = main_tok + 1;
+        const name_tok = if (self.tokens[main_tok].tag == .kw_interface) main_tok + 1 else main_tok;
         const name = self.tokenSlice(name_tok);
 
         try self.defineSymbol(name, .{
@@ -561,6 +560,24 @@ pub const Resolver = struct {
             },
             .struct_literal => try self.resolveStructLiteral(node),
             .simd_literal => try self.resolveSimdLiteral(node),
+            .array_literal => {
+                const data = self.nodeData(node);
+                const extra = self.tree.extra_data.items;
+                const elem_count = self.findTrailingCount(data.rhs, extra);
+                const elem_nodes = extra[data.rhs .. data.rhs + elem_count];
+                for (elem_nodes) |elem_node| {
+                    try self.resolveNode(elem_node);
+                }
+            },
+            .tuple_literal => {
+                const data = self.nodeData(node);
+                const extra = self.tree.extra_data.items;
+                const elem_count = self.findTrailingCount(data.rhs, extra);
+                const elem_nodes = extra[data.rhs .. data.rhs + elem_count];
+                for (elem_nodes) |elem_node| {
+                    try self.resolveNode(elem_node);
+                }
+            },
             .anon_struct_literal => try self.resolveAnonStructLiteral(node),
             .struct_field_init => try self.resolveNode(self.nodeData(node).lhs),
             .closure => try self.resolveClosure(node),
@@ -570,9 +587,18 @@ pub const Resolver = struct {
             .int_literal, .float_literal, .string_literal, .bool_literal, .null_literal => {},
 
             // Type nodes don't need resolution in this pass
-            .type_name, .type_ptr, .type_const_ptr, .type_nullable,
-            .type_error_union, .type_slice, .type_chan, .type_map,
-            .type_array, .type_anon_struct,
+            .type_name,
+            .type_ptr,
+            .type_const_ptr,
+            .type_nullable,
+            .type_error_union,
+            .type_slice,
+            .type_chan,
+            .type_map,
+            .type_fn,
+            .type_tuple,
+            .type_array,
+            .type_anon_struct,
             => {},
 
             // Variants
@@ -596,10 +622,22 @@ pub const Resolver = struct {
             .asm_input, .asm_body, .asm_simple_body, .asm_platform => {},
 
             // These are handled by their parent
-            .fn_decl, .pub_decl, .inline_decl, .struct_decl, .interface_decl,
-            .type_alias, .type_decl, .package_decl, .import_decl,
-            .field_decl, .method_sig, .param, .variadic_param, .receiver,
-            .switch_arm, .root,
+            .fn_decl,
+            .pub_decl,
+            .inline_decl,
+            .struct_decl,
+            .interface_decl,
+            .type_alias,
+            .type_decl,
+            .package_decl,
+            .import_decl,
+            .field_decl,
+            .method_sig,
+            .param,
+            .variadic_param,
+            .receiver,
+            .switch_arm,
+            .root,
             => {},
         }
     }

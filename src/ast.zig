@@ -222,6 +222,12 @@ pub const Node = struct {
         /// SIMD literal: `v4f32{ 1.0, 2.0, 3.0, 4.0 }`
         /// lhs = type name node, rhs = extra_data start for lane expressions
         simd_literal,
+        /// Array/slice literal: `[a, b]` or `[32]byte{1, 2}`
+        /// lhs = explicit type node (or null_node), rhs = extra_data start for elements
+        array_literal,
+        /// Tuple literal: `(a, b, c)`
+        /// lhs = null_node, rhs = extra_data start for elements
+        tuple_literal,
         /// A struct literal field init: `name: expr` or `name = expr`
         /// lhs = value expr
         struct_field_init,
@@ -276,6 +282,13 @@ pub const Node = struct {
         type_map,
         /// Array type: `[N]T`
         type_array,
+        /// Function type: `fun(params) ret_type`
+        /// lhs = params start in extra_data, rhs = return type node
+        /// extra_data layout: [param1, param2, ..., paramN, count]
+        type_fn,
+        /// Tuple type: `(A, B, C)`
+        /// lhs = extra_data start for element types, rhs = element count
+        type_tuple,
         /// Anonymous struct type: `struct { field1 type1, field2 type2 }`
         /// lhs = extra_data start for field_decl nodes, rhs = field count
         type_anon_struct,
