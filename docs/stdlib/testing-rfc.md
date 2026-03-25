@@ -11,54 +11,108 @@ and a `testing.T` parameter. This works but has several limitations:
 4. **Test descriptions are identifiers** — `test_add_returns_sum_of_two_positive_integers` is not readable
 
 This RFC redesigns testing around a `test` keyword (inspired by Zig) with first-class
-table-driven tests and fuzzing, while keeping Go's practical strengths (subtests,
-benchmarks, test context).
+table-driven tests and fuzzing, while keeping Go's practical strengths (explicit test
+context, subtests, benchmarks). Assertions use a composable operator pattern inspired
+by [go-testdeep](https://github.com/maxatome/go-testdeep).
 
 ## Design
 
 ### The `test` Keyword
 
 `test` is a new top-level keyword that declares a test block. It takes a string
-description and a body:
+description, an explicit test context parameter `(t)`, and a body:
 
 ```run
-test "addition works" {
-    expect_eq(add(2, 3), 5)
-    expect_eq(add(-1, 1), 0)
+use "testing"
+
+test "addition works" (t) {
+    t.expect(add(2, 3), t.eq(5))
+    t.expect(add(-1, 1), t.eq(0))
 }
 ```
 
 Key properties:
 - `test` blocks are **top-level declarations** (like `fun`, `type`, `struct`)
 - The string is a **human-readable description**, not an identifier
-- Test blocks have an implicit `t: &T` available for logging, skipping, etc.
-- Assertion functions (`expect`, `expect_eq`, etc.) are available without a receiver
+- `(t)` receives the test context `&T` explicitly — like Go, unlike Zig
+- `t.expect(got, operator)` is the single assertion method
+- Operators (`t.eq`, `t.gt`, `t.contains`, etc.) are methods on `T`
 - Tests are stripped from production builds — zero cost
 
-### Assertions
+### `t.expect` and Operators
 
-Assertions are free functions available inside `test` blocks. They produce rich
-failure messages with source location and values:
+`t.expect` is the **single assertion method** on the test context. It takes a value
+and an operator. Operators are methods on `T` that return an `Operator` value:
 
 ```run
-test "assertions" {
-    expect(x > 0)                        // condition with auto-generated message
-    expect_eq(got, want)                  // == with diff on failure
-    expect_ne(a, b)                       // !=
-    expect_true(ok)                       // explicit bool true
-    expect_false(done)                    // explicit bool false
-    expect_err(parse("???"))             // expects error union to be .err
-    expect_ok(parse("42"))               // expects error union to be .ok
-    expect_nil(ptr)                       // expects nullable to be null
-    expect_not_nil(ptr)                   // expects nullable to be non-null
+use "testing"
+
+test "operators" (t) {
+    // Equality and comparison
+    t.expect(add(2, 3), t.eq(5))            // deep equality
+    t.expect(count, t.ne(0))                 // not equal
+    t.expect(age, t.gt(18))                  // greater than
+    t.expect(age, t.gte(18))                 // greater than or equal
+    t.expect(score, t.lt(100))               // less than
+    t.expect(score, t.lte(100))             // less than or equal
+    t.expect(temp, t.between(36.0, 37.5))   // range (inclusive)
+
+    // Boolean
+    t.expect(isReady, t.isTrue())           // assert true
+    t.expect(isDone, t.isFalse())           // assert false
+
+    // Nil / error
+    t.expect(ptr, t.isNil())                // assert null
+    t.expect(result, t.notNil())            // assert non-null
+    t.expect(parse("???"), t.isErr())       // assert error union is .err
+    t.expect(parse("42"), t.isOk())         // assert error union is .ok
+
+    // Strings
+    t.expect(name, t.hasPrefix("John"))     // string prefix
+    t.expect(name, t.hasSuffix("Doe"))      // string suffix
+    t.expect(body, t.contains("hello"))     // substring (also works on slices)
+    t.expect(email, t.matches("[a-z]+@.+")) // regex match
+
+    // Collections
+    t.expect(items, t.hasLen(3))            // length check
+    t.expect(buf, t.hasCap(64))             // capacity check
+    t.expect(list, t.isEmpty())             // empty check
+    t.expect(list, t.notEmpty())            // non-empty check
+    t.expect(ids, t.containsAll(1, 2, 3))  // all elements present
+    t.expect(ids, t.containsAny(1, 2, 3))  // at least one present
+
+    // Composition — operators compose via all/any/none
+    t.expect(x, t.all(t.gt(0), t.lt(100))) // AND: all must match
+    t.expect(x, t.any(t.eq(0), t.gt(10)))  // OR: at least one must match
+    t.expect(x, t.none(t.eq(0), t.lt(0)))  // NOR: none must match
+    t.expect(x, t.not(t.eq(0)))            // negation
 }
 ```
 
-When an assertion fails, it reports:
+When an assertion fails, `t.expect` reports:
 - Source file and line
 - The expression that failed
-- Expected vs actual values (for `expect_eq`/`expect_ne`)
+- Expected vs actual values
 - A diff for large string/struct comparisons
+- The operator description (e.g., "expected > 18, got 16")
+
+### Operators are Methods on `T`
+
+Operators are methods on the test context `T`. They return an `Operator` value
+that `t.expect` evaluates:
+
+```run
+// In testing package:
+pub fun (t @T) eq(want any) Operator { ... }
+pub fun (t @T) gt(bound any) Operator { ... }
+pub fun (t @T) hasPrefix(prefix string) Operator { ... }
+pub fun (t @T) all(ops ...Operator) Operator { ... }
+```
+
+This means:
+- No new keywords needed for operators
+- Users can write custom operators by returning `Operator`
+- IDE autocomplete on `t.` shows all available operators
 
 ### Table-Driven Tests (First-Class)
 
@@ -67,13 +121,15 @@ construct using `for` with named cases. Each case uses the `::` separator
 (consistent with `switch` arms):
 
 ```run
+use "testing"
+
 test "add" for [
-    "positive"      :: { a: 2,  b: 3,  want: 5   },
-    "negative"      :: { a: -1, b: -2, want: -3   },
-    "zeros"         :: { a: 0,  b: 0,  want: 0    },
-    "mixed signs"   :: { a: -3, b: 7,  want: 4    },
-] {
-    expect_eq(add(row.a, row.b), row.want)
+    "positive"    :: { a: 2,  b: 3,  want: 5  },
+    "negative"    :: { a: -1, b: -2, want: -3  },
+    "zeros"       :: { a: 0,  b: 0,  want: 0   },
+    "mixed signs" :: { a: -3, b: 7,  want: 4   },
+] (t) {
+    t.expect(add(row.a, row.b), t.eq(row.want))
 }
 ```
 
@@ -82,17 +138,60 @@ Key properties:
 - Each case is `"name" :: { fields }` — reuses the `::` separator from `switch`
 - The string before `::` is the **subtest name**, shown in output
 - The struct after `::` is the **test data**, accessed via the implicit `row` binding
+- `(t)` receives the test context for each case
 - Row fields are inferred from the struct literals — no type declaration needed
 - Each case runs as an independent subtest
+
+More table-driven examples:
+
+```run
+test "parseInt" for [
+    "simple"        :: { input: "42",    want: 42    },
+    "negative"      :: { input: "-7",    want: -7    },
+    "zero"          :: { input: "0",     want: 0     },
+    "with spaces"   :: { input: " 12 ",  want: 12    },
+    "large number"  :: { input: "99999", want: 99999 },
+] (t) {
+    result := try parseInt(row.input)
+    t.expect(result, t.eq(row.want))
+}
+
+test "http status codes" for [
+    "ok"          :: { code: 200, class: "success" },
+    "created"     :: { code: 201, class: "success" },
+    "bad request" :: { code: 400, class: "client"  },
+    "not found"   :: { code: 404, class: "client"  },
+    "internal"    :: { code: 500, class: "server"  },
+] (t) {
+    t.expect(classifyStatus(row.code), t.eq(row.class))
+}
+
+test "validate email" for [
+    "valid simple" :: { email: "a@b.com",   valid: true  },
+    "valid dots"   :: { email: "a.b@c.com", valid: true  },
+    "missing @"    :: { email: "abc.com",   valid: false },
+    "empty"        :: { email: "",          valid: false },
+] (t) {
+    result := validateEmail(row.email)
+    if row.valid {
+        t.expect(result, t.isOk())
+    } else {
+        t.expect(result, t.isErr())
+    }
+}
+```
 
 Rows can also bind with destructuring for conciseness:
 
 ```run
-test "add" for [
-    "positive" :: { a: 2, b: 3, want: 5 },
-    "zeros"    :: { a: 0, b: 0, want: 0 },
-] as { a, b, want } {
-    expect_eq(add(a, b), want)
+test "string trimming" for [
+    "leading"  :: { input: "  hello", want: "hello" },
+    "trailing" :: { input: "hello  ", want: "hello" },
+    "both"     :: { input: " hello ", want: "hello" },
+    "none"     :: { input: "hello",   want: "hello" },
+    "empty"    :: { input: "",        want: ""       },
+] as { input, want } (t) {
+    t.expect(trim(input), t.eq(want))
 }
 ```
 
@@ -101,20 +200,20 @@ test "add" for [
 For dynamic or conditional subtests that don't fit the table pattern, use `t.run`:
 
 ```run
-test "database operations" {
-    db := try setup_test_db()
+test "database operations" (t) {
+    db := try setupTestDb()
     defer db.close()
 
-    t.run("insert") {
+    t.run("insert") (t) {
         try db.insert("key", "value")
         result := try db.get("key")
-        expect_eq(result, "value")
+        t.expect(result, t.eq("value"))
     }
 
-    t.run("delete") {
+    t.run("delete") (t) {
         try db.delete("key")
         result := db.get("key")
-        expect_err(result)
+        t.expect(result, t.isErr())
     }
 }
 ```
@@ -125,11 +224,11 @@ Fuzz tests use the `test ... fuzz` form. The compiler and test runner handle
 corpus management, coverage guidance, and mutation:
 
 ```run
-test "json roundtrip" fuzz(data: []byte) {
-    parsed := parse_json(data) or return    // skip invalid inputs
-    output := to_json(parsed)
-    reparsed := try parse_json(output)
-    expect_eq(parsed, reparsed)
+test "json roundtrip" fuzz(data []byte) (t) {
+    parsed := parseJson(data) or return
+    output := toJson(parsed)
+    reparsed := try parseJson(output)
+    t.expect(reparsed, t.eq(parsed))
 }
 ```
 
@@ -138,25 +237,39 @@ Key properties:
 - Supported fuzz types: `[]byte`, `string`, `int`, `uint`, `f64`, `bool`
 - `or return` inside fuzz tests skips inputs that don't meet preconditions
 - The test runner manages the corpus (in `testdata/fuzz/<TestName>/`)
-- Seed corpus can be provided with `seed`:
+
+Seed corpus with `seed`:
 
 ```run
-test "parse_int is safe" fuzz(input: string) seed [
+test "parseInt is safe" fuzz(input string) seed [
     "0", "-1", "999999999", "", "abc", "2147483648",
-] {
-    // Should never panic, regardless of input
-    _ = parse_int(input)
+] (t) {
+    _ = parseInt(input)
 }
 ```
 
 Multiple fuzz parameters:
 
 ```run
-test "encode_decode" fuzz(key: string, value: []byte) {
+test "encode decode" fuzz(key string, value []byte) (t) {
     encoded := encode(key, value)
+    t.expect(encoded, t.notEmpty())
     k, v := try decode(encoded)
-    expect_eq(k, key)
-    expect_eq(v, value)
+    t.expect(k, t.eq(key))
+    t.expect(v, t.eq(value))
+}
+
+test "utf8 validation" fuzz(data []byte) seed [
+    []byte{},
+    []byte{0x00},
+    []byte{0x7F},
+    []byte{0xC0, 0x80},
+    []byte{0xED, 0xA0, 0x80},
+] (t) {
+    if isValidUtf8(data) {
+        s := stringFromBytes(data)
+        t.expect(bytesFromString(s), t.eq(data))
+    }
 }
 ```
 
@@ -165,16 +278,27 @@ test "encode_decode" fuzz(key: string, value: []byte) {
 Benchmarks use the `bench` keyword:
 
 ```run
-bench "sort 1000 elements" {
-    data := generate_random_slice(1000)
-    b.reset_timer()
+bench "sort 1000 elements" (b) {
+    data := generateRandomSlice(1000)
+    b.resetTimer()
     for _ in 0..b.n {
         sort(data)
     }
 }
+
+bench "map lookup" (b) {
+    m := buildTestMap(10000)
+    keys := generateKeys(1000)
+    b.resetTimer()
+    for _ in 0..b.n {
+        for key in keys {
+            _ = m[key]
+        }
+    }
+}
 ```
 
-With table-driven benchmarks:
+Table-driven benchmarks:
 
 ```run
 bench "sort" for [
@@ -182,79 +306,116 @@ bench "sort" for [
     "100 elements"   :: { size: 100   },
     "1000 elements"  :: { size: 1000  },
     "10000 elements" :: { size: 10000 },
-] {
-    data := generate_random_slice(row.size)
-    b.reset_timer()
+] (b) {
+    data := generateRandomSlice(row.size)
+    b.resetTimer()
     for _ in 0..b.n {
         sort(data)
     }
 }
-```
 
-Key properties:
-- `bench` blocks have an implicit `b: &B` context
-- `b.n` is the iteration count, set by the framework
-- `b.reset_timer()` excludes setup from timing
-- `b.report_metric(name, value, unit)` for custom metrics
-- `b.bytes_per_op(n)` for throughput calculation
+bench "hash functions" for [
+    "fnv32"   :: { hashFn: fnv32   },
+    "murmur3" :: { hashFn: murmur3 },
+    "xxhash"  :: { hashFn: xxhash  },
+] (b) {
+    data := generateRandomBytes(1024)
+    b.bytesPerOp(1024)
+    b.resetTimer()
+    for _ in 0..b.n {
+        _ = row.hashFn(data)
+    }
+}
+```
 
 ### Test Lifecycle Hooks
 
 Setup and teardown at the file/package level:
 
 ```run
-test before_all {
-    // Runs once before all tests in this file
-    db = try setup_database()
+test beforeAll {
+    db = try setupDatabase()
 }
 
-test after_all {
-    // Runs once after all tests in this file
+test afterAll {
     db.close()
 }
 
-test before_each {
-    // Runs before each test
+test beforeEach {
     try db.clear()
 }
 
-test after_each {
-    // Runs after each test
-    try cleanup_temp_files()
+test afterEach {
+    try cleanupTempFiles()
 }
 ```
 
 ### Test Context (`T`)
 
-The implicit `t` provides:
+The explicit `t` parameter provides:
 
+**Control methods:**
 ```
-t.log(msg)              — log a message (shown only on failure or -v)
-t.logf(format, args)    — formatted log
-t.skip(reason)          — skip this test
-t.fail()                — mark failed, continue running
-t.fail_now()            — mark failed, stop immediately
-t.fatal(msg)            — log + fail_now
-t.fatalf(format, args)  — formatted fatal
-t.run(name) { }         — launch a subtest
-t.parallel()            — mark test as safe to run in parallel
-t.deadline() Time       — returns the test timeout deadline
-t.temp_dir() string     — returns a temporary directory cleaned up after the test
-t.name() string         — returns the current test/subtest name
+t.expect(got, operator)  — assert got matches operator
+t.log(msg)               — log a message (shown only on failure or -v)
+t.logf(format, args)     — formatted log
+t.skip(reason)           — skip this test
+t.fail()                 — mark failed, continue running
+t.failNow()              — mark failed, stop immediately
+t.fatal(msg)             — log + failNow
+t.fatalf(format, args)   — formatted fatal
+t.run(name) (t) { }      — launch a subtest
+t.parallel()             — mark test as safe to run in parallel
+t.deadline() int         — returns the test timeout deadline
+t.tempDir() string       — returns a temporary directory cleaned up after the test
+t.name() string          — returns the current test/subtest name
+```
+
+**Operator methods (return `Operator` for use with `t.expect`):**
+```
+t.eq(want)               — deep equality
+t.ne(want)               — not equal
+t.gt(bound)              — greater than
+t.gte(bound)             — greater than or equal
+t.lt(bound)              — less than
+t.lte(bound)             — less than or equal
+t.between(lo, hi)        — range [lo, hi]
+t.isTrue()               — boolean true
+t.isFalse()              — boolean false
+t.isNil()                — null check
+t.notNil()               — non-null check
+t.isErr()                — error union is .err
+t.isOk()                 — error union is .ok
+t.hasPrefix(s)           — string prefix
+t.hasSuffix(s)           — string suffix
+t.contains(v)            — substring or element containment
+t.matches(pattern)       — regex match
+t.hasLen(n)              — length check
+t.hasCap(n)              — capacity check
+t.isEmpty()              — length is 0
+t.notEmpty()             — length > 0
+t.containsAll(items...)  — all items present
+t.containsAny(items...)  — at least one present
+t.all(ops...)            — AND: all must match
+t.any(ops...)            — OR: at least one must match
+t.none(ops...)           — NOR: none must match
+t.not(op)                — negation
+t.approx(want, tol)      — numeric approximate equality
+t.typeOf(name)           — type check
 ```
 
 ### Benchmark Context (`B`)
 
-The implicit `b` provides:
+The explicit `b` parameter provides:
 
 ```
-b.n int                         — iteration count (set by framework)
-b.reset_timer()                 — reset timer and counters
-b.start_timer()                 — resume timing
-b.stop_timer()                  — pause timing
-b.report_metric(name, val, unit) — custom metric
-b.bytes_per_op(n)               — set bytes processed per iteration
-b.run(name) { }                 — sub-benchmark
+b.n int                            — iteration count (set by framework)
+b.resetTimer()                     — reset timer and counters
+b.startTimer()                     — resume timing
+b.stopTimer()                      — pause timing
+b.reportMetric(name, val, unit)    — custom metric
+b.bytesPerOp(n)                    — set bytes processed per iteration
+b.run(name) (b) { }               — sub-benchmark
 ```
 
 ### Test Runner CLI
@@ -294,43 +455,50 @@ math/
 
 | Syntax | Purpose |
 |--------|---------|
-| `test "name" { }` | Unit test block |
-| `test "name" for ["case" :: {}, ...] { }` | Table-driven test |
-| `test "name" for [...] as { fields } { }` | Table-driven test with destructuring |
-| `test "name" fuzz(params) { }` | Fuzz test |
-| `test "name" fuzz(params) seed [...] { }` | Fuzz test with seed corpus |
-| `bench "name" { }` | Benchmark block |
-| `bench "name" for ["case" :: {}, ...] { }` | Table-driven benchmark |
-| `test before_all { }` | File-level setup |
-| `test after_all { }` | File-level teardown |
-| `test before_each { }` | Per-test setup |
-| `test after_each { }` | Per-test teardown |
-| `t.run("name") { }` | Dynamic subtest |
+| `test "name" (t) { }` | Unit test block |
+| `test "name" for ["case" :: {}, ...] (t) { }` | Table-driven test |
+| `test "name" for [...] as { fields } (t) { }` | Table-driven test with destructuring |
+| `test "name" fuzz(params) (t) { }` | Fuzz test |
+| `test "name" fuzz(params) seed [...] (t) { }` | Fuzz test with seed corpus |
+| `bench "name" (b) { }` | Benchmark block |
+| `bench "name" for ["case" :: {}, ...] (b) { }` | Table-driven benchmark |
+| `test beforeAll { }` | File-level setup |
+| `test afterAll { }` | File-level teardown |
+| `test beforeEach { }` | Per-test setup |
+| `test afterEach { }` | Per-test teardown |
+| `t.run("name") (t) { }` | Dynamic subtest |
 | `t.parallel()` | Parallel test marker |
 
-### Case Syntax: `"name" :: { fields }`
+### Key Design Decisions
 
-The table-driven test case syntax reuses two existing language constructs:
+1. **Explicit `t` parameter** — like Go, test context is passed explicitly via `(t)`.
+   This makes it clear what's available and enables helper functions that accept `&T`.
 
-1. **`for`** — the iteration keyword, already used for loops (`for item in collection`)
-2. **`::`** — the arm separator, already used in `switch` (`pattern :: body`)
+2. **`t.expect` is the single assertion method** — no `expectEq`, `expectNe`, etc.
+   One method + composable operators covers all cases.
 
-This means no new keywords are needed for table-driven tests. A case reads naturally:
-`"description" :: { test data }`, just like a switch arm reads `pattern :: action`.
+3. **Operators are methods on `T`** — `t.eq`, `t.gt`, `t.contains`, `t.all`, etc.
+   They return `Operator` values. This keeps operators out of the keyword list
+   and provides natural IDE autocomplete via `t.`.
+
+4. **`"case" :: { data }` syntax** — reuses `::` from switch for table cases.
+   No new keywords needed for table-driven tests.
 
 ## Comparison
 
 | Feature | Go | Zig | Run (new) |
 |---------|-----|-----|-----------|
-| Test declaration | `func TestX(t *testing.T)` | `test "name" { }` | `test "name" { }` |
+| Test declaration | `func TestX(t *testing.T)` | `test "name" { }` | `test "name" (t) { }` |
 | Test descriptions | Identifier names | String literals | String literals |
+| Test context | `t *testing.T` (explicit) | implicit | `t` (explicit) |
+| Assertions | Third-party (testify) | `try std.testing.expect()` | `t.expect(got, t.op())` |
+| Operators | go-testdeep (third-party) | N/A | `t.eq`, `t.gt`, ... (built-in) |
 | Table-driven | Manual struct + loop | Manual | `test ... for ["name" :: {}, ...]` |
-| Subtests | `t.Run("name", func(t *T))` | N/A | `t.run("name") { }` |
+| Subtests | `t.Run("name", func(t *T))` | N/A | `t.run("name") (t) { }` |
 | Fuzzing | `func FuzzX(f *testing.F)` | `std.testing.fuzz` | `test ... fuzz(params)` |
-| Benchmarks | `func BenchX(b *testing.B)` | Manual timing | `bench "name" { }` |
+| Benchmarks | `func BenchX(b *testing.B)` | Manual timing | `bench "name" (b) { }` |
 | Parallel | `t.Parallel()` | N/A | `t.parallel()` |
-| Lifecycle hooks | `TestMain` | N/A | `before_all/after_all/before_each/after_each` |
-| Assertions | Third-party (testify) | `try std.testing.expect()` | Built-in `expect_eq`, etc. |
+| Lifecycle hooks | `TestMain` | N/A | `beforeAll/afterAll/beforeEach/afterEach` |
 
 ## Implementation Notes
 
@@ -340,15 +508,15 @@ This means no new keywords are needed for table-driven tests. A case reads natur
 - `kw_fuzz` — the `fuzz` keyword (contextual, only after test)
 - `kw_seed` — the `seed` keyword (contextual, only after fuzz params)
 
-Note: `for` and `::` are already tokens. No new keyword needed for table-driven tests.
+Note: `for` and `::` are already tokens. Operators are methods on `T`, not tokens.
 
 ### New AST Nodes
-- `test_decl` — test block with description and body
-- `table_test_decl` — table-driven test with named cases and body
-- `fuzz_test_decl` — fuzz test with parameters, optional seed, and body
-- `bench_decl` — benchmark block with description and body
+- `test_decl` — test block with description, parameter, and body
+- `table_test_decl` — table-driven test with named cases, parameter, and body
+- `fuzz_test_decl` — fuzz test with fuzz parameters, test parameter, optional seed, and body
+- `bench_decl` — benchmark block with description, parameter, and body
 - `table_bench_decl` — table-driven benchmark with named cases
-- `test_hook_decl` — lifecycle hook (before_all, after_all, etc.)
+- `test_hook_decl` — lifecycle hook (beforeAll, afterAll, etc.)
 
 ### Compiler Changes
 - Lexer: Add new keyword tokens (`test`, `bench`, `fuzz`, `seed`)
@@ -360,3 +528,4 @@ Note: `for` and `::` are already tokens. No new keyword needed for table-driven 
 
 - Issue #245 — stdlib: implement testing package
 - RFC #219 — Standard Library Redesign
+- Inspiration: [go-testdeep](https://github.com/maxatome/go-testdeep) operator pattern

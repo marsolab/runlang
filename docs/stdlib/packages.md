@@ -319,50 +319,75 @@ choice(s []any) any            — random element
 
 ### `testing` — Test Framework
 
-**Purpose:** Test context, assertions, table-driven tests, fuzzing, and benchmarking.
+**Purpose:** Test context, composable assertion operators, table-driven tests, fuzzing, and benchmarking.
 Uses the `test` and `bench` language keywords — tests are first-class language constructs.
+Assertion operators inspired by [go-testdeep](https://github.com/maxatome/go-testdeep).
 
 **Language constructs:**
 ```
-test "name" { body }                              — unit test block
-test "name" for ["case" :: {}, ...] { body }      — table-driven test ("case" :: { data })
-test "name" for [...] as { fields } { body }      — table-driven test with destructuring
-test "name" fuzz(params) { body }                 — fuzz test
-test "name" fuzz(params) seed [...] { }           — fuzz test with seed corpus
-bench "name" { body }                             — benchmark block
-bench "name" for ["case" :: {}, ...] { body }     — table-driven benchmark
-test before_all { }                       — file-level setup
-test after_all { }                        — file-level teardown
-test before_each { }                      — per-test setup
-test after_each { }                       — per-test teardown
+test "name" (t) { body }                          — unit test block
+test "name" for ["case" :: {}, ...] (t) { body }  — table-driven test ("case" :: { data })
+test "name" for [...] as { fields } (t) { body }  — table-driven test with destructuring
+test "name" fuzz(params) (t) { body }             — fuzz test
+test "name" fuzz(params) seed [...] (t) { body }  — fuzz test with seed corpus
+bench "name" (b) { body }                         — benchmark block
+bench "name" for ["case" :: {}, ...] (b) { body } — table-driven benchmark
+test beforeAll { }                                 — file-level setup
+test afterAll { }                                  — file-level teardown
+test beforeEach { }                                — per-test setup
+test afterEach { }                                 — per-test teardown
 ```
 
 **Key types and functions:**
 ```
-T                 struct       — test context (implicit `t` in test blocks)
+Operator          struct       — comparison operator for t.expect
+
+T                 struct       — test context (explicit `t` parameter)
+  expect(got, operator)        — single assertion method
   log(msg)                     — log message (shown on failure or -v)
   logf(format, args)           — formatted log
   fail()                       — mark failed, continue
-  fail_now()                   — mark failed, stop
+  failNow()                    — mark failed, stop
   error(msg)                   — log + fail
   errorf(format, args)         — formatted log + fail
   fatal(msg)                   — log + fail + stop
   fatalf(format, args)         — formatted log + fail + stop
   skip(reason)                 — skip this test
-  run(name, body)              — launch a subtest
+  run(name) (t) { }            — launch a subtest
   parallel()                   — mark safe for parallel execution
   name() string                — current test name
   deadline() int               — timeout deadline
-  temp_dir() string            — auto-cleaned temp directory
+  tempDir() string             — auto-cleaned temp directory
 
-B                 struct       — benchmark context (implicit `b` in bench blocks)
+  // Operator methods (return Operator for use with t.expect)
+  eq(want)                     — deep equality
+  ne(want)                     — not equal
+  gt(bound), gte(bound)        — greater than / greater or equal
+  lt(bound), lte(bound)        — less than / less or equal
+  between(lo, hi)              — range [lo, hi]
+  isTrue(), isFalse()          — boolean checks
+  isNil(), notNil()            — null checks
+  isErr(), isOk()              — error union checks
+  hasPrefix(s), hasSuffix(s)   — string prefix/suffix
+  contains(v)                  — substring or element containment
+  matches(pattern)             — regex match
+  hasLen(n), hasCap(n)         — length/capacity
+  isEmpty(), notEmpty()        — emptiness
+  containsAll(items...)        — all items present
+  containsAny(items...)        — at least one present
+  all(ops...), any(ops...)     — AND / OR composition
+  none(ops...), not(op)        — NOR / negation
+  approx(want, tol)            — approximate equality
+  typeOf(name)                 — type check
+
+B                 struct       — benchmark context (explicit `b` parameter)
   n int                        — iteration count (set by framework)
-  reset_timer()                — exclude setup from timing
-  start_timer()                — resume timing
-  stop_timer()                 — pause timing
-  report_metric(name, val, unit) — custom metric
-  bytes_per_op(n)              — for throughput calculation
-  run(name, body)              — sub-benchmark
+  resetTimer()                 — exclude setup from timing
+  startTimer()                 — resume timing
+  stopTimer()                  — pause timing
+  reportMetric(name, val, unit) — custom metric
+  bytesPerOp(n)                — for throughput calculation
+  run(name) (b) { }            — sub-benchmark
 
 F                 struct       — fuzz context
   add(args)                    — add seed corpus entry
@@ -375,20 +400,6 @@ TestResult        struct       — test run summary
   benched int
   total() int
   ok() bool
-
-// Assertion functions (available inside test blocks without receiver)
-expect(condition)              — assert condition is true
-expect_eq(got, want)           — assert equality with diff on failure
-expect_ne(a, b)                — assert inequality
-expect_true(condition)         — assert true
-expect_false(condition)        — assert false
-expect_err(result)             — assert error union is .err
-expect_ok(result)              — assert error union is .ok
-expect_nil(value)              — assert nullable is null
-expect_not_nil(value)          — assert nullable is non-null
-expect_contains(haystack, needle) — assert substring
-expect_has_prefix(s, prefix)   — assert prefix
-expect_has_suffix(s, suffix)   — assert suffix
 ```
 
 **Dependencies:** `fmt`, `strings`
