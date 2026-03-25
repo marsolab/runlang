@@ -229,7 +229,10 @@ const TypeChecker = struct {
     fn registerInterfaceType(self: *TypeChecker, node: NodeIndex) CheckError!void {
         const data = self.nodeData(node);
         const main_tok = self.nodeMainToken(node);
-        const name_tok = if (self.tokens[main_tok].tag == .kw_interface) main_tok + 1 else main_tok;
+        const name_tok = switch (self.tokens[main_tok].tag) {
+            .kw_type, .kw_interface => main_tok + 1,
+            else => main_tok,
+        };
         const name = self.tokenSlice(name_tok);
         const extra = self.tree.extra_data.items;
         const methods_start = data.lhs;
