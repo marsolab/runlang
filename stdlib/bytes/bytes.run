@@ -15,100 +15,320 @@ pub Buffer struct {
 
 // read reads from the buffer into buf. Returns the number of bytes read.
 pub fun (b &Buffer) read(buf []byte) !int {
-    return 0
+    if b.pos >= len(b.buf) {
+        return 0
+    }
+    var available = len(b.buf) - b.pos
+    var n = available
+    if n > len(buf) {
+        n = len(buf)
+    }
+    var i = 0
+    for i < n {
+        buf[i] = b.buf[b.pos + i]
+        i = i + 1
+    }
+    b.pos = b.pos + n
+    return n
 }
 
 // write appends data to the buffer. Returns the number of bytes written.
 pub fun (b &Buffer) write(data []byte) !int {
-    return 0
+    var i = 0
+    for i < len(data) {
+        b.buf = append(b.buf, data[i])
+        i = i + 1
+    }
+    return len(data)
 }
 
 // writeString appends the contents of s to the buffer.
 pub fun (b &Buffer) writeString(s string) !int {
-    return 0
+    var data = s as []byte
+    var i = 0
+    for i < len(data) {
+        b.buf = append(b.buf, data[i])
+        i = i + 1
+    }
+    return len(data)
 }
 
 // writeByte appends a single byte to the buffer.
 pub fun (b &Buffer) writeByte(c byte) !void {
+    b.buf = append(b.buf, c)
 }
 
 // bytes returns the unread portion of the buffer as a byte slice.
 pub fun (b @Buffer) bytes() []byte {
-    return alloc([]byte, 0)
+    return b.buf[b.pos..len(b.buf)]
 }
 
 // string returns the unread portion of the buffer as a string.
 pub fun (b @Buffer) string() string {
-    return ""
+    return b.buf[b.pos..len(b.buf)] as string
 }
 
 // reset resets the buffer to be empty.
 pub fun (b &Buffer) reset() {
+    b.buf = alloc([]byte, 0)
+    b.pos = 0
 }
 
 // len returns the number of unread bytes in the buffer.
 pub fun (b @Buffer) len() int {
-    return 0
+    return len(b.buf) - b.pos
 }
 
 // cap returns the capacity of the buffer's underlying byte slice.
 pub fun (b @Buffer) cap() int {
-    return 0
+    return len(b.buf)
 }
 
 // contains reports whether sub is within b.
 pub fun contains(b []byte, sub []byte) bool {
-    return false
+    return index(b, sub) != null
 }
 
 // index returns the index of the first instance of sub in b,
 // or null if sub is not present.
 pub fun index(b []byte, sub []byte) int? {
+    if len(sub) == 0 {
+        return .some(0)
+    }
+    if len(sub) > len(b) {
+        return null
+    }
+    var i = 0
+    var limit = len(b) - len(sub)
+    for i <= limit {
+        var j = 0
+        var match = true
+        for j < len(sub) {
+            if b[i + j] != sub[j] {
+                match = false
+                break
+            }
+            j = j + 1
+        }
+        if match {
+            return .some(i)
+        }
+        i = i + 1
+    }
     return null
 }
 
 // split slices b into all subslices separated by sep.
 pub fun split(b []byte, sep []byte) [][]byte {
-    return alloc([][]byte, 0)
+    var result = alloc([][]byte, 0)
+    if len(sep) == 0 {
+        // Split into individual bytes.
+        var i = 0
+        for i < len(b) {
+            var single = alloc([]byte, 1)
+            single[0] = b[i]
+            result = append(result, single)
+            i = i + 1
+        }
+        return result
+    }
+    var pos = 0
+    for pos <= len(b) {
+        // Search for sep starting at pos.
+        var found = false
+        var idx = pos
+        for idx <= len(b) - len(sep) {
+            var j = 0
+            var match = true
+            for j < len(sep) {
+                if b[idx + j] != sep[j] {
+                    match = false
+                    break
+                }
+                j = j + 1
+            }
+            if match {
+                found = true
+                break
+            }
+            idx = idx + 1
+        }
+        if found {
+            result = append(result, b[pos..idx])
+            pos = idx + len(sep)
+        } else {
+            break
+        }
+    }
+    result = append(result, b[pos..len(b)])
+    return result
 }
 
 // join concatenates the elements of parts with sep between each element.
 pub fun join(parts [][]byte, sep []byte) []byte {
-    return alloc([]byte, 0)
+    if len(parts) == 0 {
+        return alloc([]byte, 0)
+    }
+    // Calculate total length.
+    var total = 0
+    var i = 0
+    for i < len(parts) {
+        if i > 0 {
+            total = total + len(sep)
+        }
+        total = total + len(parts[i])
+        i = i + 1
+    }
+    var result = alloc([]byte, 0)
+    i = 0
+    for i < len(parts) {
+        if i > 0 {
+            var j = 0
+            for j < len(sep) {
+                result = append(result, sep[j])
+                j = j + 1
+            }
+        }
+        var j = 0
+        for j < len(parts[i]) {
+            result = append(result, parts[i][j])
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fun isWhitespace(c byte) bool {
+    if c == 32 {
+        return true
+    }
+    if c == 9 {
+        return true
+    }
+    if c == 10 {
+        return true
+    }
+    if c == 13 {
+        return true
+    }
+    return false
 }
 
 // trim returns b with leading and trailing whitespace removed.
 pub fun trim(b []byte) []byte {
-    return alloc([]byte, 0)
+    var start = 0
+    for start < len(b) {
+        if !isWhitespace(b[start]) {
+            break
+        }
+        start = start + 1
+    }
+    var end = len(b)
+    for end > start {
+        if !isWhitespace(b[end - 1]) {
+            break
+        }
+        end = end - 1
+    }
+    return b[start..end]
 }
 
 // equal reports whether a and b are the same length and contain
 // the same bytes.
 pub fun equal(a []byte, b []byte) bool {
-    return false
+    if len(a) != len(b) {
+        return false
+    }
+    var i = 0
+    for i < len(a) {
+        if a[i] != b[i] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
 }
 
 // hasPrefix reports whether b begins with prefix.
 pub fun hasPrefix(b []byte, prefix []byte) bool {
-    return false
+    if len(prefix) > len(b) {
+        return false
+    }
+    var i = 0
+    for i < len(prefix) {
+        if b[i] != prefix[i] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
 }
 
 // hasSuffix reports whether b ends with suffix.
 pub fun hasSuffix(b []byte, suffix []byte) bool {
-    return false
+    if len(suffix) > len(b) {
+        return false
+    }
+    var offset = len(b) - len(suffix)
+    var i = 0
+    for i < len(suffix) {
+        if b[offset + i] != suffix[i] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
 }
 
 // repeat returns a new byte slice consisting of count copies of b.
 pub fun repeat(b []byte, count int) []byte {
-    return alloc([]byte, 0)
+    if count <= 0 {
+        return alloc([]byte, 0)
+    }
+    var result = alloc([]byte, 0)
+    var i = 0
+    for i < count {
+        var j = 0
+        for j < len(b) {
+            result = append(result, b[j])
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return result
 }
 
 // toLower returns a copy of b with all ASCII letters mapped to lower case.
 pub fun toLower(b []byte) []byte {
-    return alloc([]byte, 0)
+    var result = alloc([]byte, len(b))
+    var i = 0
+    for i < len(b) {
+        var c = b[i]
+        if c >= 65 {
+            if c <= 90 {
+                c = c + 32
+            }
+        }
+        result[i] = c
+        i = i + 1
+    }
+    return result
 }
 
 // toUpper returns a copy of b with all ASCII letters mapped to upper case.
 pub fun toUpper(b []byte) []byte {
-    return alloc([]byte, 0)
+    var result = alloc([]byte, len(b))
+    var i = 0
+    for i < len(b) {
+        var c = b[i]
+        if c >= 97 {
+            if c <= 122 {
+                c = c - 32
+            }
+        }
+        result[i] = c
+        i = i + 1
+    }
+    return result
 }
