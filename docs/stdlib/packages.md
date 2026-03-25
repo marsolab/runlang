@@ -324,13 +324,13 @@ Uses the `test` and `bench` language keywords — tests are first-class language
 
 **Language constructs:**
 ```
-test "name" { body }                      — unit test block
-test "name" each [...] { body }           — table-driven test (rows accessed via `row`)
-test "name" each [...] as { f } { body }  — table-driven test with destructuring
-test "name" fuzz(params) { body }         — fuzz test
-test "name" fuzz(params) seed [...] { }   — fuzz test with seed corpus
-bench "name" { body }                     — benchmark block
-bench "name" each [...] { body }          — table-driven benchmark
+test "name" { body }                              — unit test block
+test "name" for ["case" :: {}, ...] { body }      — table-driven test ("case" :: { data })
+test "name" for [...] as { fields } { body }      — table-driven test with destructuring
+test "name" fuzz(params) { body }                 — fuzz test
+test "name" fuzz(params) seed [...] { }           — fuzz test with seed corpus
+bench "name" { body }                             — benchmark block
+bench "name" for ["case" :: {}, ...] { body }     — table-driven benchmark
 test before_all { }                       — file-level setup
 test after_all { }                        — file-level teardown
 test before_each { }                      — per-test setup

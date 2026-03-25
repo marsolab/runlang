@@ -692,18 +692,18 @@ test "addition works" {
 ### Table-Driven Tests
 
 ```
-test "parse_int" each [
-    { name: "simple",   input: "42",  want: 42 },
-    { name: "negative", input: "-7",  want: -7 },
-    { name: "zero",     input: "0",   want: 0  },
+test "parse_int" for [
+    "simple"   :: { input: "42",  want: 42 },
+    "negative" :: { input: "-7",  want: -7 },
+    "zero"     :: { input: "0",   want: 0  },
 ] {
     result := try parse_int(row.input)
     expect_eq(result, row.want)
 }
 ```
 
-- `each` introduces an inline table — array of anonymous structs
-- Each row is a subtest, named by the `name` field (or auto-generated)
+- `for` introduces the case table — reuses the existing `for` keyword
+- Each case is `"name" :: { fields }` — reuses `::` from `switch`
 - Row fields accessed via `row` binding, or destructured with `as { fields }`
 
 ### Fuzzing
