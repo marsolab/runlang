@@ -3,42 +3,100 @@ package maps
 // keys returns the keys of the map as a slice.
 // The order of keys is not guaranteed.
 pub fun keys(m map[any]any) []any {
-    return alloc([]any, 0)
+    var result = alloc([]any, 0)
+    for key, _ in m {
+        result = append(result, key)
+    }
+    return result
 }
 
 // values returns the values of the map as a slice.
 // The order of values is not guaranteed.
 pub fun values(m map[any]any) []any {
-    return alloc([]any, 0)
+    var result = alloc([]any, 0)
+    for _, value in m {
+        result = append(result, value)
+    }
+    return result
 }
 
 // clone returns a shallow copy of the map.
 pub fun clone(m map[any]any) map[any]any {
-    return alloc(map[any]any, 0)
+    var result = alloc(map[any]any, 0)
+    for key, value in m {
+        result[key] = value
+    }
+    return result
 }
 
 // equal reports whether two maps contain the same key/value pairs.
 pub fun equal(a map[any]any, b map[any]any) bool {
-    return false
+    // Check that every key in a exists in b with the same value.
+    for key, value in a {
+        var bv = b[key]
+        if bv == null {
+            return false
+        }
+        if bv != value {
+            return false
+        }
+    }
+    // Check that every key in b exists in a.
+    for key, _ in b {
+        var av = a[key]
+        if av == null {
+            return false
+        }
+    }
+    return true
 }
 
 // equalFunc reports whether two maps contain the same keys and
 // the values satisfy the provided equality function.
 pub fun equalFunc(a map[any]any, b map[any]any, eq fun(v1 any, v2 any) bool) bool {
-    return false
+    for key, va in a {
+        var vb = b[key]
+        if vb == null {
+            return false
+        }
+        if !eq(va, vb) {
+            return false
+        }
+    }
+    for key, _ in b {
+        var va = a[key]
+        if va == null {
+            return false
+        }
+    }
+    return true
 }
 
 // deleteFunc deletes all entries from m for which f returns true.
 pub fun deleteFunc(m map[any]any, f fun(key any, value any) bool) {
+    // Collect keys to delete first to avoid modifying map during iteration.
+    var toDelete = alloc([]any, 0)
+    for key, value in m {
+        if f(key, value) {
+            toDelete = append(toDelete, key)
+        }
+    }
+    for key in toDelete {
+        delete(m, key)
+    }
 }
 
 // copy copies all key/value pairs from src to dst.
 // When a key in src is already present in dst, the value in dst
 // is overwritten with the value from src.
 pub fun copy(dst map[any]any, src map[any]any) {
+    for key, value in src {
+        dst[key] = value
+    }
 }
 
 // has reports whether the map contains the given key.
 pub fun has(m map[any]any, key any) bool {
-    return false
+    var val = m[key]
+    return val != null
 }
