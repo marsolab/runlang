@@ -113,6 +113,7 @@ pub const Formatter = struct {
             .type_chan => try self.formatTypeChan(node),
             .type_map => try self.formatTypeMap(node),
             .type_array => try self.formatTypeArray(node),
+            .type_fn => try self.formatTypeFn(node),
             .type_tuple => try self.formatTypeTuple(node),
             .type_anon_struct => try self.formatTypeAnonStruct(node),
             .param => try self.formatParam(node),
@@ -922,9 +923,38 @@ pub const Formatter = struct {
 
     fn formatTypeArray(self: *Formatter, node: Node) !void {
         try self.write("[");
-        try self.formatNode(node.data.lhs); // size expr
+        try self.buf.writer(self.allocator).print("{d}", .{node.data.rhs});
         try self.write("]");
-        try self.formatNode(node.data.rhs); // element type
+        try self.formatNode(node.data.lhs); // element type
+    }
+
+    fn formatTypeFn(self: *Formatter, node: Node) !void {
+        try self.write("fun");
+
+        const params_start = node.data.lhs;
+        var pidx = params_start;
+        var param_count: u32 = 0;
+        while (pidx < self.tree.extra_data.items.len) {
+            const val = self.tree.extra_data.items[pidx];
+            if (val == pidx - params_start) {
+                param_count = val;
+                break;
+            }
+            pidx += 1;
+        }
+
+        try self.write("(");
+        const params = self.tree.extra_data.items[params_start .. params_start + param_count];
+        for (params, 0..) |p, i| {
+            if (i > 0) try self.write(", ");
+            try self.formatNode(p);
+        }
+        try self.write(")");
+
+        if (node.data.rhs != null_node) {
+            try self.write(" ");
+            try self.formatNode(node.data.rhs);
+        }
     }
 
     fn formatTypeTuple(self: *Formatter, node: Node) !void {
