@@ -123,8 +123,9 @@ pub const Node = struct {
         /// `type Name = variants`
         /// lhs = extra_data start for variants, rhs = variant count
         type_alias,
-        /// `type Name Type` — simple type declaration (type alias to another type)
-        /// main_token = kw_type, lhs = type node
+        /// `type Name Type` or `type Name Type { implements(...) }`
+        /// main_token = kw_type, lhs = type node, rhs = extra_data start (or null_node)
+        /// extra_data layout (when rhs != null_node): [implements_count, iface1, ..., ifaceN]
         type_decl,
         /// `package name`
         /// main_token points to the package name identifier

@@ -294,6 +294,25 @@ type Email = string
 
 - Creates a new type that is **not interchangeable** with the underlying type
 
+Newtypes can implement interfaces using a block syntax that mirrors structs:
+
+```
+type Email string {
+    implements(
+        Stringer,
+        fmt.Formatter,
+    )
+}
+
+fun (e @Email) to_string() string {
+    return string(e)
+}
+```
+
+- The `implements(...)` block inside braces declares which interfaces the newtype satisfies
+- Methods are declared outside with a Go-style receiver, same as structs
+- Simple newtypes without interfaces need no block: `type UserID int`
+
 ## Control Flow
 
 ### For (unified loop)
