@@ -929,48 +929,6 @@ pub const Formatter = struct {
     }
 
     fn formatTypeFn(self: *Formatter, node: Node) !void {
-        try self.write("fun");
-
-        const params_start = node.data.lhs;
-        var pidx = params_start;
-        var param_count: u32 = 0;
-        while (pidx < self.tree.extra_data.items.len) {
-            const val = self.tree.extra_data.items[pidx];
-            if (val == pidx - params_start) {
-                param_count = val;
-                break;
-            }
-            pidx += 1;
-        }
-
-        try self.write("(");
-        const params = self.tree.extra_data.items[params_start .. params_start + param_count];
-        for (params, 0..) |p, i| {
-            if (i > 0) try self.write(", ");
-            try self.formatNode(p);
-        }
-        try self.write(")");
-
-        if (node.data.rhs != null_node) {
-            try self.write(" ");
-            try self.formatNode(node.data.rhs);
-        }
-    }
-
-    fn formatTypeTuple(self: *Formatter, node: Node) !void {
-        const items_start = node.data.lhs;
-        const item_count = node.data.rhs;
-
-        try self.write("(");
-        var i: u32 = 0;
-        while (i < item_count) : (i += 1) {
-            if (i > 0) try self.write(", ");
-            try self.formatNode(self.tree.extra_data.items[items_start + i]);
-        }
-        try self.write(")");
-    }
-
-    fn formatTypeFn(self: *Formatter, node: Node) !void {
         const params_start = node.data.lhs;
         var pidx = params_start;
         var param_count: u32 = 0;
