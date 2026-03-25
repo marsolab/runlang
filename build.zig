@@ -44,6 +44,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     exe.root_module.addOptions("build_options", build_options);
+    exe.linkLibC();
     b.installArtifact(exe);
 
     // Runtime C library (static archive for use by the driver during compilation)
@@ -153,6 +154,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    tests.linkLibC();
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
@@ -235,6 +237,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    examples_test_exe.linkLibC();
     const run_examples_tests = b.addRunArtifact(examples_test_exe);
     run_examples_tests.step.dependOn(b.getInstallStep());
     const examples_test_step = b.step("test-examples", "Build all example programs");
@@ -249,6 +252,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    e2e_test_exe.linkLibC();
     const run_e2e_tests = b.addRunArtifact(e2e_test_exe);
     run_e2e_tests.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
@@ -271,6 +275,7 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }),
         });
+        fuzz_test.linkLibC();
         const run_fuzz = b.addRunArtifact(fuzz_test);
         const fuzz_step = b.step(entry[0], entry[2]);
         fuzz_step.dependOn(&run_fuzz.step);
@@ -292,6 +297,7 @@ pub fn build(b: *std.Build) void {
         .name = "bench",
         .root_module = bench_root,
     });
+    bench_exe.linkLibC();
     // Benchmark depends on compiler binary for pipeline benchmarks
     const run_bench = b.addRunArtifact(bench_exe);
     run_bench.step.dependOn(b.getInstallStep());

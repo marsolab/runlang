@@ -22,7 +22,7 @@ const usage =
     \\  init     Initialize a new Run project
     \\  lsp      Start the LSP server
     \\  fmt      Format .run source files
-    \\  test     Discover and run test functions
+    \\  test     Discover and validate test functions (compile-only)
     \\  tokens   Dump lexer token stream (debug)
     \\  ast      Dump parsed AST (debug)
     \\
@@ -401,6 +401,7 @@ fn cmdTest(allocator: std.mem.Allocator, remaining_args: []const []const u8) !vo
 
     const stderr = File.stderr().deprecatedWriter();
     const stdout = File.stdout().deprecatedWriter();
+    try stdout.writeAll("note: `run test` currently validates that discovered `test_*` functions compile; executing test bodies is not implemented yet.\n\n");
 
     var all_files: std.ArrayList([]const u8) = .empty;
     defer {

@@ -12,6 +12,32 @@ typedef struct run_m run_m_t;
 typedef struct run_p run_p_t;
 
 /* ---------- Context (platform-specific, defined in assembly) ---------- */
+#if defined(__aarch64__) || defined(__arm64__)
+typedef struct {
+    void *sp;
+    void *lr;
+    void *x19;
+    void *x20;
+    void *x21;
+    void *x22;
+    void *x23;
+    void *x24;
+    void *x25;
+    void *x26;
+    void *x27;
+    void *x28;
+    void *fp;
+    void *reserved;
+    uint64_t d8;
+    uint64_t d9;
+    uint64_t d10;
+    uint64_t d11;
+    uint64_t d12;
+    uint64_t d13;
+    uint64_t d14;
+    uint64_t d15;
+} run_context_t;
+#else
 typedef struct {
     void *rsp;
     void *rip;
@@ -22,6 +48,7 @@ typedef struct {
     void *r14;
     void *r15;
 } run_context_t;
+#endif
 
 /* Implemented in run_context_amd64.S (or arm64 variant) */
 extern void run_context_switch(run_context_t *from, run_context_t *to);

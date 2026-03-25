@@ -97,11 +97,10 @@ pub fn discoverTests(
     return tests;
 }
 
-/// Run a single test by compiling the file and executing the test function.
-/// Since the compilation pipeline generates C code, we compile the file
-/// and check that it parses and type-checks successfully as a basic validation.
-/// Full test execution requires the complete runtime, so for now we validate
-/// that the test function compiles without errors.
+/// Validate a single discovered test by checking that its containing file
+/// passes the semantic analysis pipeline.
+/// Test body execution is not implemented yet, so this is compile-only
+/// validation rather than a real test harness.
 pub fn runSingleTest(
     allocator: std.mem.Allocator,
     file_path: []const u8,

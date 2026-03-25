@@ -994,6 +994,34 @@ pub const Formatter = struct {
         try self.write(")");
     }
 
+    fn formatTypeFn(self: *Formatter, node: Node) !void {
+        const params_start = node.data.lhs;
+        var pidx = params_start;
+        var param_count: u32 = 0;
+
+        while (pidx < self.tree.extra_data.items.len) {
+            const val = self.tree.extra_data.items[pidx];
+            if (val == pidx - params_start) {
+                param_count = val;
+                break;
+            }
+            pidx += 1;
+        }
+
+        try self.write("fun(");
+        const params = self.tree.extra_data.items[params_start .. params_start + param_count];
+        for (params, 0..) |param_idx, i| {
+            if (i > 0) try self.write(", ");
+            try self.formatFnTypeParam(param_idx);
+        }
+        try self.write(")");
+
+        if (node.data.rhs != null_node) {
+            try self.write(" ");
+            try self.formatNode(node.data.rhs);
+        }
+    }
+
     fn formatTypeTuple(self: *Formatter, node: Node) !void {
         const items_start = node.data.lhs;
         const item_count = node.data.rhs;
@@ -1023,6 +1051,31 @@ pub const Formatter = struct {
             try self.write(" ");
         }
         try self.write("}");
+    }
+
+    fn formatFnTypeParam(self: *Formatter, idx: NodeIndex) !void {
+        const node = self.tree.nodes.items[idx];
+        switch (node.tag) {
+            .param => {
+                const unnamed = node.data.lhs != null_node and
+                    self.tree.nodes.items[node.data.lhs].main_token == node.main_token;
+                if (!unnamed) {
+                    try self.writeToken(node.main_token);
+                    try self.write(" ");
+                }
+                try self.formatNode(node.data.lhs);
+            },
+            .variadic_param => {
+                const unnamed = node.main_token < self.tokens.len and self.tokens[node.main_token].tag == .ellipsis;
+                if (!unnamed) {
+                    try self.writeToken(node.main_token);
+                    try self.write(" ");
+                }
+                try self.write("...");
+                try self.formatNode(node.data.lhs);
+            },
+            else => try self.formatNode(idx),
+        }
     }
 
     // --- Assembly ---
@@ -1196,6 +1249,22 @@ test "format struct declaration" {
     defer std.testing.allocator.free(result);
 
     try std.testing.expectEqualStrings("package main\n\nPoint struct {\n    x int\n    y int\n}\n", result);
+}
+
+test "format function type with unnamed params" {
+    const source = "package main\ntype Handler fun(int, string) bool";
+    const result = try formatSource(std.testing.allocator, source);
+    defer std.testing.allocator.free(result);
+
+    try std.testing.expectEqualStrings("package main\n\ntype Handler fun(int, string) bool\n", result);
+}
+
+test "format function type with named and variadic params" {
+    const source = "package main\ntype Handler fun(x int, rest ...string) bool";
+    const result = try formatSource(std.testing.allocator, source);
+    defer std.testing.allocator.free(result);
+
+    try std.testing.expectEqualStrings("package main\n\ntype Handler fun(x int, rest ...string) bool\n", result);
 }
 
 /// Helper that lexes, parses, and formats source code.

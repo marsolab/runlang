@@ -21,8 +21,8 @@ Generated C code calls into the runtime for memory allocation, string operations
 | `run_string.c/h` | UTF-8 string representation (pointer + length) |
 | `run_slice.c/h` | Dynamic arrays with automatic growth |
 | `run_fmt.c/h` | Print/format functions for primitive types |
-| `run_scheduler.c/h` | Green thread scheduler (currently stub — calls functions directly) |
-| `run_chan.c/h` | Channel implementation (currently stub — aborts on use) |
+| `run_scheduler.c/h` | Green thread scheduler with green-thread context switching |
+| `run_chan.c/h` | Channel implementation with buffered and unbuffered operations |
 | `run_error.h` | Error union type representation macro |
 | `run_main.c` | Program entry point — calls scheduler init, user main, scheduler run |
 | `run_runtime.h` | Umbrella include header for all runtime components |
@@ -51,10 +51,11 @@ zig build -Dtsan=true           # ThreadSanitizer
 - Slice operations (creation, append, get/set with bounds checking)
 - Formatted printing for all primitive types
 - Program entry point with scheduler init/run hooks
+- Green-thread scheduling, yielding, and channel blocking semantics
 
-**Stubbed (not yet functional):**
-- Green thread scheduler (`run_spawn` calls the function directly, no actual threading)
-- Channels (all operations abort with "not yet implemented")
+**Current limitations:**
+- Scheduler execution is currently single-P by default while multi-P queue synchronization is still being finished
+- Signal-driven preemption, growable stacks, and platform support remain in progress
 
 ## Detailed Design Documentation
 
