@@ -4,59 +4,21 @@ use "io"
 use "os"
 
 // --- Type assertion helpers ---
-// These wrap `.(type)` assertions into function calls for clarity and consistency.
+// TODO: type assertions require runtime type information; using identity returns for now.
 
-fun toStr(val any) string {
-    return val.(string)
-}
-
-fun toInt(val any) int {
-    return val.(int)
-}
-
-fun toF64(val any) f64 {
-    return val.(f64)
-}
-
-fun toByte(val any) byte {
-    return val.(byte)
-}
-
-fun toBool(val any) bool {
-    return val.(bool)
-}
-
-fun toStringer(val any) Stringer {
-    return val.(Stringer)
-}
-
-fun toHasMessage(val any) HasMessage {
-    return val.(HasMessage)
-}
-
-fun byteToInt(val byte) int {
-    return val.(int)
-}
-
-fun intToF64(val int) f64 {
-    return val.(f64)
-}
-
-fun f64ToInt(val f64) int {
-    return val.(int)
-}
-
-fun bytePlusInt(d int) byte {
-    return d.(byte)
-}
-
-fun strToBytes(val string) []byte {
-    return val.([]byte)
-}
-
-fun bytesToStr(val []byte) string {
-    return val.(string)
-}
+fun toStr(val any) string { return val }
+fun toInt(val any) int { return val }
+fun toF64(val any) f64 { return val }
+fun toByte(val any) byte { return val }
+fun toBool(val any) bool { return val }
+fun toStringer(val any) Stringer { return val }
+fun toHasMessage(val any) HasMessage { return val }
+fun byteToInt(val byte) int { return val }
+fun intToF64(val int) f64 { return val }
+fun f64ToInt(val f64) int { return val }
+fun bytePlusInt(d int) byte { return d }
+fun strToBytes(val string) []byte { return val }
+fun bytesToStr(val []byte) string { return val }
 
 // Stringer is the interface for types that can format themselves as strings.
 pub type Stringer interface {
@@ -71,7 +33,7 @@ type HasMessage interface {
 
 // stringWriter is an internal buffer used by sprintf, sprint, and sprintln.
 // Implements io.Writer so it can be passed to fprintf and formatAny.
-type StringWriter struct {
+StringWriter struct {
     implements {
         io.Writer
     }

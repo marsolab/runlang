@@ -160,7 +160,7 @@ pub fun withValue(parent Context, key string, val any) Context {
 
 // backgroundCtx is the root context. It is never cancelled, has no
 // values, and has no deadline.
-type backgroundCtx struct {
+backgroundCtx struct {
     implements (
         Context,
     )
@@ -190,7 +190,7 @@ fun (c @backgroundCtx) value(key string) any? {
 
 // cancelCtx is a context that can be cancelled. When cancelled, it
 // closes its done channel and propagates cancellation to all children.
-type cancelCtx struct {
+cancelCtx struct {
     implements (
         Context,
     )
@@ -265,7 +265,7 @@ fun (c &cancelCtx) removeChild(child &cancelCtx) {
 
 // timerCtx extends cancelCtx with a deadline. When the deadline expires,
 // the context is automatically cancelled with .deadlineExceeded.
-type timerCtx struct {
+timerCtx struct {
     implements (
         Context,
     )
@@ -298,7 +298,7 @@ fun (t @timerCtx) value(key string) any? {
 // valueCtx carries a single key-value pair. Value lookups check the
 // local key first, then delegate to the parent context. This creates
 // a linked list of values up the context tree.
-type valueCtx struct {
+valueCtx struct {
     implements (
         Context,
     )

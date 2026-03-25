@@ -681,9 +681,7 @@ fun (p &Parser) buildEscape(c byte) !Fragment {
     // '.' = 46, '*' = 42, '+' = 43, '?' = 63, '(' = 40, ')' = 41,
     // '[' = 91, ']' = 93, '{' = 123, '}' = 125, '|' = 124, '\' = 92,
     // '^' = 94, '$' = 36
-    if c == 46 or c == 42 or c == 43 or c == 63 or c == 40 or c == 41 or
-       c == 91 or c == 93 or c == 123 or c == 125 or c == 124 or c == 92 or
-       c == 94 or c == 36 {
+    if c == 46 or c == 42 or c == 43 or c == 63 or c == 40 or c == 41 or c == 91 or c == 93 or c == 123 or c == 125 or c == 124 or c == 92 or c == 94 or c == 36 {
         var idx = p.emit(Inst{
             op: InstOp.literal, c: c, out: -1, out1: 0,
             group: 0, negate: false, ranges: alloc([]CharRange, 0),
