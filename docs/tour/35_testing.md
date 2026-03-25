@@ -1,44 +1,55 @@
 # Testing
 
-Run has first-class testing built into the language with the `test` keyword. Tests are
-expressive, table-driven tests are a language construct, and fuzzing is built in.
+Run has first-class testing built into the language with the `test` keyword. Tests
+combine Zig's `test` blocks with Go's explicit test context and a composable
+operator system inspired by go-testdeep.
 
 ## Writing Tests
 
-A test is a `test` block with a string description:
+A test is a `test` block with a string description and an explicit test context `(t)`:
 
 ```run
 package math
+
+use "testing"
 
 fun add(a int, b int) int {
     return a + b
 }
 
-test "add returns correct sums" {
-    expect_eq(add(2, 3), 5)
-    expect_eq(add(-1, 1), 0)
-    expect_eq(add(0, 0), 0)
+test "add returns correct sums" (t) {
+    t.expect(add(2, 3), t.eq(5))
+    t.expect(add(-1, 1), t.eq(0))
+    t.expect(add(0, 0), t.eq(0))
 }
 ```
 
-No naming conventions or function signatures to remember. The string description
-appears directly in test output.
+## Assertions with Operators
 
-## Assertions
-
-Assertions are built-in functions available inside `test` blocks. They produce
-clear failure messages with source location and actual vs expected values:
+`t.expect(got, operator)` is the single assertion method. Operators are methods
+on `t` that describe how to compare values:
 
 ```run
-test "assertions" {
-    expect(len(items) > 0)           // condition check
-    expect_eq(got, want)             // equality with diff
-    expect_ne(a, b)                  // inequality
-    expect_err(parse("???"))         // expects an error
-    expect_ok(parse("42"))           // expects success
-    expect_nil(optional_value)       // expects null
-    expect_not_nil(result)           // expects non-null
-    expect_contains(body, "hello")   // substring check
+test "operators" (t) {
+    t.expect(add(2, 3), t.eq(5))            // deep equality
+    t.expect(count, t.ne(0))                 // not equal
+    t.expect(age, t.gt(18))                  // greater than
+    t.expect(score, t.lte(100))             // less than or equal
+    t.expect(temp, t.between(36.0, 37.5))   // range
+
+    t.expect(ptr, t.isNil())                // null check
+    t.expect(result, t.isOk())              // error union is .ok
+    t.expect(parse("???"), t.isErr())       // error union is .err
+
+    t.expect(name, t.hasPrefix("John"))     // string prefix
+    t.expect(body, t.contains("hello"))     // substring
+    t.expect(items, t.hasLen(3))            // length check
+    t.expect(list, t.notEmpty())            // non-empty
+
+    // Compose operators
+    t.expect(x, t.all(t.gt(0), t.lt(100))) // AND
+    t.expect(x, t.any(t.eq(0), t.gt(10)))  // OR
+    t.expect(x, t.not(t.eq(0)))            // negation
 }
 ```
 
@@ -53,22 +64,22 @@ test "add" for [
     "negative"    :: { a: -1, b: -2, want: -3   },
     "zeros"       :: { a: 0,  b: 0,  want: 0    },
     "mixed signs" :: { a: -3, b: 7,  want: 4    },
-] {
-    expect_eq(add(row.a, row.b), row.want)
+] (t) {
+    t.expect(add(row.a, row.b), t.eq(row.want))
 }
 ```
 
-Each case runs as a separate subtest. The string before `::` is the case name
-(shown in output), the struct after `::` is the test data (accessed via `row`):
+Each case runs as a separate subtest. The string before `::` is the case name,
+the struct after `::` is the test data accessed via `row`:
 
 ```run
-test "parse_int" for [
+test "parseInt" for [
     "simple"     :: { input: "42",   want: 42 },
     "negative"   :: { input: "-7",   want: -7 },
     "whitespace" :: { input: " 12 ", want: 12 },
-] {
-    result := try parse_int(row.input)
-    expect_eq(result, row.want)
+] (t) {
+    result := try parseInt(row.input)
+    t.expect(result, t.eq(row.want))
 }
 ```
 
@@ -78,8 +89,8 @@ For concise access to row fields, use destructuring with `as`:
 test "add" for [
     "positive" :: { a: 2, b: 3, want: 5 },
     "zeros"    :: { a: 0, b: 0, want: 0 },
-] as { a, b, want } {
-    expect_eq(add(a, b), want)
+] as { a, b, want } (t) {
+    t.expect(add(a, b), t.eq(want))
 }
 ```
 
@@ -88,44 +99,44 @@ test "add" for [
 For dynamic or conditional subtests, use `t.run`:
 
 ```run
-test "database operations" {
-    db := try setup_test_db()
+test "database operations" (t) {
+    db := try setupTestDb()
     defer db.close()
 
-    t.run("insert") {
+    t.run("insert") (t) {
         try db.insert("key", "value")
         result := try db.get("key")
-        expect_eq(result, "value")
+        t.expect(result, t.eq("value"))
     }
 
-    t.run("delete") {
+    t.run("delete") (t) {
         try db.delete("key")
         result := db.get("key")
-        expect_err(result)
+        t.expect(result, t.isErr())
     }
 }
 ```
 
 ## Fuzzing
 
-Fuzz tests are declared with `fuzz` and exercise your code with random inputs:
+Fuzz tests exercise your code with random inputs:
 
 ```run
-test "json roundtrip" fuzz(data []byte) {
-    parsed := parse_json(data) or return
-    output := to_json(parsed)
-    reparsed := try parse_json(output)
-    expect_eq(parsed, reparsed)
+test "json roundtrip" fuzz(data []byte) (t) {
+    parsed := parseJson(data) or return
+    output := toJson(parsed)
+    reparsed := try parseJson(output)
+    t.expect(reparsed, t.eq(parsed))
 }
 ```
 
 Provide seed inputs for deterministic coverage:
 
 ```run
-test "parse_int never panics" fuzz(input string) seed [
+test "parseInt never panics" fuzz(input string) seed [
     "0", "-1", "999999999", "", "abc",
-] {
-    _ = parse_int(input)
+] (t) {
+    _ = parseInt(input)
 }
 ```
 
@@ -136,9 +147,9 @@ Run fuzz tests with `run test -fuzz "json" -fuzz-time 30s`.
 Use `bench` blocks to measure performance:
 
 ```run
-bench "sort 1000 elements" {
-    data := generate_random_slice(1000)
-    b.reset_timer()
+bench "sort 1000 elements" (b) {
+    data := generateRandomSlice(1000)
+    b.resetTimer()
     for _ in 0..b.n {
         sort(data)
     }
@@ -152,9 +163,9 @@ bench "sort" for [
     "10 elements"   :: { size: 10    },
     "100 elements"  :: { size: 100   },
     "1000 elements" :: { size: 1000  },
-] {
-    data := generate_random_slice(row.size)
-    b.reset_timer()
+] (b) {
+    data := generateRandomSlice(row.size)
+    b.resetTimer()
     for _ in 0..b.n {
         sort(data)
     }
@@ -168,16 +179,16 @@ Run benchmarks with `run test -bench`.
 Setup and teardown for test files:
 
 ```run
-test before_each {
-    try reset_state()
+test beforeEach {
+    try resetState()
 }
 
-test after_each {
+test afterEach {
     try cleanup()
 }
 ```
 
-`before_all` / `after_all` run once per file. `before_each` / `after_each`
+`beforeAll` / `afterAll` run once per file. `beforeEach` / `afterEach`
 run around every test.
 
 ## Parallel Tests
@@ -185,11 +196,10 @@ run around every test.
 Mark tests as safe to run concurrently:
 
 ```run
-test "independent operation" {
+test "independent operation" (t) {
     t.parallel()
-    // This test runs in parallel with other parallel-marked tests
-    result := try expensive_computation()
-    expect_eq(result, expected)
+    result := try expensiveComputation()
+    t.expect(result, t.eq(expected))
 }
 ```
 

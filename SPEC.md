@@ -672,33 +672,37 @@ language-level support without requiring user-facing generics.
 ## Testing
 
 Run has first-class testing built into the language via the `test` and `bench` keywords.
-Tests are not functions — they are dedicated language constructs with rich semantics.
+Tests combine Zig's `test` blocks with Go's explicit test context and a composable
+operator system.
 
 ### Test Blocks
 
 ```
-test "addition works" {
-    expect_eq(add(2, 3), 5)
-    expect_eq(add(-1, 1), 0)
+use "testing"
+
+test "addition works" (t) {
+    t.expect(add(2, 3), t.eq(5))
+    t.expect(add(-1, 1), t.eq(0))
 }
 ```
 
 - `test` blocks are top-level declarations
 - String description is human-readable (not an identifier)
-- Implicit `t: &T` context for logging, skipping, subtests
-- Built-in assertions: `expect`, `expect_eq`, `expect_ne`, `expect_err`, `expect_ok`, `expect_nil`
+- `(t)` receives the test context `&T` explicitly (like Go)
+- `t.expect(got, operator)` is the single assertion method
+- Operators (`t.eq`, `t.gt`, `t.contains`, etc.) are methods on `T`
 - Tests are stripped from production builds
 
 ### Table-Driven Tests
 
 ```
-test "parse_int" for [
+test "parseInt" for [
     "simple"   :: { input: "42",  want: 42 },
     "negative" :: { input: "-7",  want: -7 },
     "zero"     :: { input: "0",   want: 0  },
-] {
-    result := try parse_int(row.input)
-    expect_eq(result, row.want)
+] (t) {
+    result := try parseInt(row.input)
+    t.expect(result, t.eq(row.want))
 }
 ```
 
@@ -709,11 +713,11 @@ test "parse_int" for [
 ### Fuzzing
 
 ```
-test "json roundtrip" fuzz(data []byte) {
-    parsed := parse_json(data) or return
-    output := to_json(parsed)
-    reparsed := try parse_json(output)
-    expect_eq(parsed, reparsed)
+test "json roundtrip" fuzz(data []byte) (t) {
+    parsed := parseJson(data) or return
+    output := toJson(parsed)
+    reparsed := try parseJson(output)
+    t.expect(reparsed, t.eq(parsed))
 }
 ```
 
@@ -724,26 +728,26 @@ test "json roundtrip" fuzz(data []byte) {
 ### Benchmarks
 
 ```
-bench "sort 1000" {
-    data := generate_random_slice(1000)
-    b.reset_timer()
+bench "sort 1000" (b) {
+    data := generateRandomSlice(1000)
+    b.resetTimer()
     for _ in 0..b.n {
         sort(data)
     }
 }
 ```
 
-- `bench` blocks have an implicit `b: &B` context
+- `bench` blocks receive `(b)` — the benchmark context `&B`, explicitly
 - `b.n` is the iteration count set by the framework
-- Table-driven benchmarks via `bench "name" each [...]`
+- Table-driven benchmarks via `bench "name" for ["case" :: {}, ...]`
 
 ### Lifecycle Hooks
 
 ```
-test before_all { }    // once before all tests in file
-test after_all { }     // once after all tests in file
-test before_each { }   // before each test
-test after_each { }    // after each test
+test beforeAll { }    // once before all tests in file
+test afterAll { }     // once after all tests in file
+test beforeEach { }   // before each test
+test afterEach { }    // after each test
 ```
 
 ## Standard Library (Go-level comprehensive)
