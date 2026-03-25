@@ -35,7 +35,7 @@ pub Dir struct {
 
 // string returns the contents of the file as a string.
 pub fun (f @File) string() string {
-    return f.data as string
+    return bytesToString(f.data)
 }
 
 // bytes returns the raw contents of the file.
@@ -78,7 +78,7 @@ pub fun (d @Dir) readFile(name string) ![]byte {
 // readFileString returns the contents of the named embedded file as a string.
 pub fun (d @Dir) readFileString(name string) !string {
     var data = try d.readFile(name)
-    return data as string
+    return bytesToString(data)
 }
 
 // lookup returns the embedded file with the given name, or null if not found.
@@ -95,13 +95,13 @@ pub fun (d @Dir) lookup(name string) File? {
 // Supports '*' (matches any sequence of non-/ characters) and '?'
 // (matches exactly one non-/ character). Returns an error for invalid patterns.
 pub fun (d @Dir) glob(pattern string) ![]File {
-    var patBytes = pattern as []byte
-    if !validPattern(patBytes) {
+    var patBytes = stringToBytes(pattern)
+    if not validPattern(patBytes) {
         return EmbedError.invalidPattern
     }
     var result = alloc([]File, 0)
     for f in d.files {
-        if globMatch(patBytes, f.name as []byte) {
+        if globMatch(patBytes, stringToBytes(f.name)) {
             result = append(result, f)
         }
     }
@@ -118,8 +118,8 @@ pub fun (d @Dir) count() int {
 // EmbedFile wraps an embedded File to implement the fs.File interface,
 // providing a read position for sequential reading.
 type EmbedFile struct {
-    implements (
-        fs.File,
+    implements(
+        fs.File
     )
 
     file File
@@ -157,8 +157,8 @@ pub fun (ef @EmbedFile) close() !void {
 
 // EmbedFileInfo wraps an embedded File to implement the fs.FileInfo interface.
 type EmbedFileInfo struct {
-    implements (
-        fs.FileInfo,
+    implements(
+        fs.FileInfo
     )
 
     file File
@@ -180,20 +180,20 @@ pub fun (i @EmbedFileInfo) mode() fs.FileMode {
     return fs.FileMode.regular
 }
 
-// mod_time returns 0 for embedded files (no modification time is preserved).
-pub fun (i @EmbedFileInfo) mod_time() int {
+// modTime returns 0 for embedded files (no modification time is preserved).
+pub fun (i @EmbedFileInfo) modTime() int {
     return 0
 }
 
-// is_dir returns false for embedded files.
-pub fun (i @EmbedFileInfo) is_dir() bool {
+// isDir returns false for embedded files.
+pub fun (i @EmbedFileInfo) isDir() bool {
     return false
 }
 
 // EmbedDirEntry wraps an embedded File to implement the fs.DirEntry interface.
 type EmbedDirEntry struct {
-    implements (
-        fs.DirEntry,
+    implements(
+        fs.DirEntry
     )
 
     file File
@@ -204,13 +204,13 @@ pub fun (e @EmbedDirEntry) name() string {
     return e.file.name
 }
 
-// is_dir returns false for embedded file entries.
-pub fun (e @EmbedDirEntry) is_dir() bool {
+// isDir returns false for embedded file entries.
+pub fun (e @EmbedDirEntry) isDir() bool {
     return false
 }
 
-// type_mode returns the type bits for the embedded file entry.
-pub fun (e @EmbedDirEntry) type_mode() fs.FileMode {
+// typeMode returns the type bits for the embedded file entry.
+pub fun (e @EmbedDirEntry) typeMode() fs.FileMode {
     return fs.FileMode.regular
 }
 
@@ -220,6 +220,12 @@ pub fun (e @EmbedDirEntry) info() !fs.FileInfo {
 }
 
 // --- Private helpers ---
+
+// bytesToString converts a byte slice to a string.
+fun bytesToString(b []byte) string { return b }
+
+// stringToBytes converts a string to a byte slice.
+fun stringToBytes(s string) []byte { return s }
 
 // validPattern checks whether a glob pattern is well-formed.
 fun validPattern(pattern []byte) bool {
@@ -234,12 +240,12 @@ fun validPattern(pattern []byte) bool {
             }
             // Allow leading '^' or '!'
             if i < len(pattern) {
-                if pattern[i] == 94 || pattern[i] == 33 {
+                if pattern[i] == 94 or pattern[i] == 33 {
                     i = i + 1
                 }
             }
             // Must have at least one character before ']'
-            if i >= len(pattern) || pattern[i] == 93 {
+            if i >= len(pattern) or pattern[i] == 93 {
                 return false
             }
             for i < len(pattern) {
@@ -266,7 +272,7 @@ fun globMatch(pattern []byte, name []byte) bool {
     var nextNx = 0
     var hasStar = false
 
-    for px < len(pattern) || nx < len(name) {
+    for px < len(pattern) or nx < len(name) {
         if px < len(pattern) {
             var c = pattern[px]
             if c == 42 {
@@ -296,9 +302,9 @@ fun globMatch(pattern []byte, name []byte) bool {
             }
         }
         // Mismatch — backtrack to last '*' if possible
-        if hasStar && nextNx <= len(name) {
+        if hasStar and nextNx <= len(name) {
             // Don't let '*' match '/'
-            if nextNx > 0 && nextNx <= len(name) && name[nextNx - 1] == 47 {
+            if nextNx > 0 and nextNx <= len(name) and name[nextNx - 1] == 47 {
                 return false
             }
             px = nextPx + 1

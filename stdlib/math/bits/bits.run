@@ -45,17 +45,17 @@ pub fun len(x int) int {
     return 0
 }
 
-// add returns the sum with carry of x, y, and carry_in.
-// carry_in must be 0 or 1; otherwise the behavior is undefined.
+// add returns the sum with carry of x, y, and carryIn.
+// carryIn must be 0 or 1; otherwise the behavior is undefined.
 // Returns (sum, carry_out) where carry_out is 0 or 1.
-pub fun add(x int, y int, carry_in int) int {
+pub fun add(x int, y int, carryIn int) int {
     return 0
 }
 
-// sub returns the difference of x, y, and borrow_in.
-// borrow_in must be 0 or 1; otherwise the behavior is undefined.
+// sub returns the difference of x, y, and borrowIn.
+// borrowIn must be 0 or 1; otherwise the behavior is undefined.
 // Returns (diff, borrow_out) where borrow_out is 0 or 1.
-pub fun sub(x int, y int, borrow_in int) int {
+pub fun sub(x int, y int, borrowIn int) int {
     return 0
 }
 

@@ -10,19 +10,19 @@ pub fun typeByExtension(ext string) string {
 // extensionByType returns the preferred extension for the given MIME type.
 // The MIME type should be in the form "type/subtype".
 // Returns "" if the type is not recognized.
-pub fun extensionByType(mime_type string) string {
+pub fun extensionByType(mimeType string) string {
     return ""
 }
 
 // extensionsByType returns all known extensions for the given MIME type.
-pub fun extensionsByType(mime_type string) []string {
+pub fun extensionsByType(mimeType string) []string {
     return alloc([]string, 0)
 }
 
 // MediaType represents a parsed media type with parameters.
 pub MediaType struct {
-    type_name  string
-    sub_type   string
+    typeName  string
+    subType   string
     params     map[string]string
 }
 
@@ -30,8 +30,8 @@ pub MediaType struct {
 // per RFC 2045 and RFC 2616.
 pub fun parseMediaType(v string) !MediaType {
     return MediaType{
-        type_name: "",
-        sub_type: "",
+        typeName: "",
+        subType: "",
         params: alloc(map[string]string),
     }
 }
@@ -42,5 +42,5 @@ pub fun formatMediaType(t @MediaType) string {
 }
 
 // addExtensionType sets the MIME type associated with the extension ext.
-pub fun addExtensionType(ext string, mime_type string) {
+pub fun addExtensionType(ext string, mimeType string) {
 }

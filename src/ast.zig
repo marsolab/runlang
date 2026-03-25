@@ -182,6 +182,11 @@ pub const Node = struct {
         /// `for cond { body }` or `for item in iter { body }`
         /// lhs = condition/iterator, rhs = body block
         for_stmt,
+        /// `for i, item in iter { body }` — two iteration variables
+        /// main_token = `for` keyword
+        /// lhs = iterable, rhs = body block
+        /// extra_data: [first_var, second_var]
+        for_range_stmt,
         /// `switch expr { arms }`
         /// lhs = expr, rhs = extra_data start for arms
         switch_stmt,

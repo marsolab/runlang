@@ -6,7 +6,7 @@ pub Url struct {
     host     string
     port     string
     path     string
-    raw_path string
+    rawPath string
     query    string
     fragment string
     user     string
@@ -27,7 +27,7 @@ pub fun parse(raw string) !Url {
         host: "",
         port: "",
         path: "",
-        raw_path: "",
+        rawPath: "",
         query: "",
         fragment: "",
         user: "",
@@ -64,7 +64,7 @@ pub fun (u @Url) resolveReference(ref @Url) Url {
         host: "",
         port: "",
         path: "",
-        raw_path: "",
+        rawPath: "",
         query: "",
         fragment: "",
         user: "",

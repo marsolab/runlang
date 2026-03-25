@@ -247,14 +247,14 @@ pub fun chunk(s []any, size int) [][]any {
 }
 
 // concat returns a new slice concatenating the provided slices.
-pub fun concat(slices_list [][]any) []any {
+pub fun concat(slicesList [][]any) []any {
     // Calculate total length.
     var total = 0
-    for sl in slices_list {
+    for sl in slicesList {
         total = total + len(sl)
     }
     var result = alloc([]any, 0)
-    for sl in slices_list {
+    for sl in slicesList {
         var i = 0
         for i < len(sl) {
             result = append(result, sl[i])

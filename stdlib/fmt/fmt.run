@@ -3,6 +3,61 @@ package fmt
 use "io"
 use "os"
 
+// --- Type assertion helpers ---
+// These wrap `.(type)` assertions into function calls for clarity and consistency.
+
+fun toStr(val any) string {
+    return val.(string)
+}
+
+fun toInt(val any) int {
+    return val.(int)
+}
+
+fun toF64(val any) f64 {
+    return val.(f64)
+}
+
+fun toByte(val any) byte {
+    return val.(byte)
+}
+
+fun toBool(val any) bool {
+    return val.(bool)
+}
+
+fun toStringer(val any) Stringer {
+    return val.(Stringer)
+}
+
+fun toHasMessage(val any) HasMessage {
+    return val.(HasMessage)
+}
+
+fun byteToInt(val byte) int {
+    return val.(int)
+}
+
+fun intToF64(val int) f64 {
+    return val.(f64)
+}
+
+fun f64ToInt(val f64) int {
+    return val.(int)
+}
+
+fun bytePlusInt(d int) byte {
+    return d.(byte)
+}
+
+fun strToBytes(val string) []byte {
+    return val.([]byte)
+}
+
+fun bytesToStr(val []byte) string {
+    return val.(string)
+}
+
 // Stringer is the interface for types that can format themselves as strings.
 pub type Stringer interface {
     string() string
@@ -10,13 +65,13 @@ pub type Stringer interface {
 
 // hasMessage is a local interface for formatting error values without
 // importing the errors package (which imports fmt, creating a cycle).
-type hasMessage interface {
+type HasMessage interface {
     message() string
 }
 
 // stringWriter is an internal buffer used by sprintf, sprint, and sprintln.
 // Implements io.Writer so it can be passed to fprintf and formatAny.
-stringWriter struct {
+type StringWriter struct {
     implements {
         io.Writer
     }
@@ -25,7 +80,7 @@ stringWriter struct {
 }
 
 // write appends data to the internal buffer.
-fun (sw &stringWriter) write(data []byte) !int {
+fun (sw &StringWriter) write(data []byte) !int {
     var i = 0
     for i < len(data) {
         sw.buf = append(sw.buf, data[i])
@@ -35,8 +90,8 @@ fun (sw &stringWriter) write(data []byte) !int {
 }
 
 // string returns the accumulated buffer contents as a string.
-fun (sw @stringWriter) string() string {
-    return sw.buf as string
+fun (sw @StringWriter) string() string {
+    return bytesToStr(sw.buf)
 }
 
 // writeInt writes an integer in the given base (2, 8, 10, 16) to w.
@@ -54,9 +109,9 @@ fun writeInt(w io.Writer, val int, base int) !int {
     for n > 0 {
         var d = n % base
         if d < 10 {
-            digits = append(digits, d as byte + 48)
+            digits = append(digits, bytePlusInt(d) + 48)
         } else {
-            digits = append(digits, d as byte - 10 + 97)
+            digits = append(digits, bytePlusInt(d) - 10 + 97)
         }
         n = n / base
     }
@@ -80,8 +135,8 @@ fun writeFloat(w io.Writer, val f64, prec int) !int {
     if neg {
         v = 0.0 - val
     }
-    var intPart = v as int
-    var fracPart = v - (intPart as f64)
+    var intPart = f64ToInt(v)
+    var fracPart = v - intToF64(intPart)
 
     var total = 0
     if neg {
@@ -94,9 +149,9 @@ fun writeFloat(w io.Writer, val f64, prec int) !int {
         var p = 0
         for p < prec {
             fracPart = fracPart * 10.0
-            var digit = fracPart as int
+            var digit = f64ToInt(fracPart)
             total = total + try writeInt(w, digit, 10)
-            fracPart = fracPart - (digit as f64)
+            fracPart = fracPart - intToF64(digit)
             p = p + 1
         }
     }
@@ -107,27 +162,27 @@ fun writeFloat(w io.Writer, val f64, prec int) !int {
 // This is used for the %v verb and for println/sprint/sprintln.
 fun formatAny(w io.Writer, val any) !int {
     // Try Stringer interface first.
-    var s = val as Stringer
+    var s = toStringer(val)
     if s != null {
         return try io.writeString(w, s.string())
     }
     // Try error-like types (has message() method).
-    var m = val as hasMessage
+    var m = toHasMessage(val)
     if m != null {
         return try io.writeString(w, m.message())
     }
     // Try string.
-    var str = val as string
+    var str = toStr(val)
     if str != null {
         return try io.writeString(w, str)
     }
     // Try int.
-    var i = val as int
+    var i = toInt(val)
     if i != null {
         return try writeInt(w, i, 10)
     }
     // Try bool.
-    var b = val as bool
+    var b = toBool(val)
     if b != null {
         if b {
             return try io.writeString(w, "true")
@@ -135,14 +190,14 @@ fun formatAny(w io.Writer, val any) !int {
         return try io.writeString(w, "false")
     }
     // Try f64.
-    var f = val as f64
+    var f = toF64(val)
     if f != null {
         return try writeFloat(w, f, 6)
     }
     // Try byte.
-    var by = val as byte
+    var by = toByte(val)
     if by != null {
-        return try writeInt(w, by as int, 10)
+        return try writeInt(w, byteToInt(by), 10)
     }
     // Fallback for unknown types.
     return try io.writeString(w, "<?>")
@@ -154,27 +209,27 @@ fun formatVerb(w io.Writer, arg any, verb byte) !int {
     switch verb {
         // 'd' = 100: integer in decimal
         100 :: {
-            var i = arg as int
+            var i = toInt(arg)
             if i != null {
                 return try writeInt(w, i, 10)
             }
-            var by = arg as byte
+            var by = toByte(arg)
             if by != null {
-                return try writeInt(w, by as int, 10)
+                return try writeInt(w, byteToInt(by), 10)
             }
             return try io.writeString(w, "%!(BADTYPE)")
         },
         // 's' = 115: string
         115 :: {
-            var s = arg as Stringer
+            var s = toStringer(arg)
             if s != null {
                 return try io.writeString(w, s.string())
             }
-            var m = arg as hasMessage
+            var m = toHasMessage(arg)
             if m != null {
                 return try io.writeString(w, m.message())
             }
-            var str = arg as string
+            var str = toStr(arg)
             if str != null {
                 return try io.writeString(w, str)
             }
@@ -182,7 +237,7 @@ fun formatVerb(w io.Writer, arg any, verb byte) !int {
         },
         // 'f' = 102: float in decimal
         102 :: {
-            var f = arg as f64
+            var f = toF64(arg)
             if f != null {
                 return try writeFloat(w, f, 6)
             }
@@ -194,7 +249,7 @@ fun formatVerb(w io.Writer, arg any, verb byte) !int {
         },
         // 't' = 116: boolean
         116 :: {
-            var b = arg as bool
+            var b = toBool(arg)
             if b != null {
                 if b {
                     return try io.writeString(w, "true")
@@ -205,7 +260,7 @@ fun formatVerb(w io.Writer, arg any, verb byte) !int {
         },
         // 'x' = 120: hexadecimal
         120 :: {
-            var i = arg as int
+            var i = toInt(arg)
             if i != null {
                 return try writeInt(w, i, 16)
             }
@@ -213,7 +268,7 @@ fun formatVerb(w io.Writer, arg any, verb byte) !int {
         },
         // 'o' = 111: octal
         111 :: {
-            var i = arg as int
+            var i = toInt(arg)
             if i != null {
                 return try writeInt(w, i, 8)
             }
@@ -221,7 +276,7 @@ fun formatVerb(w io.Writer, arg any, verb byte) !int {
         },
         // 'b' = 98: binary
         98 :: {
-            var i = arg as int
+            var i = toInt(arg)
             if i != null {
                 return try writeInt(w, i, 2)
             }
@@ -229,7 +284,7 @@ fun formatVerb(w io.Writer, arg any, verb byte) !int {
         },
         // 'e' = 101: scientific notation (simplified: same as 'f' for now)
         101 :: {
-            var f = arg as f64
+            var f = toF64(arg)
             if f != null {
                 return try writeFloat(w, f, 6)
             }
@@ -237,7 +292,7 @@ fun formatVerb(w io.Writer, arg any, verb byte) !int {
         },
         // 'g' = 103: shortest float representation (simplified: same as 'f')
         103 :: {
-            var f = arg as f64
+            var f = toF64(arg)
             if f != null {
                 return try writeFloat(w, f, 6)
             }
@@ -256,7 +311,7 @@ pub fun fprintf(w io.Writer, format string, args ...any) !int {
     var total = 0
     var argIdx = 0
     var i = 0
-    var fmtBytes = format as []byte
+    var fmtBytes = strToBytes(format)
     var start = 0
 
     for i < len(fmtBytes) {
@@ -314,7 +369,7 @@ pub fun fprintf(w io.Writer, format string, args ...any) !int {
 // printf formats according to a format string with Go-style verbs
 // (%d, %s, %f, %v, %t, %x, %o, %b, %e, %g) and prints the result to stdout.
 pub fun printf(format string, args ...any) {
-    fprintf(os.stdout, format, args...)
+    fprintf(os.stdout, format, args)
 }
 
 // println prints each argument separated by spaces, followed by a newline,
@@ -355,14 +410,14 @@ pub fun eprintln(args ...any) {
 
 // sprintf formats and returns a string using Go-style verbs.
 pub fun sprintf(format string, args ...any) string {
-    var sw = stringWriter{ buf: alloc([]byte, 0) }
-    fprintf(&sw, format, args...)
+    var sw = StringWriter{ buf: alloc([]byte, 0) }
+    fprintf(&sw, format, args)
     return sw.string()
 }
 
 // sprint concatenates default string representations of args.
 pub fun sprint(args ...any) string {
-    var sw = stringWriter{ buf: alloc([]byte, 0) }
+    var sw = StringWriter{ buf: alloc([]byte, 0) }
     for arg in args {
         formatAny(&sw, arg)
     }
@@ -371,7 +426,7 @@ pub fun sprint(args ...any) string {
 
 // sprintln is like sprint but adds spaces between args and a trailing newline.
 pub fun sprintln(args ...any) string {
-    var sw = stringWriter{ buf: alloc([]byte, 0) }
+    var sw = StringWriter{ buf: alloc([]byte, 0) }
     var i = 0
     for i < len(args) {
         if i > 0 {

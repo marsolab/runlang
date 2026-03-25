@@ -23,16 +23,16 @@ pub type FileMode = .regular
 pub FileInfo struct {
     name     string
     size     int
-    is_dir   bool
+    isDir   bool
     mode     FileMode
-    mod_time int
+    modTime int
 }
 
 // DirEntry represents an entry in a directory listing.
 pub DirEntry struct {
     name      string
-    is_dir    bool
-    file_type FileMode
+    isDir    bool
+    fileType FileMode
 }
 
 // File represents an open operating system file.
@@ -177,7 +177,7 @@ pub fun mkdirAll(path string) !void {
 // remove removes the named file or empty directory.
 pub fun remove(path string) !void {
     let info = try lstat(path)
-    if info.is_dir {
+    if info.isDir {
         try syscall.rmdir(path)
         return
     }
@@ -187,7 +187,7 @@ pub fun remove(path string) !void {
 // removeAll removes the path and any children it contains.
 pub fun removeAll(path string) !void {
     let info = try stat(path)
-    if info.is_dir {
+    if info.isDir {
         let entries = try readDir(path)
         for entry in entries {
             let child = joinPath([path, entry.name])
@@ -199,9 +199,9 @@ pub fun removeAll(path string) !void {
     }
 }
 
-// rename renames (moves) a file or directory from old_path to new_path.
-pub fun rename(old_path string, new_path string) !void {
-    try syscall.rename(old_path, new_path)
+// rename renames (moves) a file or directory from oldPath to newPath.
+pub fun rename(oldPath string, newPath string) !void {
+    try syscall.rename(oldPath, newPath)
 }
 
 // symlink creates a symbolic link that points to target.
@@ -232,9 +232,9 @@ pub fun stat(path string) !FileInfo {
     return FileInfo{
         name: base(path),
         size: raw.size,
-        is_dir: raw.mode_type == 1,
-        mode: modeFromRaw(raw.mode_type),
-        mod_time: raw.mod_time,
+        isDir: raw.modeType == 1,
+        mode: modeFromRaw(raw.modeType),
+        modTime: raw.modTime,
     }
 }
 
@@ -244,22 +244,22 @@ pub fun lstat(path string) !FileInfo {
     return FileInfo{
         name: base(path),
         size: raw.size,
-        is_dir: raw.mode_type == 1,
-        mode: modeFromRaw(raw.mode_type),
-        mod_time: raw.mod_time,
+        isDir: raw.modeType == 1,
+        mode: modeFromRaw(raw.modeType),
+        modTime: raw.modTime,
     }
 }
 
 // readDir reads the named directory and returns a list of directory entries.
 pub fun readDir(path string) ![]DirEntry {
-    let raw_entries = try syscall.readdir(path)
-    var entries = alloc([]DirEntry, len(raw_entries))
+    let rawEntries = try syscall.readdir(path)
+    var entries = alloc([]DirEntry, len(rawEntries))
     var i = 0
-    for raw in raw_entries {
+    for raw in rawEntries {
         entries[i] = DirEntry{
             name: raw.name,
-            is_dir: raw.type == 1,
-            file_type: modeFromRaw(raw.type),
+            isDir: raw.type == 1,
+            fileType: modeFromRaw(raw.type),
         }
         i = i + 1
     }
@@ -495,13 +495,13 @@ pub fun splitPath(path string) struct { dir string, file string } {
 
 // glob returns the names of all files matching the given pattern.
 pub fun glob(pattern string) ![]string {
-    let dir_path = dir(pattern)
-    let file_pattern = base(pattern)
-    let entries = try readDir(dir_path)
+    let dirPath = dir(pattern)
+    let filePattern = base(pattern)
+    let entries = try readDir(dirPath)
     var matches = alloc([]string, 0)
     for entry in entries {
-        if globMatch(file_pattern, entry.name) {
-            matches = append(matches, joinPath([dir_path, entry.name]))
+        if globMatch(filePattern, entry.name) {
+            matches = append(matches, joinPath([dirPath, entry.name]))
         }
     }
     return matches
@@ -509,8 +509,8 @@ pub fun glob(pattern string) ![]string {
 
 // modeFromRaw converts a raw mode type integer from syscall.stat
 // to a FileMode sum type value.
-fun modeFromRaw(raw_type int) FileMode {
-    switch raw_type {
+fun modeFromRaw(rawType int) FileMode {
+    switch rawType {
         1 :: { return .directory },
         2 :: { return .symlink },
         3 :: { return .socket },
@@ -525,22 +525,22 @@ fun modeFromRaw(raw_type int) FileMode {
 fun globMatch(pattern string, name string) bool {
     var pi = 0
     var ni = 0
-    var star_pi = 0 - 1
-    var star_ni = 0 - 1
+    var starPi = 0 - 1
+    var starNi = 0 - 1
     for ni < len(name) or pi < len(pattern) {
         if pi < len(pattern) and pattern[pi] == 42 {
-            star_pi = pi
-            star_ni = ni
+            starPi = pi
+            starNi = ni
             pi = pi + 1
         } else {
             if pi < len(pattern) and ni < len(name) and (pattern[pi] == 63 or pattern[pi] == name[ni]) {
                 pi = pi + 1
                 ni = ni + 1
             } else {
-                if star_pi >= 0 {
-                    pi = star_pi + 1
-                    star_ni = star_ni + 1
-                    ni = star_ni
+                if starPi >= 0 {
+                    pi = starPi + 1
+                    starNi = starNi + 1
+                    ni = starNi
                 } else {
                     return false
                 }

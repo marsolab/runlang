@@ -3,6 +3,11 @@ package context
 use "sync"
 use "time"
 
+// unwrap extracts the value from an optional, assuming it is non-null.
+fun unwrap(val any?) any {
+    return val
+}
+
 // Context carries a deadline, cancellation signal, and request-scoped values
 // across API boundaries and between green threads.
 pub type Context interface {
@@ -94,7 +99,7 @@ pub fun withDeadline(parent Context, deadline time.Time) CancelResult {
     // Check if parent already has an earlier deadline.
     var parentDl = parent.deadline()
     if parentDl != null {
-        var pd = parentDl!
+        var pd = unwrap(parentDl)
         if pd.before(deadline) {
             // Parent's deadline is earlier; just use withCancel.
             return withCancel(parent)

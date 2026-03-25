@@ -25,9 +25,9 @@ pub Header struct {
     mode     int
     uid      int
     gid      int
-    mod_time time.Time
-    type_flag TypeFlag
-    link_name string
+    modTime time.Time
+    typeFlag TypeFlag
+    linkName string
     uname    string
     gname    string
 }

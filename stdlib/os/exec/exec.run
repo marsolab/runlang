@@ -20,7 +20,7 @@ pub Cmd struct {
 // ProcessState contains information about an exited process.
 pub ProcessState struct {
     pid       int
-    exit_code int
+    exitCode int
     success   bool
 }
 
@@ -84,7 +84,7 @@ pub fun stderrPipeCmd(c Cmd) !int {
 
 // processStateCmd returns the process state after waitCmd completes.
 pub fun processStateCmd(c Cmd) ProcessState {
-    return ProcessState{ pid: 0, exit_code: 0, success: false }
+    return ProcessState{ pid: 0, exitCode: 0, success: false }
 }
 
 // freeCmd releases all resources associated with a command handle.

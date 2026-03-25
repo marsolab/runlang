@@ -64,6 +64,6 @@ pub fun match(pattern string, name string) !bool {
 
 // rel returns a relative path that is lexically equivalent to target
 // when joined to base with an intervening separator.
-pub fun rel(base_path string, target string) !string {
+pub fun rel(basePath string, target string) !string {
     return ""
 }

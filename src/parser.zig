@@ -963,6 +963,32 @@ pub const Parser = struct {
         const first = try self.parseExpr();
         self.allow_struct_literals = prev_allow_struct_literals;
 
+        // Check for `i, item in collection` — two iteration variables
+        if (self.peekTag() == .comma) {
+            self.advance(); // consume comma
+            self.skipNewlines();
+            const second = try self.parseExpr();
+            self.skipNewlines();
+            if (self.peekTag() == .kw_in) {
+                self.advance();
+            } else {
+                try self.addError(.expected_token, self.currentLoc(), .kw_in);
+            }
+            const prev2 = self.allow_struct_literals;
+            self.allow_struct_literals = false;
+            const iterable = try self.parseExpr();
+            self.allow_struct_literals = prev2;
+            _ = try self.tree.addExtra(first);
+            _ = try self.tree.addExtra(second);
+            self.skipNewlines();
+            const body = try self.parseBlock();
+            return self.tree.addNode(.{
+                .tag = .for_range_stmt,
+                .main_token = tok,
+                .data = .{ .lhs = iterable, .rhs = body },
+            });
+        }
+
         // Check for `in` keyword: `for item in collection { }`
         if (self.peekTag() == .kw_in) {
             self.advance();
