@@ -1,43 +1,385 @@
 package fmt
 
 use "io"
+use "os"
 
 // Stringer is the interface for types that can format themselves as strings.
 pub type Stringer interface {
     string() string
 }
 
-// println prints each argument with space separators and a trailing newline.
-// Like Go's fmt.Println.
-pub fun println(args ...any) {
+// hasMessage is a local interface for formatting error values without
+// importing the errors package (which imports fmt, creating a cycle).
+type hasMessage interface {
+    message() string
 }
 
-// print prints each argument with no separator or trailing newline.
-// Like Go's fmt.Print.
-pub fun print(args ...any) {
+// stringWriter is an internal buffer used by sprintf, sprint, and sprintln.
+// Implements io.Writer so it can be passed to fprintf and formatAny.
+stringWriter struct {
+    implements {
+        io.Writer
+    }
+
+    buf []byte
+}
+
+// write appends data to the internal buffer.
+fun (sw &stringWriter) write(data []byte) !int {
+    var i = 0
+    for i < len(data) {
+        sw.buf = append(sw.buf, data[i])
+        i = i + 1
+    }
+    return len(data)
+}
+
+// string returns the accumulated buffer contents as a string.
+fun (sw @stringWriter) string() string {
+    return sw.buf as string
+}
+
+// writeInt writes an integer in the given base (2, 8, 10, 16) to w.
+fun writeInt(w io.Writer, val int, base int) !int {
+    if val == 0 {
+        return try io.writeString(w, "0")
+    }
+    var neg = val < 0
+    var n = val
+    if neg {
+        n = 0 - val
+    }
+    // Build digits in reverse order.
+    var digits = alloc([]byte, 0)
+    for n > 0 {
+        var d = n % base
+        if d < 10 {
+            digits = append(digits, d as byte + 48)
+        } else {
+            digits = append(digits, d as byte - 10 + 97)
+        }
+        n = n / base
+    }
+    if neg {
+        digits = append(digits, 45)
+    }
+    // Reverse into output buffer.
+    var buf = alloc([]byte, len(digits))
+    var i = 0
+    for i < len(digits) {
+        buf[i] = digits[len(digits) - 1 - i]
+        i = i + 1
+    }
+    return try w.write(buf)
+}
+
+// writeFloat writes a floating-point number in decimal notation to w.
+fun writeFloat(w io.Writer, val f64, prec int) !int {
+    var neg = val < 0.0
+    var v = val
+    if neg {
+        v = 0.0 - val
+    }
+    var intPart = v as int
+    var fracPart = v - (intPart as f64)
+
+    var total = 0
+    if neg {
+        total = total + try io.writeString(w, "-")
+    }
+    total = total + try writeInt(w, intPart, 10)
+
+    if prec > 0 {
+        total = total + try io.writeString(w, ".")
+        var p = 0
+        for p < prec {
+            fracPart = fracPart * 10.0
+            var digit = fracPart as int
+            total = total + try writeInt(w, digit, 10)
+            fracPart = fracPart - (digit as f64)
+            p = p + 1
+        }
+    }
+    return total
+}
+
+// formatAny writes the default string representation of val to w.
+// This is used for the %v verb and for println/sprint/sprintln.
+fun formatAny(w io.Writer, val any) !int {
+    // Try Stringer interface first.
+    var s = val as Stringer
+    if s != null {
+        return try io.writeString(w, s.string())
+    }
+    // Try error-like types (has message() method).
+    var m = val as hasMessage
+    if m != null {
+        return try io.writeString(w, m.message())
+    }
+    // Try string.
+    var str = val as string
+    if str != null {
+        return try io.writeString(w, str)
+    }
+    // Try int.
+    var i = val as int
+    if i != null {
+        return try writeInt(w, i, 10)
+    }
+    // Try bool.
+    var b = val as bool
+    if b != null {
+        if b {
+            return try io.writeString(w, "true")
+        }
+        return try io.writeString(w, "false")
+    }
+    // Try f64.
+    var f = val as f64
+    if f != null {
+        return try writeFloat(w, f, 6)
+    }
+    // Try byte.
+    var by = val as byte
+    if by != null {
+        return try writeInt(w, by as int, 10)
+    }
+    // Fallback for unknown types.
+    return try io.writeString(w, "<?>")
+}
+
+// formatVerb formats a single argument according to the given verb byte
+// and writes the result to w.
+fun formatVerb(w io.Writer, arg any, verb byte) !int {
+    switch verb {
+        // 'd' = 100: integer in decimal
+        100 :: {
+            var i = arg as int
+            if i != null {
+                return try writeInt(w, i, 10)
+            }
+            var by = arg as byte
+            if by != null {
+                return try writeInt(w, by as int, 10)
+            }
+            return try io.writeString(w, "%!(BADTYPE)")
+        },
+        // 's' = 115: string
+        115 :: {
+            var s = arg as Stringer
+            if s != null {
+                return try io.writeString(w, s.string())
+            }
+            var m = arg as hasMessage
+            if m != null {
+                return try io.writeString(w, m.message())
+            }
+            var str = arg as string
+            if str != null {
+                return try io.writeString(w, str)
+            }
+            return try formatAny(w, arg)
+        },
+        // 'f' = 102: float in decimal
+        102 :: {
+            var f = arg as f64
+            if f != null {
+                return try writeFloat(w, f, 6)
+            }
+            return try io.writeString(w, "%!(BADTYPE)")
+        },
+        // 'v' = 118: default format
+        118 :: {
+            return try formatAny(w, arg)
+        },
+        // 't' = 116: boolean
+        116 :: {
+            var b = arg as bool
+            if b != null {
+                if b {
+                    return try io.writeString(w, "true")
+                }
+                return try io.writeString(w, "false")
+            }
+            return try io.writeString(w, "%!(BADTYPE)")
+        },
+        // 'x' = 120: hexadecimal
+        120 :: {
+            var i = arg as int
+            if i != null {
+                return try writeInt(w, i, 16)
+            }
+            return try io.writeString(w, "%!(BADTYPE)")
+        },
+        // 'o' = 111: octal
+        111 :: {
+            var i = arg as int
+            if i != null {
+                return try writeInt(w, i, 8)
+            }
+            return try io.writeString(w, "%!(BADTYPE)")
+        },
+        // 'b' = 98: binary
+        98 :: {
+            var i = arg as int
+            if i != null {
+                return try writeInt(w, i, 2)
+            }
+            return try io.writeString(w, "%!(BADTYPE)")
+        },
+        // 'e' = 101: scientific notation (simplified: same as 'f' for now)
+        101 :: {
+            var f = arg as f64
+            if f != null {
+                return try writeFloat(w, f, 6)
+            }
+            return try io.writeString(w, "%!(BADTYPE)")
+        },
+        // 'g' = 103: shortest float representation (simplified: same as 'f')
+        103 :: {
+            var f = arg as f64
+            if f != null {
+                return try writeFloat(w, f, 6)
+            }
+            return try io.writeString(w, "%!(BADTYPE)")
+        },
+        _ :: {
+            return try io.writeString(w, "%!(BADVERB)")
+        },
+    }
+}
+
+// fprintf formats according to a format string with Go-style verbs
+// (%d, %s, %f, %v, %t, %x, %o, %b, %e, %g) and writes the result to w.
+// Returns the number of bytes written.
+pub fun fprintf(w io.Writer, format string, args ...any) !int {
+    var total = 0
+    var argIdx = 0
+    var i = 0
+    var fmtBytes = format as []byte
+    var start = 0
+
+    for i < len(fmtBytes) {
+        if fmtBytes[i] == 37 {
+            // Write literal text accumulated before this '%'.
+            if i > start {
+                var lit = alloc([]byte, i - start)
+                var j = 0
+                for j < i - start {
+                    lit[j] = fmtBytes[start + j]
+                    j = j + 1
+                }
+                total = total + try w.write(lit)
+            }
+            i = i + 1
+            if i >= len(fmtBytes) {
+                // Trailing '%' at end of format string.
+                total = total + try io.writeString(w, "%")
+                start = i
+                break
+            }
+            var verb = fmtBytes[i]
+            if verb == 37 {
+                // '%%' produces a literal '%'.
+                total = total + try io.writeString(w, "%")
+            } else if argIdx < len(args) {
+                var arg = args[argIdx]
+                argIdx = argIdx + 1
+                total = total + try formatVerb(w, arg, verb)
+            } else {
+                // More verbs than arguments.
+                total = total + try io.writeString(w, "%!(MISSING)")
+            }
+            i = i + 1
+            start = i
+        } else {
+            i = i + 1
+        }
+    }
+
+    // Write any remaining literal text after the last verb.
+    if start < len(fmtBytes) {
+        var lit = alloc([]byte, len(fmtBytes) - start)
+        var j = 0
+        for j < len(fmtBytes) - start {
+            lit[j] = fmtBytes[start + j]
+            j = j + 1
+        }
+        total = total + try w.write(lit)
+    }
+
+    return total
 }
 
 // printf formats according to a format string with Go-style verbs
-// (%d, %s, %f, %v, %t, %x, %o, %b, %e, %g) and prints the result.
+// (%d, %s, %f, %v, %t, %x, %o, %b, %e, %g) and prints the result to stdout.
 pub fun printf(format string, args ...any) {
+    fprintf(os.stdout, format, args...)
 }
 
-// eprintln prints each argument with space separators and a trailing newline
+// println prints each argument separated by spaces, followed by a newline,
+// to stdout. Like Go's fmt.Println.
+pub fun println(args ...any) {
+    var i = 0
+    for i < len(args) {
+        if i > 0 {
+            io.writeString(os.stdout, " ")
+        }
+        formatAny(os.stdout, args[i])
+        i = i + 1
+    }
+    io.writeString(os.stdout, "\n")
+}
+
+// print prints each argument with no separator or trailing newline
+// to stdout. Like Go's fmt.Print.
+pub fun print(args ...any) {
+    for arg in args {
+        formatAny(os.stdout, arg)
+    }
+}
+
+// eprintln prints each argument separated by spaces, followed by a newline,
 // to stderr.
 pub fun eprintln(args ...any) {
+    var i = 0
+    for i < len(args) {
+        if i > 0 {
+            io.writeString(os.stderr, " ")
+        }
+        formatAny(os.stderr, args[i])
+        i = i + 1
+    }
+    io.writeString(os.stderr, "\n")
 }
 
 // sprintf formats and returns a string using Go-style verbs.
 pub fun sprintf(format string, args ...any) string {
-    return ""
+    var sw = stringWriter{ buf: alloc([]byte, 0) }
+    fprintf(&sw, format, args...)
+    return sw.string()
 }
 
 // sprint concatenates default string representations of args.
 pub fun sprint(args ...any) string {
-    return ""
+    var sw = stringWriter{ buf: alloc([]byte, 0) }
+    for arg in args {
+        formatAny(&sw, arg)
+    }
+    return sw.string()
 }
 
-// sprintln is like sprint but adds spaces and a trailing newline.
+// sprintln is like sprint but adds spaces between args and a trailing newline.
 pub fun sprintln(args ...any) string {
-    return ""
+    var sw = stringWriter{ buf: alloc([]byte, 0) }
+    var i = 0
+    for i < len(args) {
+        if i > 0 {
+            io.writeString(&sw, " ")
+        }
+        formatAny(&sw, args[i])
+        i = i + 1
+    }
+    io.writeString(&sw, "\n")
+    return sw.string()
 }
