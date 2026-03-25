@@ -47,14 +47,14 @@ pub Match struct {
 }
 
 // GroupSpan records the start and end of a capturing group match.
-GroupSpan struct {
+type GroupSpan struct {
     start int
     end   int
     valid bool
 }
 
 // GroupName maps a name to a capture group index.
-GroupName struct {
+type GroupName struct {
     name string
     idx  int
 }
@@ -73,13 +73,13 @@ type InstOp = .literal
     | .assertEnd
 
 // CharRange represents a byte range [lo, hi] for character classes.
-CharRange struct {
+type CharRange struct {
     lo byte
     hi byte
 }
 
 // Inst is a single NFA instruction.
-Inst struct {
+type Inst struct {
     op     InstOp
     c      byte
     out    int
@@ -90,7 +90,7 @@ Inst struct {
 }
 
 // Thread represents a single NFA simulation thread.
-Thread struct {
+type Thread struct {
     pc    int
     saved []int
 }
@@ -341,13 +341,13 @@ pub fun matchString(pattern string, s string) !bool {
 // Fragment represents an NFA fragment during compilation.
 // entry is the index of the first instruction.
 // exits is a list of instruction indices with unpatched out/out1 fields.
-Fragment struct {
+type Fragment struct {
     entry int
     exits []int
 }
 
 // Parser is the regex pattern compiler state.
-Parser struct {
+type Parser struct {
     src        []byte
     pos        int
     groupCount int

@@ -29,19 +29,25 @@ pub type ContextError = .cancelled
 // Calling a CancelFunc multiple times after the first call is a no-op.
 pub type CancelFunc = fun()
 
+// CancelResult holds a derived context and its cancel function.
+pub type CancelResult struct {
+    ctx    Context
+    cancel CancelFunc
+}
+
 // --- Root contexts ---
 
-// background returns a non-nil, empty Context. It is never cancelled,
+// empty returns a non-nil, empty Context. It is never cancelled,
 // has no values, and has no deadline. It is typically used by the main
 // function, initialization, and tests.
-pub fun background() Context {
+pub fun empty() Context {
     return backgroundCtx{}
 }
 
-// todo returns a non-nil, empty Context. Code should use context.todo
+// TODO returns a non-nil, empty Context. Code should use context.TODO
 // when it's unclear which Context to use or the function has not yet
 // been extended to accept a Context parameter.
-pub fun todo() Context {
+pub fun TODO() Context {
     return backgroundCtx{}
 }
 
@@ -51,7 +57,7 @@ pub fun todo() Context {
 // The returned context's done channel is closed when the returned
 // cancel function is called or when the parent context's done
 // channel is closed, whichever happens first.
-pub fun withCancel(parent Context) struct { ctx Context, cancel CancelFunc } {
+pub fun withCancel(parent Context) CancelResult {
     var ch = alloc(chan struct{})
     var ctx = cancelCtx{
         parent: parent,
@@ -71,11 +77,11 @@ pub fun withCancel(parent Context) struct { ctx Context, cancel CancelFunc } {
     var cancelFn = fun() {
         ctxRef.cancel(.cancelled)
     }
-    return .{ ctx: ctx, cancel: cancelFn }
+    return CancelResult{ ctx: ctx, cancel: cancelFn }
 }
 
 // withTimeout returns withDeadline(parent, time.now().add(timeout)).
-pub fun withTimeout(parent Context, timeout time.Duration) struct { ctx Context, cancel CancelFunc } {
+pub fun withTimeout(parent Context, timeout time.Duration) CancelResult {
     var dl = time.now().add(timeout)
     return withDeadline(parent, dl)
 }
@@ -84,7 +90,7 @@ pub fun withTimeout(parent Context, timeout time.Duration) struct { ctx Context,
 // adjusted to be no later than d. If the parent's deadline is already
 // earlier than d, withDeadline(parent, d) is semantically equivalent
 // to parent.
-pub fun withDeadline(parent Context, deadline time.Time) struct { ctx Context, cancel CancelFunc } {
+pub fun withDeadline(parent Context, deadline time.Time) CancelResult {
     // Check if parent already has an earlier deadline.
     var parentDl = parent.deadline()
     if parentDl != null {
@@ -114,7 +120,7 @@ pub fun withDeadline(parent Context, deadline time.Time) struct { ctx Context, c
     if dur <= 0 {
         // Deadline already passed; cancel immediately.
         ctx.ctx.cancel(.deadlineExceeded)
-        return .{ ctx: ctx, cancel: fun() {} }
+        return CancelResult{ ctx: ctx, cancel: fun() {} }
     }
 
     // Set up timer to fire at deadline.
@@ -132,7 +138,7 @@ pub fun withDeadline(parent Context, deadline time.Time) struct { ctx Context, c
         ctxRef.cancel(.cancelled)
         ctx.timer.stop()
     }
-    return .{ ctx: ctx, cancel: cancelFn }
+    return CancelResult{ ctx: ctx, cancel: cancelFn }
 }
 
 // withValue returns a copy of parent in which the value associated
@@ -149,7 +155,7 @@ pub fun withValue(parent Context, key string, val any) Context {
 
 // backgroundCtx is the root context. It is never cancelled, has no
 // values, and has no deadline.
-backgroundCtx struct {
+type backgroundCtx struct {
     implements (
         Context,
     )
@@ -179,7 +185,7 @@ fun (c @backgroundCtx) value(key string) any? {
 
 // cancelCtx is a context that can be cancelled. When cancelled, it
 // closes its done channel and propagates cancellation to all children.
-cancelCtx struct {
+type cancelCtx struct {
     implements (
         Context,
     )
@@ -254,7 +260,7 @@ fun (c &cancelCtx) removeChild(child &cancelCtx) {
 
 // timerCtx extends cancelCtx with a deadline. When the deadline expires,
 // the context is automatically cancelled with .deadlineExceeded.
-timerCtx struct {
+type timerCtx struct {
     implements (
         Context,
     )
@@ -287,7 +293,7 @@ fun (t @timerCtx) value(key string) any? {
 // valueCtx carries a single key-value pair. Value lookups check the
 // local key first, then delegate to the parent context. This creates
 // a linked list of values up the context tree.
-valueCtx struct {
+type valueCtx struct {
     implements (
         Context,
     )
