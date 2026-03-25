@@ -89,6 +89,8 @@ pub const Formatter = struct {
             .call => try self.formatCall(node),
             .struct_literal => try self.formatStructLiteral(node),
             .simd_literal => try self.formatSimdLiteral(node),
+            .array_literal => try self.formatArrayLiteral(node),
+            .tuple_literal => try self.formatTupleLiteral(node),
             .struct_field_init => try self.formatStructFieldInit(node),
             .field_access => try self.formatFieldAccess(node),
             .index_access => try self.formatIndexAccess(node),
@@ -111,6 +113,7 @@ pub const Formatter = struct {
             .type_chan => try self.formatTypeChan(node),
             .type_map => try self.formatTypeMap(node),
             .type_array => try self.formatTypeArray(node),
+            .type_tuple => try self.formatTypeTuple(node),
             .type_anon_struct => try self.formatTypeAnonStruct(node),
             .param => try self.formatParam(node),
             .variadic_param => try self.formatVariadicParam(node),
@@ -305,9 +308,9 @@ pub const Formatter = struct {
     }
 
     fn formatInterfaceDecl(self: *Formatter, node: Node) !void {
-        // main_token = kw_interface, name is next token
+        const name_tok = if (self.tokens[node.main_token].tag == .kw_interface) node.main_token + 1 else node.main_token;
         try self.write("interface ");
-        try self.writeToken(node.main_token + 1);
+        try self.writeToken(name_tok);
         try self.write(" {");
 
         const methods_start = node.data.lhs;
@@ -681,6 +684,55 @@ pub const Formatter = struct {
         try self.write("}");
     }
 
+    fn formatArrayLiteral(self: *Formatter, node: Node) !void {
+        const elems_start = node.data.rhs;
+        var elem_idx = elems_start;
+        while (elem_idx < self.tree.extra_data.items.len) {
+            const val = self.tree.extra_data.items[elem_idx];
+            if (val == elem_idx - elems_start) break;
+            elem_idx += 1;
+        }
+        const elem_count = self.tree.extra_data.items[elem_idx];
+        const elems = self.tree.extra_data.items[elems_start .. elems_start + elem_count];
+
+        if (node.data.lhs != null_node) {
+            try self.formatNode(node.data.lhs);
+            try self.write("{");
+        } else {
+            try self.write("[");
+        }
+
+        for (elems, 0..) |elem, i| {
+            if (i > 0) try self.write(", ");
+            try self.formatNode(elem);
+        }
+
+        if (node.data.lhs != null_node) {
+            try self.write("}");
+        } else {
+            try self.write("]");
+        }
+    }
+
+    fn formatTupleLiteral(self: *Formatter, node: Node) !void {
+        const items_start = node.data.rhs;
+        var item_idx = items_start;
+        while (item_idx < self.tree.extra_data.items.len) {
+            const val = self.tree.extra_data.items[item_idx];
+            if (val == item_idx - items_start) break;
+            item_idx += 1;
+        }
+        const item_count = self.tree.extra_data.items[item_idx];
+        const items = self.tree.extra_data.items[items_start .. items_start + item_count];
+
+        try self.write("(");
+        for (items, 0..) |item, i| {
+            if (i > 0) try self.write(", ");
+            try self.formatNode(item);
+        }
+        try self.write(")");
+    }
+
     fn formatStructFieldInit(self: *Formatter, node: Node) !void {
         try self.writeToken(node.main_token);
         try self.write(": ");
@@ -873,6 +925,19 @@ pub const Formatter = struct {
         try self.formatNode(node.data.lhs); // size expr
         try self.write("]");
         try self.formatNode(node.data.rhs); // element type
+    }
+
+    fn formatTypeTuple(self: *Formatter, node: Node) !void {
+        const items_start = node.data.lhs;
+        const item_count = node.data.rhs;
+
+        try self.write("(");
+        var i: u32 = 0;
+        while (i < item_count) : (i += 1) {
+            if (i > 0) try self.write(", ");
+            try self.formatNode(self.tree.extra_data.items[items_start + i]);
+        }
+        try self.write(")");
     }
 
     fn formatTypeAnonStruct(self: *Formatter, node: Node) !void {

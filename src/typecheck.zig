@@ -176,6 +176,16 @@ const TypeChecker = struct {
             }
         }
 
+        // Pass 0d: Register newtypes and other simple type declarations.
+        for (decl_indices) |decl_idx| {
+            var node = decl_idx;
+            if (self.nodeTag(node) == .inline_decl) node = self.nodeData(node).lhs;
+            if (self.nodeTag(node) == .pub_decl) node = self.nodeData(node).lhs;
+            if (self.nodeTag(node) == .type_decl) {
+                try self.registerTypeDecl(node);
+            }
+        }
+
         // After struct types are registered, re-bind methods with correct TypeIds.
         try self.rebindMethods();
 
@@ -219,7 +229,7 @@ const TypeChecker = struct {
     fn registerInterfaceType(self: *TypeChecker, node: NodeIndex) CheckError!void {
         const data = self.nodeData(node);
         const main_tok = self.nodeMainToken(node);
-        const name_tok = main_tok + 1;
+        const name_tok = if (self.tokens[main_tok].tag == .kw_interface) main_tok + 1 else main_tok;
         const name = self.tokenSlice(name_tok);
         const extra = self.tree.extra_data.items;
         const methods_start = data.lhs;
@@ -404,6 +414,25 @@ const TypeChecker = struct {
         }
 
         self.type_map.items[node] = sum_type_id;
+    }
+
+    fn registerTypeDecl(self: *TypeChecker, node: NodeIndex) CheckError!void {
+        const main_tok = self.nodeMainToken(node);
+        const name_tok = main_tok + 1;
+        const name = self.tokenSlice(name_tok);
+        const underlying = self.resolveTypeNode(self.nodeData(node).lhs);
+        if (underlying == types.null_type) return;
+
+        const newtype_id = try self.type_pool.addType(self.allocator, .{ .newtype = .{
+            .name = name,
+            .underlying = underlying,
+        } });
+
+        if (self.symbols.lookup(name)) |sym_id| {
+            self.symbols.getSymbolPtr(sym_id).type_id = newtype_id;
+        }
+
+        self.type_map.items[node] = newtype_id;
     }
 
     /// Re-bind methods in the method table with correct struct TypeIds.
@@ -670,7 +699,6 @@ const TypeChecker = struct {
         const body = data.rhs;
         if (body == null_node) return;
 
-
         // Extract return type from registered FnType.
         const fn_type_id = self.type_map.items[node];
         var return_type: TypeId = types.primitives.void_id;
@@ -782,8 +810,14 @@ const TypeChecker = struct {
                 _ = try self.inferExpr(self.nodeData(node).rhs);
             },
             // Expressions that can appear as statements
-            .call, .binary_op, .unary_op, .ident, .field_access,
-            .index_access, .try_expr, .chan_recv,
+            .call,
+            .binary_op,
+            .unary_op,
+            .ident,
+            .field_access,
+            .index_access,
+            .try_expr,
+            .chan_recv,
             => {
                 _ = try self.inferExpr(node);
             },
@@ -1599,6 +1633,17 @@ const TypeChecker = struct {
 
             .struct_literal => try self.inferStructLiteral(node),
             .simd_literal => try self.inferSimdLiteral(node),
+            .array_literal => try self.inferArrayLiteral(node),
+            .tuple_literal => blk: {
+                const data = self.nodeData(node);
+                const extra = self.tree.extra_data.items;
+                const item_count = self.findTrailingCount(data.rhs, extra);
+                const item_nodes = extra[data.rhs .. data.rhs + item_count];
+                for (item_nodes) |item_node| {
+                    _ = try self.inferExpr(item_node);
+                }
+                break :blk types.null_type;
+            },
 
             .anon_struct_literal => blk: {
                 const data = self.nodeData(node);
@@ -2512,6 +2557,78 @@ const TypeChecker = struct {
         return simd_type;
     }
 
+    fn inferArrayLiteral(self: *TypeChecker, node: NodeIndex) CheckError!TypeId {
+        const data = self.nodeData(node);
+        const extra = self.tree.extra_data.items;
+        const elem_count = self.findTrailingCount(data.rhs, extra);
+        const elem_nodes = extra[data.rhs .. data.rhs + elem_count];
+
+        var explicit_type: TypeId = types.null_type;
+        var expected_elem_type: TypeId = types.null_type;
+        var expected_array_len: ?usize = null;
+
+        if (data.lhs != null_node) {
+            explicit_type = self.resolveTypeNode(data.lhs);
+            switch (self.type_pool.get(explicit_type)) {
+                .slice_type => |slice| {
+                    expected_elem_type = slice.elem;
+                },
+                .array_type => |array| {
+                    expected_elem_type = array.elem;
+                    expected_array_len = array.len;
+                },
+                else => {
+                    const loc = self.tokenLoc(self.nodeMainToken(node));
+                    try self.diagnostics.addError(loc.start, loc.end, "array literal requires an array or slice type");
+                },
+            }
+        }
+
+        var inferred_elem_type = expected_elem_type;
+        for (elem_nodes) |elem_node| {
+            const elem_type = try self.inferExpr(elem_node);
+            if (elem_type == types.null_type) continue;
+
+            if (expected_elem_type != types.null_type) {
+                if (!self.typesCompatible(expected_elem_type, elem_type)) {
+                    const loc = self.tokenLoc(self.nodeMainToken(elem_node));
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "array literal element type mismatch: expected '{s}', got '{s}'",
+                        .{ self.typeName(expected_elem_type), self.typeName(elem_type) },
+                    );
+                }
+                continue;
+            }
+
+            if (inferred_elem_type == types.null_type) {
+                inferred_elem_type = elem_type;
+            } else if (!self.typesCompatible(inferred_elem_type, elem_type)) {
+                inferred_elem_type = types.primitives.any_id;
+            }
+        }
+
+        if (expected_array_len) |array_len| {
+            if (elem_nodes.len != array_len) {
+                const loc = self.tokenLoc(self.nodeMainToken(node));
+                try self.diagnostics.addErrorFmt(
+                    loc.start,
+                    loc.end,
+                    "array literal expects {d} element(s), got {d}",
+                    .{ array_len, elem_nodes.len },
+                );
+            }
+        }
+
+        if (explicit_type != types.null_type) return explicit_type;
+        if (inferred_elem_type == types.null_type) return types.null_type;
+
+        return self.type_pool.intern(self.allocator, .{ .slice_type = .{
+            .elem = inferred_elem_type,
+        } }) catch types.null_type;
+    }
+
     /// Check if a struct field has a default value by looking at the struct_decl AST node.
     fn fieldHasDefault(self: *const TypeChecker, struct_type_id: TypeId, field_index: usize) bool {
         // Find the struct_decl node by scanning for a type_def symbol with this type_id.
@@ -2773,6 +2890,51 @@ const TypeChecker = struct {
                     .value = value_type,
                 } }) catch types.null_type;
             },
+            .type_array => {
+                const inner = self.nodeData(node).lhs;
+                const inner_type = self.resolveTypeNode(inner);
+                if (inner_type == types.null_type) return types.null_type;
+                return self.type_pool.intern(self.allocator, .{ .array_type = .{
+                    .elem = inner_type,
+                    .len = self.nodeData(node).rhs,
+                } }) catch types.null_type;
+            },
+            .type_fn => {
+                const data = self.nodeData(node);
+                const params_start = data.lhs;
+                const extra = self.tree.extra_data.items;
+                const param_count = self.findParamCount(params_start, extra);
+
+                var param_types: std.ArrayList(TypeId) = .empty;
+                defer param_types.deinit(self.allocator);
+                var is_variadic = false;
+
+                const param_nodes = extra[params_start .. params_start + param_count];
+                for (param_nodes) |param_node| {
+                    if (param_node == null_node) {
+                        param_types.append(self.allocator, types.null_type) catch return types.null_type;
+                        continue;
+                    }
+
+                    const param_tag = self.nodeTag(param_node);
+                    if (param_tag == .variadic_param) is_variadic = true;
+
+                    const param_type = self.resolveTypeNode(self.nodeData(param_node).lhs);
+                    param_types.append(self.allocator, param_type) catch return types.null_type;
+                }
+
+                const owned_params = self.allocator.alloc(TypeId, param_types.items.len) catch return types.null_type;
+                @memcpy(owned_params, param_types.items);
+                self.allocated_param_slices.append(self.allocator, owned_params) catch return types.null_type;
+
+                const return_type = self.resolveTypeNode(data.rhs);
+                return self.type_pool.addType(self.allocator, .{ .fn_type = .{
+                    .params = owned_params,
+                    .return_type = return_type,
+                    .is_variadic = is_variadic,
+                } }) catch types.null_type;
+            },
+            .type_tuple => types.null_type,
             else => types.null_type,
         };
     }
@@ -2838,6 +3000,7 @@ const TypeChecker = struct {
             .error_union_type => "!T",
             .nullable_type => "T?",
             .fn_type => "fn",
+            .array_type => "[N]T",
             .struct_type => |st| st.name,
             .interface_type => |it| it.name,
             .sum_type => |st| st.name,

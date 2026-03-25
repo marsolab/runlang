@@ -826,6 +826,22 @@ const LoweringContext = struct {
                 return r;
             },
             .simd_literal => return try self.lowerSimdLiteral(node_idx),
+            .array_literal => {
+                const elem_count = self.findTrailingCount(node.data.rhs);
+                const elem_nodes = self.tree.extra_data.items[node.data.rhs .. node.data.rhs + elem_count];
+                for (elem_nodes) |elem_node| {
+                    _ = try self.lowerExpr(elem_node);
+                }
+                return ir.null_ref;
+            },
+            .tuple_literal => {
+                const item_count = self.findTrailingCount(node.data.rhs);
+                const item_nodes = self.tree.extra_data.items[node.data.rhs .. node.data.rhs + item_count];
+                for (item_nodes) |item_node| {
+                    _ = try self.lowerExpr(item_node);
+                }
+                return ir.null_ref;
+            },
             .alloc_expr => {
                 // alloc(Type, capacity?) — check if this is a channel allocation
                 const type_node_idx = node.data.lhs;
@@ -1160,6 +1176,45 @@ const LoweringContext = struct {
                     .value = value,
                 } }) catch types.null_type;
             },
+            .type_array => blk: {
+                const inner = self.resolveTypeNode(node.data.lhs);
+                if (inner == types.null_type) break :blk types.null_type;
+                break :blk @constCast(self.type_pool).intern(self.allocator, .{ .array_type = .{
+                    .elem = inner,
+                    .len = node.data.rhs,
+                } }) catch types.null_type;
+            },
+            .type_fn => blk: {
+                const extra = self.tree.extra_data.items;
+                const param_count = self.findTrailingCount(node.data.lhs);
+                const param_nodes = extra[node.data.lhs .. node.data.lhs + param_count];
+
+                var param_types: std.ArrayList(TypeId) = .empty;
+                defer param_types.deinit(self.allocator);
+                var is_variadic = false;
+
+                for (param_nodes) |param_node| {
+                    if (param_node == null_node) {
+                        param_types.append(self.allocator, types.null_type) catch break :blk types.null_type;
+                        continue;
+                    }
+
+                    if (self.tree.nodes.items[param_node].tag == .variadic_param) is_variadic = true;
+                    const param_type = self.resolveTypeNode(self.tree.nodes.items[param_node].data.lhs);
+                    param_types.append(self.allocator, param_type) catch break :blk types.null_type;
+                }
+
+                const owned_params = self.allocator.alloc(TypeId, param_types.items.len) catch break :blk types.null_type;
+                @memcpy(owned_params, param_types.items);
+
+                const return_type = self.resolveTypeNode(node.data.rhs);
+                break :blk @constCast(self.type_pool).addType(self.allocator, .{ .fn_type = .{
+                    .params = owned_params,
+                    .return_type = return_type,
+                    .is_variadic = is_variadic,
+                } }) catch types.null_type;
+            },
+            .type_tuple => types.null_type,
             else => self.typeOfNode(node_idx),
         };
     }
@@ -1167,7 +1222,7 @@ const LoweringContext = struct {
     fn resolveTypeArgument(self: *LoweringContext, node_idx: NodeIndex) TypeId {
         const node = self.tree.nodes.items[node_idx];
         return switch (node.tag) {
-            .type_name, .ident, .type_ptr, .type_const_ptr, .type_nullable, .type_slice, .type_chan, .type_map => self.resolveTypeNode(node_idx),
+            .type_name, .ident, .type_ptr, .type_const_ptr, .type_nullable, .type_slice, .type_chan, .type_map, .type_array, .type_fn, .type_tuple => self.resolveTypeNode(node_idx),
             else => self.typeOfNode(node_idx),
         };
     }

@@ -109,15 +109,20 @@ pub const Parser = struct {
             .kw_pub => self.parsePubDecl(),
             .kw_inline => self.parseInlineDecl(),
             .kw_fun => self.parseFnDecl(),
+            .kw_interface => self.parseInterfaceDeclShorthand(),
             .kw_type => self.parseTypeAlias(),
             .kw_package => self.parsePackageDecl(),
             .kw_import => self.parseImportDecl(),
             .kw_var => self.parseVarDecl(),
             .kw_let => self.parseLetDecl(),
-            .identifier => if (self.peekTagAt(1) == .kw_struct) self.parseStructDecl() else {
-                try self.addError(.expected_expression, self.currentLoc(), null);
-                self.advance();
-                return null_node;
+            .identifier => switch (self.peekTagAt(1)) {
+                .kw_struct => self.parseStructDecl(),
+                .kw_interface => self.parseNamedInterfaceDecl(),
+                else => {
+                    try self.addError(.expected_expression, self.currentLoc(), null);
+                    self.advance();
+                    return null_node;
+                },
             },
             else => {
                 try self.addError(.expected_expression, self.currentLoc(), null);
@@ -133,6 +138,7 @@ pub const Parser = struct {
 
         const inner = switch (self.peekTag()) {
             .kw_fun => try self.parseFnDecl(),
+            .kw_interface => try self.parseInterfaceDeclShorthand(),
             .kw_type => try self.parseTypeAlias(),
             .kw_package => blk: {
                 try self.addError(.expected_expression, self.currentLoc(), null);
@@ -140,9 +146,13 @@ pub const Parser = struct {
             },
             .kw_var => try self.parseVarDecl(),
             .kw_let => try self.parseLetDecl(),
-            .identifier => if (self.peekTagAt(1) == .kw_struct) try self.parseStructDecl() else blk: {
-                try self.addError(.expected_expression, self.currentLoc(), null);
-                break :blk null_node;
+            .identifier => switch (self.peekTagAt(1)) {
+                .kw_struct => try self.parseStructDecl(),
+                .kw_interface => try self.parseNamedInterfaceDecl(),
+                else => blk: {
+                    try self.addError(.expected_expression, self.currentLoc(), null);
+                    break :blk null_node;
+                },
             },
             else => blk: {
                 try self.addError(.expected_expression, self.currentLoc(), null);
@@ -188,7 +198,7 @@ pub const Parser = struct {
         }
 
         // Function name
-        if (self.peekTag() != .identifier) {
+        if (!self.isNameToken(self.peekTag())) {
             try self.addError(.expected_identifier, self.currentLoc(), null);
             return null_node;
         }
@@ -234,7 +244,7 @@ pub const Parser = struct {
         self.expect(.l_paren);
 
         // receiver name
-        if (self.peekTag() != .identifier) {
+        if (!self.isNameToken(self.peekTag())) {
             try self.addError(.expected_identifier, self.currentLoc(), null);
             return null_node;
         }
@@ -267,9 +277,15 @@ pub const Parser = struct {
         while (self.peekTag() != .r_paren and !self.isAtEnd()) {
             if (params.items.len > 0) {
                 self.expectToken(.comma);
+                self.skipNewlines();
+                if (self.peekTag() == .r_paren) break;
             }
+            const start_pos = self.pos;
             const param = try self.parseParam();
-            try params.append(self.tree.allocator, param);
+            if (param != null_node) {
+                try params.append(self.tree.allocator, param);
+            }
+            self.recoverLoopProgress(start_pos);
         }
         self.expectToken(.r_paren);
 
@@ -283,7 +299,7 @@ pub const Parser = struct {
 
     fn parseParam(self: *Parser) Error!NodeIndex {
         const tok = self.pos;
-        if (self.peekTag() != .identifier) {
+        if (!self.isNameToken(self.peekTag())) {
             try self.addError(.expected_identifier, self.currentLoc(), null);
             return null_node;
         }
@@ -308,10 +324,101 @@ pub const Parser = struct {
         });
     }
 
+    fn parseFnTypeParamList(self: *Parser) Error!u32 {
+        self.expectToken(.l_paren);
+
+        var params: std.ArrayList(NodeIndex) = .empty;
+        defer params.deinit(self.tree.allocator);
+
+        while (self.peekTag() != .r_paren and !self.isAtEnd()) {
+            if (params.items.len > 0) {
+                self.expectToken(.comma);
+                self.skipNewlines();
+                if (self.peekTag() == .r_paren) break;
+            }
+            const start_pos = self.pos;
+            const param = try self.parseFnTypeParam();
+            if (param != null_node) {
+                try params.append(self.tree.allocator, param);
+            }
+            self.recoverLoopProgress(start_pos);
+        }
+        self.expectToken(.r_paren);
+
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        for (params.items) |p| {
+            _ = try self.tree.addExtra(p);
+        }
+        _ = try self.tree.addExtra(@as(NodeIndex, @intCast(params.items.len)));
+        return start;
+    }
+
+    fn parseFnTypeParam(self: *Parser) Error!NodeIndex {
+        const tok = self.pos;
+
+        if (self.isNameToken(self.peekTag()) and !self.isUnnamedFnTypeParam()) {
+            self.advance();
+            if (self.peekTag() == .colon) self.advance();
+            if (self.peekTag() == .ellipsis) {
+                self.advance();
+                const type_node = try self.parseType();
+                return self.tree.addNode(.{
+                    .tag = .variadic_param,
+                    .main_token = tok,
+                    .data = .{ .lhs = type_node, .rhs = null_node },
+                });
+            }
+            const type_node = try self.parseType();
+            return self.tree.addNode(.{
+                .tag = .param,
+                .main_token = tok,
+                .data = .{ .lhs = type_node, .rhs = null_node },
+            });
+        }
+
+        if (!self.isTypeStart()) {
+            try self.addError(.expected_type, self.currentLoc(), null);
+            return null_node;
+        }
+
+        if (self.peekTag() == .ellipsis) {
+            self.advance();
+            const type_node = try self.parseType();
+            return self.tree.addNode(.{
+                .tag = .variadic_param,
+                .main_token = tok,
+                .data = .{ .lhs = type_node, .rhs = null_node },
+            });
+        }
+
+        const type_node = try self.parseType();
+        return self.tree.addNode(.{
+            .tag = .param,
+            .main_token = tok,
+            .data = .{ .lhs = type_node, .rhs = null_node },
+        });
+    }
+
+    fn isUnnamedFnTypeParam(self: *const Parser) bool {
+        if (self.peekTag() != .identifier) return false;
+
+        var idx = self.pos + 1;
+        while (idx + 1 < self.tokens.len and self.tokens[idx].tag == .dot and self.tokens[idx + 1].tag == .identifier) {
+            idx += 2;
+        }
+
+        if (idx < self.tokens.len and self.tokens[idx].tag == .question) {
+            idx += 1;
+        }
+
+        if (idx >= self.tokens.len) return false;
+        return self.tokens[idx].tag == .comma or self.tokens[idx].tag == .r_paren;
+    }
+
     fn parseStructDecl(self: *Parser) Error!NodeIndex {
         // Name struct { ... }
         const tok = self.pos; // points to the name identifier
-        if (self.peekTag() != .identifier) {
+        if (!self.isNameToken(self.peekTag())) {
             try self.addError(.expected_identifier, self.currentLoc(), null);
             return null_node;
         }
@@ -331,23 +438,27 @@ pub const Parser = struct {
         if (self.peekTag() == .kw_implements) {
             self.advance(); // consume 'implements'
             self.skipNewlines();
-            self.expectToken(.l_paren);
+            const close_tag: Tag = if (self.peekTag() == .l_paren) blk: {
+                self.advance();
+                break :blk .r_paren;
+            } else if (self.peekTag() == .l_brace) blk: {
+                self.advance();
+                break :blk .r_brace;
+            } else blk: {
+                try self.addError(.expected_token, self.currentLoc(), .l_brace);
+                break :blk .r_brace;
+            };
             self.skipNewlines();
 
-            while (self.peekTag() != .r_paren and !self.isAtEnd()) {
+            while (self.peekTag() != close_tag and !self.isAtEnd()) {
                 self.skipNewlines();
-                if (self.peekTag() == .r_paren) break;
+                if (self.peekTag() == close_tag) break;
 
-                if (self.peekTag() != .identifier) {
+                if (!self.isNameToken(self.peekTag())) {
                     try self.addError(.expected_identifier, self.currentLoc(), null);
                     break;
                 }
-                const iface_node = try self.tree.addNode(.{
-                    .tag = .ident,
-                    .main_token = self.pos,
-                    .data = .{ .lhs = null_node, .rhs = null_node },
-                });
-                self.advance();
+                const iface_node = try self.parseTypeNamePath();
                 _ = try self.tree.addExtra(iface_node);
                 implements_count += 1;
 
@@ -355,7 +466,7 @@ pub const Parser = struct {
                 if (self.peekTag() == .comma) self.advance();
                 self.skipNewlines();
             }
-            self.expectToken(.r_paren);
+            self.expectToken(close_tag);
             self.skipNewlines();
         }
         // Patch the implements count
@@ -370,8 +481,12 @@ pub const Parser = struct {
             self.skipNewlines();
             if (self.peekTag() == .r_brace) break;
 
+            const start_pos = self.pos;
             const field = try self.parseFieldDecl();
-            try field_nodes.append(self.tree.allocator, field);
+            if (field != null_node) {
+                try field_nodes.append(self.tree.allocator, field);
+            }
+            self.recoverLoopProgress(start_pos);
 
             self.skipNewlines();
             // Optional comma between fields
@@ -393,7 +508,7 @@ pub const Parser = struct {
 
     fn parseFieldDecl(self: *Parser) Error!NodeIndex {
         const tok = self.pos;
-        if (self.peekTag() != .identifier) {
+        if (!self.isNameToken(self.peekTag())) {
             try self.addError(.expected_identifier, self.currentLoc(), null);
             return null_node;
         }
@@ -420,7 +535,34 @@ pub const Parser = struct {
     /// `type_tok` points to the `kw_type` token (name is at type_tok + 1).
     fn parseInterfaceBody(self: *Parser, type_tok: u32) Error!NodeIndex {
         self.expect(.kw_interface);
+        return self.parseInterfaceBlock(type_tok);
+    }
 
+    fn parseInterfaceDeclShorthand(self: *Parser) Error!NodeIndex {
+        const interface_tok = self.pos;
+        self.expect(.kw_interface);
+
+        if (!self.isNameToken(self.peekTag())) {
+            try self.addError(.expected_identifier, self.currentLoc(), null);
+            return null_node;
+        }
+        self.advance();
+
+        return self.parseInterfaceBlock(interface_tok);
+    }
+
+    fn parseNamedInterfaceDecl(self: *Parser) Error!NodeIndex {
+        const name_tok = self.pos;
+        if (!self.isNameToken(self.peekTag())) {
+            try self.addError(.expected_identifier, self.currentLoc(), null);
+            return null_node;
+        }
+        self.advance();
+        self.expect(.kw_interface);
+        return self.parseInterfaceBlock(name_tok);
+    }
+
+    fn parseInterfaceBlock(self: *Parser, main_tok: u32) Error!NodeIndex {
         self.skipNewlines();
         self.expectToken(.l_brace);
         self.skipNewlines();
@@ -433,8 +575,12 @@ pub const Parser = struct {
         while (self.peekTag() != .r_brace and !self.isAtEnd()) {
             self.skipNewlines();
             if (self.peekTag() == .r_brace) break;
+            const start_pos = self.pos;
             const method = try self.parseMethodSig();
-            try methods.append(self.tree.allocator, method);
+            if (method != null_node) {
+                try methods.append(self.tree.allocator, method);
+            }
+            self.recoverLoopProgress(start_pos);
             self.skipNewlines();
         }
         self.expectToken(.r_brace);
@@ -446,7 +592,7 @@ pub const Parser = struct {
 
         return self.tree.addNode(.{
             .tag = .interface_decl,
-            .main_token = type_tok,
+            .main_token = main_tok,
             .data = .{ .lhs = start, .rhs = @as(NodeIndex, @intCast(methods.items.len)) },
         });
     }
@@ -454,7 +600,7 @@ pub const Parser = struct {
     /// Parse a bare method signature: `name(params) ret_type`
     fn parseMethodSig(self: *Parser) Error!NodeIndex {
         const tok = self.pos;
-        if (self.peekTag() != .identifier) {
+        if (!self.isNameToken(self.peekTag())) {
             try self.addError(.expected_identifier, self.currentLoc(), null);
             return null_node;
         }
@@ -483,7 +629,7 @@ pub const Parser = struct {
         const tok = self.pos;
         self.expect(.kw_type);
 
-        if (self.peekTag() != .identifier) {
+        if (!self.isNameToken(self.peekTag())) {
             try self.addError(.expected_identifier, self.currentLoc(), null);
             return null_node;
         }
@@ -498,33 +644,35 @@ pub const Parser = struct {
         if (self.peekTag() == .equal) {
             self.advance(); // consume '='
 
-            // Parse sum type variants: .loading | .ready(Data) | .error(string)
-            var variants: std.ArrayList(NodeIndex) = .empty;
-            defer variants.deinit(self.tree.allocator);
+            if (self.peekTag() == .dot) {
+                // Parse sum type variants: .loading | .ready(Data) | .error(string)
+                var variants: std.ArrayList(NodeIndex) = .empty;
+                defer variants.deinit(self.tree.allocator);
 
-            const first_variant = try self.parseVariantDef();
-            try variants.append(self.tree.allocator, first_variant);
+                const first_variant = try self.parseVariantDef();
+                try variants.append(self.tree.allocator, first_variant);
 
-            while (true) {
-                self.skipNewlines();
-                if (self.peekTag() != .pipe) break;
-                self.advance();
-                self.skipNewlines();
-                const v = try self.parseVariantDef();
-                try variants.append(self.tree.allocator, v);
+                while (true) {
+                    self.skipNewlines();
+                    if (self.peekTag() != .pipe) break;
+                    self.advance();
+                    self.skipNewlines();
+                    const v = try self.parseVariantDef();
+                    try variants.append(self.tree.allocator, v);
+                }
+
+                const start: u32 = @intCast(self.tree.extra_data.items.len);
+                for (variants.items) |vv| {
+                    _ = try self.tree.addExtra(vv);
+                }
+                const count: u32 = @intCast(variants.items.len);
+
+                return self.tree.addNode(.{
+                    .tag = .type_alias,
+                    .main_token = tok,
+                    .data = .{ .lhs = start, .rhs = count },
+                });
             }
-
-            const start: u32 = @intCast(self.tree.extra_data.items.len);
-            for (variants.items) |vv| {
-                _ = try self.tree.addExtra(vv);
-            }
-            const count: u32 = @intCast(variants.items.len);
-
-            return self.tree.addNode(.{
-                .tag = .type_alias,
-                .main_token = tok,
-                .data = .{ .lhs = start, .rhs = count },
-            });
         }
 
         // Simple type declaration: `type Name <type>`
@@ -544,7 +692,7 @@ pub const Parser = struct {
     fn parseVariantDef(self: *Parser) Error!NodeIndex {
         const tok = self.pos;
         self.expectToken(.dot);
-        if (self.peekTag() != .identifier) {
+        if (!self.isVariantNameToken(self.peekTag())) {
             try self.addError(.expected_identifier, self.currentLoc(), null);
             return null_node;
         }
@@ -736,7 +884,10 @@ pub const Parser = struct {
     fn parseIf(self: *Parser) Error!NodeIndex {
         const tok = self.pos;
         self.expect(.kw_if);
+        const prev_allow_struct_literals = self.allow_struct_literals;
+        self.allow_struct_literals = false;
         const condition = try self.parseExpr();
+        self.allow_struct_literals = prev_allow_struct_literals;
 
         // Ternary form: if cond :: then_expr else else_expr
         if (self.peekTag() == .colon_colon) {
@@ -807,15 +958,18 @@ pub const Parser = struct {
         }
 
         // Parse first expression — could be condition or iterator variable
+        const prev_allow_struct_literals = self.allow_struct_literals;
+        self.allow_struct_literals = false;
         const first = try self.parseExpr();
+        self.allow_struct_literals = prev_allow_struct_literals;
 
         // Check for `in` keyword: `for item in collection { }`
         if (self.peekTag() == .kw_in) {
             self.advance();
-            const prev_allow_struct_literals = self.allow_struct_literals;
+            const prev_allow_iter_struct_literals = self.allow_struct_literals;
             self.allow_struct_literals = false;
-            defer self.allow_struct_literals = prev_allow_struct_literals;
             const iterable = try self.parseExpr();
+            self.allow_struct_literals = prev_allow_iter_struct_literals;
             // Store the iteration variable (first) and iterable in extra data
             _ = try self.tree.addExtra(first);
             self.skipNewlines();
@@ -1043,7 +1197,10 @@ pub const Parser = struct {
         if (self.peekTag() == .dot_dot) {
             const tok = self.pos;
             self.advance();
-            const rhs = try self.parseAddSub();
+            var rhs: NodeIndex = null_node;
+            if (self.peekTag() != .r_bracket and self.peekTag() != .r_paren and self.peekTag() != .comma) {
+                rhs = try self.parseAddSub();
+            }
             lhs = try self.tree.addNode(.{
                 .tag = .range,
                 .main_token = tok,
@@ -1171,7 +1328,7 @@ pub const Parser = struct {
                             .main_token = tok,
                             .data = .{ .lhs = node, .rhs = null_node },
                         });
-                    } else if (self.peekTag() == .identifier) {
+                    } else if (self.isNameToken(self.peekTag())) {
                         // Field access: expr.field
                         self.advance();
                         node = try self.tree.addNode(.{
@@ -1227,7 +1384,11 @@ pub const Parser = struct {
         defer args.deinit(self.tree.allocator);
 
         while (self.peekTag() != .r_paren and !self.isAtEnd()) {
-            if (args.items.len > 0) self.expectToken(.comma);
+            if (args.items.len > 0) {
+                self.expectToken(.comma);
+                self.skipNewlines();
+                if (self.peekTag() == .r_paren) break;
+            }
             const arg = try self.parseExpr();
             try args.append(self.tree.allocator, arg);
         }
@@ -1257,7 +1418,7 @@ pub const Parser = struct {
         var idx = self.pos + 1; // token after '{'
         while (idx < self.tokens.len and self.tokens[idx].tag == .newline) : (idx += 1) {}
         if (idx >= self.tokens.len) return false;
-        if (self.tokens[idx].tag != .identifier) return false;
+        if (!self.isNameToken(self.tokens[idx].tag)) return false;
         idx += 1;
         while (idx < self.tokens.len and self.tokens[idx].tag == .newline) : (idx += 1) {}
         return idx < self.tokens.len and self.tokens[idx].tag == .colon;
@@ -1280,11 +1441,12 @@ pub const Parser = struct {
             if (fields.items.len > 0) {
                 self.expectToken(.comma);
                 self.skipNewlines();
+                if (self.peekTag() == .r_brace) break;
             }
 
             // field_name: value
             const field_tok = self.pos;
-            if (self.peekTag() != .identifier) {
+            if (!self.isNameToken(self.peekTag())) {
                 try self.addError(.expected_identifier, self.currentLoc(), null);
                 break;
             }
@@ -1330,6 +1492,7 @@ pub const Parser = struct {
             if (lanes.items.len > 0) {
                 self.expectToken(.comma);
                 self.skipNewlines();
+                if (self.peekTag() == .r_brace) break;
             }
 
             const lane_expr = try self.parseExpr();
@@ -1366,11 +1529,12 @@ pub const Parser = struct {
             if (fields.items.len > 0) {
                 self.expectToken(.comma);
                 self.skipNewlines();
+                if (self.peekTag() == .r_brace) break;
             }
 
             // field_name: value
             const field_tok = self.pos;
-            if (self.peekTag() != .identifier) {
+            if (!self.isNameToken(self.peekTag())) {
                 try self.addError(.expected_identifier, self.currentLoc(), null);
                 break;
             }
@@ -1515,7 +1679,7 @@ pub const Parser = struct {
                     .data = .{ .lhs = null_node, .rhs = null_node },
                 });
             },
-            .identifier, .kw_syscall => {
+            .identifier, .kw_map, .kw_syscall, .kw_pub => {
                 const tok = self.pos;
                 self.advance();
                 return self.tree.addNode(.{
@@ -1534,7 +1698,7 @@ pub const Parser = struct {
                 }
 
                 // Variant literal: .loading, .ready(data)
-                if (self.peekTag() != .identifier) {
+                if (!self.isVariantNameToken(self.peekTag())) {
                     try self.addError(.expected_identifier, self.currentLoc(), null);
                     return null_node;
                 }
@@ -1554,11 +1718,7 @@ pub const Parser = struct {
                 });
             },
             .l_paren => {
-                // Grouped expression
-                self.advance();
-                const expr = try self.parseExpr();
-                self.expectToken(.r_paren);
-                return expr;
+                return self.parseParenExpr();
             },
             .kw_if => {
                 // Ternary if-expression: if cond :: then_expr else else_expr
@@ -1577,6 +1737,9 @@ pub const Parser = struct {
             .kw_asm => {
                 return self.parseAsmExpr();
             },
+            .l_bracket => {
+                return self.parseBracketLiteral();
+            },
             .eof => {
                 try self.addError(.unexpected_eof, self.currentLoc(), null);
                 return null_node;
@@ -1587,6 +1750,113 @@ pub const Parser = struct {
                 return null_node;
             },
         };
+    }
+
+    fn parseParenExpr(self: *Parser) Error!NodeIndex {
+        const tok = self.pos;
+        self.expectToken(.l_paren);
+
+        const first = try self.parseExpr();
+        if (self.peekTag() != .comma) {
+            self.expectToken(.r_paren);
+            return first;
+        }
+
+        var items: std.ArrayList(NodeIndex) = .empty;
+        defer items.deinit(self.tree.allocator);
+        try items.append(self.tree.allocator, first);
+
+        while (self.peekTag() == .comma and !self.isAtEnd()) {
+            self.advance();
+            self.skipNewlines();
+            if (self.peekTag() == .r_paren) break;
+            try items.append(self.tree.allocator, try self.parseExpr());
+        }
+
+        self.expectToken(.r_paren);
+
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        for (items.items) |item| {
+            _ = try self.tree.addExtra(item);
+        }
+        _ = try self.tree.addExtra(@as(NodeIndex, @intCast(items.items.len)));
+
+        return self.tree.addNode(.{
+            .tag = .tuple_literal,
+            .main_token = tok,
+            .data = .{ .lhs = null_node, .rhs = start },
+        });
+    }
+
+    fn parseBracketLiteral(self: *Parser) Error!NodeIndex {
+        if (try self.parseTypedArrayLiteral()) |typed_literal| {
+            return typed_literal;
+        }
+        return self.parseArrayLiteralElements(null_node, self.pos, .l_bracket, .r_bracket);
+    }
+
+    fn parseTypedArrayLiteral(self: *Parser) Error!?NodeIndex {
+        const saved_pos = self.pos;
+        const saved_nodes_len = self.tree.nodes.items.len;
+        const saved_extra_len = self.tree.extra_data.items.len;
+        const saved_errors_len = self.tree.errors.items.len;
+        const tok = self.pos;
+
+        const type_node = try self.parseType();
+        self.skipNewlines();
+
+        if (type_node != null_node and self.peekTag() == .l_brace) {
+            return @as(?NodeIndex, try self.parseArrayLiteralElements(type_node, tok, .l_brace, .r_brace));
+        }
+
+        self.pos = saved_pos;
+        self.tree.nodes.items.len = saved_nodes_len;
+        self.tree.extra_data.items.len = saved_extra_len;
+        self.tree.errors.items.len = saved_errors_len;
+        return null;
+    }
+
+    fn parseArrayLiteralElements(
+        self: *Parser,
+        type_node: NodeIndex,
+        tok: u32,
+        open_tag: Tag,
+        close_tag: Tag,
+    ) Error!NodeIndex {
+        self.expectToken(open_tag);
+        self.skipNewlines();
+
+        var elements: std.ArrayList(NodeIndex) = .empty;
+        defer elements.deinit(self.tree.allocator);
+
+        while (self.peekTag() != close_tag and !self.isAtEnd()) {
+            self.skipNewlines();
+            if (self.peekTag() == close_tag) break;
+
+            if (elements.items.len > 0) {
+                self.expectToken(.comma);
+                self.skipNewlines();
+                if (self.peekTag() == close_tag) break;
+            }
+
+            const element = try self.parseExpr();
+            try elements.append(self.tree.allocator, element);
+            self.skipNewlines();
+        }
+
+        self.expectToken(close_tag);
+
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        for (elements.items) |element| {
+            _ = try self.tree.addExtra(element);
+        }
+        _ = try self.tree.addExtra(@as(NodeIndex, @intCast(elements.items.len)));
+
+        return self.tree.addNode(.{
+            .tag = .array_literal,
+            .main_token = tok,
+            .data = .{ .lhs = type_node, .rhs = start },
+        });
     }
 
     /// Parse inline assembly expression: `asm(inputs; clobber: regs) ret_type { body }`
@@ -1811,6 +2081,10 @@ pub const Parser = struct {
             });
         }
 
+        if (self.peekTag() == .l_paren) {
+            return self.parseParenType();
+        }
+
         // Pointer: &T
         if (self.peekTag() == .ampersand) {
             const tok = self.pos;
@@ -1839,12 +2113,43 @@ pub const Parser = struct {
         if (self.peekTag() == .l_bracket) {
             const tok = self.pos;
             self.advance();
+            if (self.peekTag() == .int_literal) {
+                const len_tok = self.pos;
+                const len_text = self.tokens[len_tok].slice(self.source);
+                const array_len = std.fmt.parseUnsigned(u32, len_text, 10) catch 0;
+                self.advance();
+                self.expectToken(.r_bracket);
+                const inner = try self.parseType();
+                return self.tree.addNode(.{
+                    .tag = .type_array,
+                    .main_token = tok,
+                    .data = .{ .lhs = inner, .rhs = array_len },
+                });
+            }
             self.expectToken(.r_bracket);
             const inner = try self.parseType();
             return self.tree.addNode(.{
                 .tag = .type_slice,
                 .main_token = tok,
                 .data = .{ .lhs = inner, .rhs = null_node },
+            });
+        }
+
+        // Function type: fun(params) ret_type
+        if (self.peekTag() == .kw_fun) {
+            const tok = self.pos;
+            self.advance();
+
+            const params_start = try self.parseFnTypeParamList();
+            var ret_type: NodeIndex = null_node;
+            if (self.isTypeStart()) {
+                ret_type = try self.parseType();
+            }
+
+            return self.tree.addNode(.{
+                .tag = .type_fn,
+                .main_token = tok,
+                .data = .{ .lhs = params_start, .rhs = ret_type },
             });
         }
 
@@ -1904,8 +2209,12 @@ pub const Parser = struct {
                 self.skipNewlines();
                 if (self.peekTag() == .r_brace) break;
 
+                const start_pos = self.pos;
                 const field = try self.parseFieldDecl();
-                try field_nodes.append(self.tree.allocator, field);
+                if (field != null_node) {
+                    try field_nodes.append(self.tree.allocator, field);
+                }
+                self.recoverLoopProgress(start_pos);
 
                 self.skipNewlines();
                 if (self.peekTag() == .comma) self.advance();
@@ -1926,16 +2235,10 @@ pub const Parser = struct {
         }
 
         // Named type: int, string, MyStruct, etc.
-        if (self.peekTag() == .identifier) {
-            const tok = self.pos;
-            self.advance();
-            var node = try self.tree.addNode(.{
-                .tag = .type_name,
-                .main_token = tok,
-                .data = .{ .lhs = null_node, .rhs = null_node },
-            });
+        if (self.isNameToken(self.peekTag())) {
+            var node = try self.parseTypeNamePath();
 
-            // Nullable postfix: T?
+            // Nullable postfix: T? or pkg.Type?
             if (self.peekTag() == .question) {
                 const q_tok = self.pos;
                 self.advance();
@@ -1953,16 +2256,89 @@ pub const Parser = struct {
         return null_node;
     }
 
+    fn parseParenType(self: *Parser) Error!NodeIndex {
+        const tok = self.pos;
+        self.expectToken(.l_paren);
+        const first = try self.parseType();
+        if (self.peekTag() != .comma) {
+            self.expectToken(.r_paren);
+            return first;
+        }
+
+        var items: std.ArrayList(NodeIndex) = .empty;
+        defer items.deinit(self.tree.allocator);
+        try items.append(self.tree.allocator, first);
+
+        while (self.peekTag() == .comma and !self.isAtEnd()) {
+            self.advance();
+            self.skipNewlines();
+            if (self.peekTag() == .r_paren) break;
+            try items.append(self.tree.allocator, try self.parseType());
+        }
+
+        self.expectToken(.r_paren);
+
+        const start: u32 = @intCast(self.tree.extra_data.items.len);
+        for (items.items) |item| {
+            _ = try self.tree.addExtra(item);
+        }
+
+        return self.tree.addNode(.{
+            .tag = .type_tuple,
+            .main_token = tok,
+            .data = .{ .lhs = start, .rhs = @as(NodeIndex, @intCast(items.items.len)) },
+        });
+    }
+
+    fn parseTypeNamePath(self: *Parser) Error!NodeIndex {
+        const tok = self.pos;
+        self.advance();
+
+        var node = try self.tree.addNode(.{
+            .tag = .type_name,
+            .main_token = tok,
+            .data = .{ .lhs = null_node, .rhs = null_node },
+        });
+
+        while (self.peekTag() == .dot) {
+            const dot_tok = self.pos;
+            self.advance();
+
+            if (!self.isNameToken(self.peekTag())) {
+                try self.addError(.expected_identifier, self.currentLoc(), null);
+                break;
+            }
+
+            self.advance();
+            node = try self.tree.addNode(.{
+                .tag = .field_access,
+                .main_token = dot_tok,
+                .data = .{ .lhs = node, .rhs = null_node },
+            });
+        }
+
+        return node;
+    }
+
     fn isAllocType(self: *const Parser, node: NodeIndex) bool {
         if (node == null_node) return false;
         const tag = self.tree.nodes.items[node].tag;
-        return tag == .type_slice or tag == .type_map or tag == .type_chan;
+        return tag == .type_slice or tag == .type_map or tag == .type_chan or tag == .type_array;
     }
 
     fn isTypeStart(self: *const Parser) bool {
         const tag = self.peekTag();
         return tag == .identifier or tag == .ampersand or tag == .at or
-            tag == .bang or tag == .l_bracket or tag == .kw_chan or tag == .kw_map or tag == .kw_struct;
+            tag == .bang or tag == .l_bracket or tag == .l_paren or
+            tag == .kw_chan or tag == .kw_map or tag == .kw_struct or tag == .kw_fun;
+    }
+
+    fn isNameToken(_: *const Parser, tag: Tag) bool {
+        return tag == .identifier or tag.isKeyword();
+    }
+
+    fn isVariantNameToken(_: *const Parser, tag: Tag) bool {
+        return tag == .identifier or tag.isKeyword();
     }
 
     // --- Helpers ---
@@ -2011,6 +2387,12 @@ pub const Parser = struct {
 
     fn skipNewlines(self: *Parser) void {
         while (self.peekTag() == .newline) {
+            self.advance();
+        }
+    }
+
+    fn recoverLoopProgress(self: *Parser, start_pos: u32) void {
+        if (self.pos == start_pos and !self.isAtEnd()) {
             self.advance();
         }
     }
@@ -2135,6 +2517,19 @@ test "parse function definition" {
     try std.testing.expect(parser.tree.errors.items.len == 0);
 }
 
+test "parse function named map" {
+    const source = "pub fun map(it Iterator) Iterator {\n    return it\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+}
+
 test "parse struct" {
     const source = "Point struct {\n    x f64,\n    y f64\n}";
     var lexer = Lexer.init(source);
@@ -2182,6 +2577,41 @@ test "parse struct with implements" {
         }
     }
     try std.testing.expect(found_struct);
+}
+
+test "parse struct with implements braces" {
+    const source = "pub Rectangle struct {\n    implements {\n        Figure\n        Writer\n    }\n\n    x int\n    y int\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found_struct = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .struct_decl) {
+            found_struct = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_struct);
+}
+
+test "parse struct with qualified implements" {
+    const source = "pub Buffer struct {\n    implements {\n        io.Reader\n        io.Writer\n    }\n\n    buf []byte\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
 }
 
 test "parse struct with implements and colons" {
@@ -2248,6 +2678,19 @@ test "parse interface with multiple methods" {
     try std.testing.expectEqual(@as(u32, 2), method_sig_count);
 }
 
+test "parse shorthand pub interface" {
+    const source = "pub interface Error {\n    message() string\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+}
+
 test "parse sum type" {
     const source = "type State = .loading | .ready(Data) | .error(string)";
     var lexer = Lexer.init(source);
@@ -2259,6 +2702,19 @@ test "parse sum type" {
 
     _ = try parser.parseFile();
     try std.testing.expect(parser.tree.errors.items.len == 0);
+}
+
+test "parse sum type with keyword variants" {
+    const source = "type Value = .null | .bool(bool)\ntype Status = .continue | .ok";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
 }
 
 test "parse method with receiver" {
@@ -2449,6 +2905,32 @@ test "parse anonymous struct literal" {
     }
     try std.testing.expect(found_anon_struct);
     try std.testing.expectEqual(@as(u32, 2), field_init_count);
+}
+
+test "parse struct literal with trailing comma" {
+    const source =
+        \\fn main() {
+        \\    p := Point{
+        \\        x: 1,
+        \\        y: 2,
+        \\    }
+        \\}
+    ;
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_struct_lit = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .struct_literal) found_struct_lit = true;
+    }
+    try std.testing.expect(found_struct_lit);
 }
 
 test "parse SIMD literal" {
@@ -2907,6 +3389,119 @@ test "parse type declaration with slice type" {
     try std.testing.expect(found_type_slice);
 }
 
+test "parse type declaration with equals and function type" {
+    const source = "type CancelFunc = fun()";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_type_decl = false;
+    var found_type_fn = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_decl) found_type_decl = true;
+        if (node.tag == .type_fn) found_type_fn = true;
+    }
+    try std.testing.expect(found_type_decl);
+    try std.testing.expect(found_type_fn);
+}
+
+test "parse function type with unnamed params" {
+    const source = "type Mapper = fun(any) any";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_type_fn = false;
+    var param_count: u32 = 0;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_fn) found_type_fn = true;
+        if (node.tag == .param) param_count += 1;
+    }
+    try std.testing.expect(found_type_fn);
+    try std.testing.expectEqual(@as(u32, 1), param_count);
+}
+
+test "parse array type" {
+    const source = "type Digest [32]byte";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_type_array = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_array) {
+            found_type_array = true;
+            try std.testing.expectEqual(@as(u32, 32), node.data.rhs);
+        }
+    }
+    try std.testing.expect(found_type_array);
+}
+
+test "parse bracket array literal" {
+    const source = "fn main() {\n    parts := [wd, path]\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .array_literal) {
+            try std.testing.expectEqual(null_node, node.data.lhs);
+            const extra = parser.tree.extra_data.items;
+            const count = extra[node.data.rhs + 2];
+            try std.testing.expectEqual(@as(u32, 2), count);
+            return;
+        }
+    }
+
+    return error.TestUnexpectedResult;
+}
+
+test "parse typed array literal" {
+    const source = "fn main() {\n    return [32]byte{}\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_array_literal = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .array_literal) {
+            found_array_literal = true;
+            try std.testing.expect(parser.tree.nodes.items[node.data.lhs].tag == .type_array);
+        }
+    }
+    try std.testing.expect(found_array_literal);
+}
+
 test "parse multiple type declarations" {
     const source = "pub type A int\ntype B f64";
     var lexer = Lexer.init(source);
@@ -2946,6 +3541,19 @@ test "parse try without context" {
         }
     }
     return error.TestUnexpectedResult; // no try_expr found
+}
+
+test "parse if condition ending with field access before block" {
+    const source = "fn main() {\n    if br.pos < br.end {\n        return\n    }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
 }
 
 test "parse try with context string" {
@@ -3297,4 +3905,155 @@ test "parse pub inline is error" {
 
     _ = try parser.parseFile();
     try std.testing.expect(parser.tree.errors.items.len > 0);
+}
+
+test "parse qualified type paths" {
+    const source =
+        \\package csv
+        \\
+        \\use "io"
+        \\
+        \\pub Reader struct {
+        \\    reader io.Reader
+        \\}
+        \\
+        \\pub fun newReader(r io.Reader) Reader {
+        \\    return Reader{ reader: r }
+        \\}
+    ;
+
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_field_access = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .field_access) found_field_access = true;
+    }
+    try std.testing.expect(found_field_access);
+}
+
+test "recover from malformed qualified type" {
+    const source =
+        \\package broken
+        \\
+        \\Bad struct {
+        \\    reader io.
+        \\    next int
+        \\}
+    ;
+
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len > 0);
+}
+
+test "parse pub named interface declaration" {
+    const source =
+        \\pub Hash interface {
+        \\    size() int
+        \\}
+    ;
+
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_pub = false;
+    var found_interface = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .pub_decl) found_pub = true;
+        if (node.tag == .interface_decl) found_interface = true;
+    }
+    try std.testing.expect(found_pub);
+    try std.testing.expect(found_interface);
+}
+
+test "parse keyword receiver and keyword method name" {
+    const source =
+        \\Key struct { data []byte }
+        \\Router struct {}
+        \\fun (pub @Key) bytes() []byte {
+        \\    return pub.data
+        \\}
+        \\fun (r &Router) use(mw ...Middleware) {}
+    ;
+
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+}
+
+test "parse tuple return type and tuple literal" {
+    const source =
+        \\A struct {}
+        \\B struct {}
+        \\fun generate() !(A, B) {
+        \\    return (A{}, B{})
+        \\}
+    ;
+
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+
+    var found_type_tuple = false;
+    var found_tuple_literal = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_tuple) found_type_tuple = true;
+        if (node.tag == .tuple_literal) found_tuple_literal = true;
+    }
+    try std.testing.expect(found_type_tuple);
+    try std.testing.expect(found_tuple_literal);
+}
+
+test "parse struct literal in for in loop body" {
+    const source =
+        \\Entry struct { name string }
+        \\fun main(items []Raw) {
+        \\    for raw in items {
+        \\        entry := Entry{ name: raw.name }
+        \\    }
+        \\}
+    ;
+
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
 }
