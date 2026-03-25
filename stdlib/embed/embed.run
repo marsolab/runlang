@@ -117,7 +117,7 @@ pub fun (d @Dir) count() int {
 
 // EmbedFile wraps an embedded File to implement the fs.File interface,
 // providing a read position for sequential reading.
-type EmbedFile struct {
+EmbedFile struct {
     implements(
         fs.File
     )
@@ -156,7 +156,7 @@ pub fun (ef @EmbedFile) close() !void {
 }
 
 // EmbedFileInfo wraps an embedded File to implement the fs.FileInfo interface.
-type EmbedFileInfo struct {
+EmbedFileInfo struct {
     implements(
         fs.FileInfo
     )
@@ -191,7 +191,7 @@ pub fun (i @EmbedFileInfo) isDir() bool {
 }
 
 // EmbedDirEntry wraps an embedded File to implement the fs.DirEntry interface.
-type EmbedDirEntry struct {
+EmbedDirEntry struct {
     implements(
         fs.DirEntry
     )

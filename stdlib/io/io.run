@@ -3,13 +3,9 @@ package io
 // --- Type cast helpers ---
 // These wrap `as` casts into function calls for clarity and consistency.
 
-fun toStringWriter(val any) StringWriter {
-    return val.(StringWriter)
-}
-
-fun toBytes(val any) []byte {
-    return val.([]byte)
-}
+// TODO: type assertions require runtime type information; using identity returns for now.
+fun toStringWriter(val any) StringWriter { return val }
+fun toBytes(val any) []byte { return val }
 
 // Reader is the interface for types that can read bytes.
 pub type Reader interface {

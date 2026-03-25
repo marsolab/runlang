@@ -1,9 +1,9 @@
 package cmp
 
-fun toOrdered(val any) Ordered? { return val.(Ordered) }
-fun toInt(val any) int? { return val.(int) }
-fun toF64(val any) f64? { return val.(f64) }
-fun toStr(val any) string? { return val.(string) }
+fun toOrdered(val any) Ordered? { return val }
+fun toInt(val any) int? { return val }
+fun toF64(val any) f64? { return val }
+fun toStr(val any) string? { return val }
 
 // Ordering represents the result of a comparison.
 pub type Ordering = .less | .equal | .greater

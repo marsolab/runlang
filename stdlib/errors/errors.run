@@ -3,20 +3,16 @@ package errors
 use "fmt"
 
 // unwrapOpt extracts the value from an optional, panicking if null.
+// TODO: proper null check and panic when @panic builtin is supported
 fun unwrapOpt(val Error?) Error {
-    return switch val {
-        .some(v) => v,
-        null => @panic("unwrap of null optional"),
-    }
+    return val
 }
 
 // tryCast attempts to cast an Error to the Wrapper interface.
 // Returns null if the error does not implement Wrapper.
+// TODO: type narrowing requires runtime type information
 fun tryCast(err Error) Wrapper? {
-    return switch err {
-        w: Wrapper => .some(w),
-        _ => null,
-    }
+    return null
 }
 
 // Error is the interface for all error values.
