@@ -1,54 +1,159 @@
 package unsafe
 
+// Package unsafe provides low-level memory operations that bypass the
+// type system and safety guarantees. Operations in this package are
+// inherently unsafe and can cause undefined behavior if misused.
+//
+// Most functions in this package require compiler builtin support.
+// They are defined here to establish the API surface and document
+// the safety invariants callers must uphold.
+
 // Pointer is an opaque pointer type that can point to any memory location.
 // Using Pointer bypasses the type system and safety guarantees.
+// A Pointer with addr == 0 is considered null.
 pub Pointer struct {
     addr int
 }
 
 // ptr converts a reference to an unsafe Pointer.
+// The resulting Pointer is valid only as long as the original reference
+// is alive. Using the Pointer after the reference is freed is undefined behavior.
+// TODO: Requires compiler builtin __unsafe_ptr to extract address from reference.
 pub fun ptr(ref any) Pointer {
     return Pointer{ addr: 0 }
 }
 
 // cast reinterprets the Pointer as a reference to the given type.
-// This is inherently unsafe and may cause undefined behavior.
+// This is inherently unsafe and may cause undefined behavior if the
+// memory at the pointer does not contain a valid value of the target type.
+// The caller must ensure:
+//   - The pointer is non-null
+//   - The memory is properly aligned for the target type
+//   - The memory contains a valid bit pattern for the target type
+//   - The memory remains valid for the lifetime of the returned reference
+// TODO: Requires compiler builtin __unsafe_cast with generic type parameter.
 pub fun cast(p Pointer) any {
     return null
 }
 
 // sizeof returns the size in bytes of the given type.
+// This is a compile-time operation — the argument should be a type, not a value.
+// TODO: Requires compiler builtin __unsafe_sizeof.
 pub fun sizeof(t any) int {
     return 0
 }
 
 // alignof returns the alignment in bytes of the given type.
+// This is a compile-time operation — the argument should be a type, not a value.
+// TODO: Requires compiler builtin __unsafe_alignof.
 pub fun alignof(t any) int {
     return 0
 }
 
 // offsetof returns the offset in bytes of a field within a struct.
+// The result depends on the compiler's struct layout rules (field ordering,
+// padding, alignment). This is a compile-time operation.
+// TODO: Requires compiler builtin __unsafe_offsetof.
 pub fun offsetof(t any, field string) int {
     return 0
 }
 
 // slice constructs a slice from a raw pointer, length, and capacity.
-// This is inherently unsafe — the caller must ensure the memory is valid.
+// This is inherently unsafe — the caller must ensure:
+//   - The pointer points to a valid, contiguous block of memory
+//   - The memory block is at least capacity bytes long
+//   - length <= capacity
+//   - The memory remains valid for the lifetime of the returned slice
+// TODO: Requires compiler builtin __unsafe_slice to construct slice header.
 pub fun slice(p Pointer, length int, capacity int) []byte {
     return alloc([]byte, 0)
 }
 
-// nullPtr returns a null Pointer.
+// nullPtr returns a null Pointer (addr == 0).
 pub fun nullPtr() Pointer {
     return Pointer{ addr: 0 }
 }
 
-// isNull reports whether the pointer is null.
+// isNull reports whether the pointer is null (addr == 0).
 pub fun isNull(p Pointer) bool {
-    return true
+    return p.addr == 0
 }
 
-// add returns a pointer offset by n bytes from p.
+// add returns a pointer offset by n bytes forward from p.
+// The caller must ensure the resulting pointer remains within
+// a valid allocated region or one byte past the end.
 pub fun add(p Pointer, n int) Pointer {
-    return Pointer{ addr: 0 }
+    return Pointer{ addr: p.addr + n }
+}
+
+// sub returns a pointer offset by n bytes backward from p.
+// The caller must ensure the resulting pointer remains within
+// a valid allocated region.
+pub fun sub(p Pointer, n int) Pointer {
+    return Pointer{ addr: p.addr - n }
+}
+
+// eq reports whether two pointers point to the same address.
+pub fun eq(a Pointer, b Pointer) bool {
+    return a.addr == b.addr
+}
+
+// diff returns the byte distance between two pointers (a.addr - b.addr).
+// Both pointers should point into the same allocated region for the
+// result to be meaningful.
+pub fun diff(a Pointer, b Pointer) int {
+    return a.addr - b.addr
+}
+
+// read reads size bytes from the memory starting at pointer p.
+// The caller must ensure:
+//   - p is non-null
+//   - The memory region [p, p+size) is valid and readable
+//   - size >= 0
+// TODO: Requires compiler builtin __unsafe_read.
+pub fun read(p Pointer, size int) []byte {
+    return alloc([]byte, 0)
+}
+
+// write writes data bytes to the memory starting at pointer p.
+// The caller must ensure:
+//   - p is non-null
+//   - The memory region [p, p+len(data)) is valid and writable
+//   - The memory is not aliased by any safe references during the write
+// TODO: Requires compiler builtin __unsafe_write.
+pub fun write(p Pointer, data []byte) {
+}
+
+// copy copies n bytes from src to dst. The memory regions may overlap;
+// if they do, the copy behaves as if the bytes were first copied to a
+// temporary buffer and then written to dst.
+// The caller must ensure:
+//   - Both pointers are non-null
+//   - The regions [src, src+n) and [dst, dst+n) are valid
+//   - n >= 0
+// TODO: Requires compiler builtin __unsafe_memmove.
+pub fun copy(dst Pointer, src Pointer, n int) {
+}
+
+// zero fills n bytes starting at pointer p with zeroes.
+// The caller must ensure:
+//   - p is non-null
+//   - The memory region [p, p+n) is valid and writable
+//   - n >= 0
+// TODO: Requires compiler builtin __unsafe_memset.
+pub fun zero(p Pointer, n int) {
+}
+
+// align returns a pointer aligned up to the given alignment boundary.
+// The alignment must be a power of two.
+// For example, align(Pointer{addr: 5}, 4) returns Pointer{addr: 8}.
+// TODO: Requires bitwise AND and NOT operators for efficient implementation.
+pub fun align(p Pointer, alignment int) Pointer {
+    // Equivalent to: (p.addr + alignment - 1) & ~(alignment - 1)
+    // Without bitwise ops, use modular arithmetic.
+    var remainder = p.addr % alignment
+    if remainder == 0 {
+        return p
+    }
+    return Pointer{ addr: p.addr + alignment - remainder }
 }

@@ -1,5 +1,26 @@
 package embed
 
+use "io/fs"
+
+// Package embed provides access to files embedded in the compiled binary.
+//
+// Files are embedded using the embed directive in source code:
+//
+//   #embed "static/*"
+//   var staticFiles embed.Dir
+//
+//   #embed "config.json"
+//   var config embed.File
+//
+// The compiler populates Dir.files and File.data at compile time.
+// At runtime, embedded data is read-only and baked into the binary.
+// TODO: The #embed directive requires compiler support.
+
+// EmbedError represents errors from embed operations.
+pub type EmbedError = .notFound
+    | .invalidPattern
+    | .empty
+
 // File represents a single embedded file.
 pub File struct {
     name string
@@ -7,14 +28,40 @@ pub File struct {
 }
 
 // Dir represents a directory of embedded files.
+// The files slice is populated at compile time by the #embed directive.
 pub Dir struct {
     files []File
+}
+
+// string returns the contents of the file as a string.
+pub fun (f @File) string() string {
+    return f.data as string
+}
+
+// bytes returns the raw contents of the file.
+pub fun (f @File) bytes() []byte {
+    return f.data
+}
+
+// size returns the size of the file in bytes.
+pub fun (f @File) size() int {
+    return len(f.data)
+}
+
+// isEmpty reports whether the file has no content.
+pub fun (f @File) isEmpty() bool {
+    return len(f.data) == 0
 }
 
 // open returns the embedded file with the given name, or an error
 // if the file is not found in the embedded directory.
 pub fun (d @Dir) open(name string) !File {
-    return File{ name: "", data: alloc([]byte, 0) }
+    for f in d.files {
+        if f.name == name {
+            return f
+        }
+    }
+    return EmbedError.notFound
 }
 
 // readDir returns the list of files in the embedded directory.
@@ -24,15 +71,242 @@ pub fun (d @Dir) readDir() []File {
 
 // readFile returns the contents of the named embedded file.
 pub fun (d @Dir) readFile(name string) ![]byte {
-    return alloc([]byte, 0)
-}
-
-// string returns the contents of the file as a string.
-pub fun (f @File) string() string {
-    return ""
-}
-
-// bytes returns the raw contents of the file.
-pub fun (f @File) bytes() []byte {
+    var f = try d.open(name)
     return f.data
+}
+
+// readFileString returns the contents of the named embedded file as a string.
+pub fun (d @Dir) readFileString(name string) !string {
+    var data = try d.readFile(name)
+    return data as string
+}
+
+// lookup returns the embedded file with the given name, or null if not found.
+pub fun (d @Dir) lookup(name string) File? {
+    for f in d.files {
+        if f.name == name {
+            return .some(f)
+        }
+    }
+    return null
+}
+
+// glob returns all files whose names match the given glob pattern.
+// Supports '*' (matches any sequence of non-/ characters) and '?'
+// (matches exactly one non-/ character). Returns an error for invalid patterns.
+pub fun (d @Dir) glob(pattern string) ![]File {
+    var patBytes = pattern as []byte
+    if !validPattern(patBytes) {
+        return EmbedError.invalidPattern
+    }
+    var result = alloc([]File, 0)
+    for f in d.files {
+        if globMatch(patBytes, f.name as []byte) {
+            result = append(result, f)
+        }
+    }
+    return result
+}
+
+// count returns the number of files in the embedded directory.
+pub fun (d @Dir) count() int {
+    return len(d.files)
+}
+
+// --- io/fs interface conformance ---
+
+// EmbedFile wraps an embedded File to implement the fs.File interface,
+// providing a read position for sequential reading.
+EmbedFile struct {
+    implements (
+        fs.File,
+    )
+
+    file File
+    pos  int
+}
+
+// stat returns the FileInfo for the embedded file.
+pub fun (ef @EmbedFile) stat() !fs.FileInfo {
+    return EmbedFileInfo{ file: ef.file }
+}
+
+// read reads up to len(buf) bytes from the embedded file.
+// Returns the number of bytes read, or 0 when the end is reached.
+pub fun (ef &EmbedFile) read(buf []byte) !int {
+    if ef.pos >= len(ef.file.data) {
+        return 0
+    }
+    var remaining = len(ef.file.data) - ef.pos
+    var n = len(buf)
+    if n > remaining {
+        n = remaining
+    }
+    var i = 0
+    for i < n {
+        buf[i] = ef.file.data[ef.pos + i]
+        i = i + 1
+    }
+    ef.pos = ef.pos + n
+    return n
+}
+
+// close is a no-op for embedded files (they are read-only memory).
+pub fun (ef @EmbedFile) close() !void {
+}
+
+// EmbedFileInfo wraps an embedded File to implement the fs.FileInfo interface.
+EmbedFileInfo struct {
+    implements (
+        fs.FileInfo,
+    )
+
+    file File
+}
+
+// name returns the base name of the embedded file.
+pub fun (i @EmbedFileInfo) name() string {
+    return i.file.name
+}
+
+// size returns the size of the embedded file in bytes.
+pub fun (i @EmbedFileInfo) size() int {
+    return len(i.file.data)
+}
+
+// mode returns the file mode for the embedded file.
+// Embedded files are always regular files.
+pub fun (i @EmbedFileInfo) mode() fs.FileMode {
+    return fs.FileMode.regular
+}
+
+// mod_time returns 0 for embedded files (no modification time is preserved).
+pub fun (i @EmbedFileInfo) mod_time() int {
+    return 0
+}
+
+// is_dir returns false for embedded files.
+pub fun (i @EmbedFileInfo) is_dir() bool {
+    return false
+}
+
+// EmbedDirEntry wraps an embedded File to implement the fs.DirEntry interface.
+EmbedDirEntry struct {
+    implements (
+        fs.DirEntry,
+    )
+
+    file File
+}
+
+// name returns the name of the embedded file.
+pub fun (e @EmbedDirEntry) name() string {
+    return e.file.name
+}
+
+// is_dir returns false for embedded file entries.
+pub fun (e @EmbedDirEntry) is_dir() bool {
+    return false
+}
+
+// type_mode returns the type bits for the embedded file entry.
+pub fun (e @EmbedDirEntry) type_mode() fs.FileMode {
+    return fs.FileMode.regular
+}
+
+// info returns the FileInfo for the embedded file entry.
+pub fun (e @EmbedDirEntry) info() !fs.FileInfo {
+    return EmbedFileInfo{ file: e.file }
+}
+
+// --- Private helpers ---
+
+// validPattern checks whether a glob pattern is well-formed.
+fun validPattern(pattern []byte) bool {
+    var i = 0
+    for i < len(pattern) {
+        var c = pattern[i]
+        if c == 91 {
+            // '[' bracket expression — check for matching ']'
+            i = i + 1
+            if i >= len(pattern) {
+                return false
+            }
+            // Allow leading '^' or '!'
+            if i < len(pattern) {
+                if pattern[i] == 94 || pattern[i] == 33 {
+                    i = i + 1
+                }
+            }
+            // Must have at least one character before ']'
+            if i >= len(pattern) || pattern[i] == 93 {
+                return false
+            }
+            for i < len(pattern) {
+                if pattern[i] == 93 {
+                    break
+                }
+                i = i + 1
+            }
+            if i >= len(pattern) {
+                return false
+            }
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// globMatch reports whether name matches the glob pattern.
+// Supports '*' (any sequence of non-/ chars) and '?' (one non-/ char).
+fun globMatch(pattern []byte, name []byte) bool {
+    var px = 0
+    var nx = 0
+    var nextPx = 0
+    var nextNx = 0
+    var hasStar = false
+
+    for px < len(pattern) || nx < len(name) {
+        if px < len(pattern) {
+            var c = pattern[px]
+            if c == 42 {
+                // '*' — record restart point and advance pattern
+                hasStar = true
+                nextPx = px
+                nextNx = nx + 1
+                px = px + 1
+                continue
+            }
+            if nx < len(name) {
+                if c == 63 {
+                    // '?' — match any single non-/ character
+                    if name[nx] != 47 {
+                        px = px + 1
+                        nx = nx + 1
+                        continue
+                    }
+                } else {
+                    // Literal character match
+                    if c == name[nx] {
+                        px = px + 1
+                        nx = nx + 1
+                        continue
+                    }
+                }
+            }
+        }
+        // Mismatch — backtrack to last '*' if possible
+        if hasStar && nextNx <= len(name) {
+            // Don't let '*' match '/'
+            if nextNx > 0 && nextNx <= len(name) && name[nextNx - 1] == 47 {
+                return false
+            }
+            px = nextPx + 1
+            nx = nextNx
+            nextNx = nextNx + 1
+            continue
+        }
+        return false
+    }
+    return true
 }
