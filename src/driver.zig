@@ -173,16 +173,6 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
         return CompileError.NamingFailed;
     }
 
-    // For "check" command, we stop after validation.
-    if (options.command == .check) {
-        const stdout = File.stdout().deprecatedWriter();
-        stdout.print("check: {s} OK ({d} nodes)\n", .{
-            options.input_path,
-            parser.tree.nodes.items.len,
-        }) catch {};
-        return;
-    }
-
     // 5. Name resolution
     var resolve_result = resolve.resolveNames(allocator, &parser.tree, tokens.items) catch {
         return CompileError.OutOfMemory;
@@ -214,6 +204,16 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     if (own_result.diagnostics.hasErrors()) {
         own_result.diagnostics.renderRich(source, options.input_path, stderr, !options.no_color) catch {};
         return CompileError.ParseFailed;
+    }
+
+    // For "check" command, stop after semantic analysis succeeds.
+    if (options.command == .check) {
+        const stdout = File.stdout().deprecatedWriter();
+        stdout.print("check: {s} OK ({d} nodes)\n", .{
+            options.input_path,
+            parser.tree.nodes.items.len,
+        }) catch {};
+        return;
     }
 
     // 7. Lower AST to IR (with source path for debug info)
@@ -266,15 +266,19 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
         return CompileError.OutOfMemory;
     };
 
-    // 9. Write C to temp file and compile with zig cc
-    const tmp_path = "/tmp/run_generated.c";
+    // 9. Write C to a unique temp file and compile with zig cc
+    const tmp_c = createUniqueTempFile(allocator, "run_generated", ".c") catch {
+        stderr.writeAll("error: failed to create temp file\n") catch {};
+        return CompileError.CCompileFailed;
+    };
+    const tmp_path = tmp_c.path;
+    defer {
+        if (!options.debug) std.fs.deleteFileAbsolute(tmp_path) catch {};
+        allocator.free(tmp_path);
+    }
     {
-        const tmp_file = std.fs.cwd().createFile(tmp_path, .{}) catch {
-            stderr.writeAll("error: failed to create temp file\n") catch {};
-            return CompileError.CCompileFailed;
-        };
-        defer tmp_file.close();
-        tmp_file.writeAll(c_source) catch {
+        defer tmp_c.file.close();
+        tmp_c.file.writeAll(c_source) catch {
             stderr.writeAll("error: failed to write temp file\n") catch {};
             return CompileError.CCompileFailed;
         };
@@ -329,14 +333,16 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
         const gas_source = rasm.generateGasFile(allocator, &parsed, arch) catch continue;
         defer allocator.free(gas_source);
 
-        // Write .S file
-        const asm_path = std.fmt.allocPrint(allocator, "/tmp/run_rasm_{s}.S", .{
-            std.fs.path.stem(rasm_path),
-        }) catch continue;
-
-        const asm_file = std.fs.cwd().createFile(asm_path, .{}) catch continue;
-        defer asm_file.close();
-        asm_file.writeAll(gas_source) catch continue;
+        // Write each generated .S file to its own unique path to avoid races.
+        const asm_temp = createUniqueTempFile(allocator, std.fs.path.stem(rasm_path), ".S") catch continue;
+        const asm_path = asm_temp.path;
+        asm_temp.file.writeAll(gas_source) catch {
+            asm_temp.file.close();
+            std.fs.deleteFileAbsolute(asm_path) catch {};
+            allocator.free(asm_path);
+            continue;
+        };
+        asm_temp.file.close();
 
         rasm_asm_files.append(allocator, asm_path) catch continue;
     }
@@ -346,11 +352,10 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
         return CompileError.CCompileFailed;
     };
 
-    // Clean up temp files (keep in debug mode for source-level debugging)
+    // Clean up temp assembly files (keep in debug mode for source-level debugging)
     if (!options.debug) {
-        std.fs.cwd().deleteFile(tmp_path) catch {};
         for (rasm_asm_files.items) |asm_path| {
-            std.fs.cwd().deleteFile(asm_path) catch {};
+            std.fs.deleteFileAbsolute(asm_path) catch {};
         }
     }
 
@@ -578,7 +583,10 @@ pub fn invokeZigCC(
     child.stderr_behavior = .Inherit;
     child.stdout_behavior = .Inherit;
 
-    _ = try child.spawnAndWait();
+    const term = try child.spawnAndWait();
+    if (!childExitedSuccessfully(term)) {
+        return error.CCompileFailed;
+    }
 }
 
 /// Execute a compiled binary and return its exit code.
@@ -595,11 +603,84 @@ pub fn executeAndCleanup(
     // Clean up binary after execution for "run" command
     std.fs.cwd().deleteFile(binary_path) catch {};
 
-    return result.Exited;
+    return childExitCode(result);
 }
 
 fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
     return try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+}
+
+const TempFile = struct {
+    file: std.fs.File,
+    path: []u8,
+};
+
+fn createUniqueTempFile(
+    allocator: std.mem.Allocator,
+    prefix: []const u8,
+    suffix: []const u8,
+) !TempFile {
+    var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
+    defer tmp_dir.close();
+
+    while (true) {
+        const random_id = std.crypto.random.int(u64);
+        const basename = try std.fmt.allocPrint(allocator, "run_{s}_{x}{s}", .{ prefix, random_id, suffix });
+        errdefer allocator.free(basename);
+
+        const file = tmp_dir.createFile(basename, .{ .exclusive = true }) catch |err| switch (err) {
+            error.PathAlreadyExists => {
+                allocator.free(basename);
+                continue;
+            },
+            else => return err,
+        };
+
+        const path = try std.fs.path.join(allocator, &.{ "/tmp", basename });
+        allocator.free(basename);
+        return .{ .file = file, .path = path };
+    }
+}
+
+fn childExitedSuccessfully(term: std.process.Child.Term) bool {
+    return switch (term) {
+        .Exited => |code| code == 0,
+        else => false,
+    };
+}
+
+fn childExitCode(term: std.process.Child.Term) u8 {
+    return switch (term) {
+        .Exited => |code| code,
+        .Signal => |sig| if (sig + 128 <= std.math.maxInt(u8)) @as(u8, @intCast(sig + 128)) else std.math.maxInt(u8),
+        .Stopped, .Unknown => 1,
+    };
+}
+
+test "check performs semantic analysis before succeeding" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{
+        .sub_path = "bad_check.run",
+        .data =
+        \\package main
+        \\
+        \\pub fun main() {
+        \\    missing()
+        \\}
+        ,
+    });
+
+    const path = try tmp.dir.realpathAlloc(allocator, "bad_check.run");
+    defer allocator.free(path);
+
+    try std.testing.expectError(CompileError.ParseFailed, compile(allocator, .{
+        .input_path = path,
+        .command = .check,
+        .no_color = true,
+    }));
 }

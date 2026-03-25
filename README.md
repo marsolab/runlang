@@ -89,7 +89,7 @@ zig build test
 
 ## Current Status
 
-Run is in **active development**. The compiler can compile and run simple programs through C code generation. The runtime library provides basic memory management, strings, and slices, with green threads and channels stubbed for future implementation.
+Run is in **active development**. The compiler can compile and run simple programs through C code generation. The runtime library includes working green threads, channels, strings, slices, and allocator support, with multi-P scheduling, broader runtime APIs, and more stdlib coverage still in progress.
 
 | Component | Status |
 |---|---|
@@ -101,7 +101,7 @@ Run is in **active development**. The compiler can compile and run simple progra
 | IR lowering | Complete |
 | C code generation | Complete |
 | Runtime library | MVP |
-| Standard library | Not started |
+| Standard library | In progress |
 
 This is a great time to get involved — the language design is taking shape, and there are significant pieces to build. See [docs/runtime/](docs/runtime/) for the runtime design documentation.
 
@@ -130,8 +130,8 @@ src/
     ├── run_string.c/h    Length-tracked strings
     ├── run_slice.c/h     Dynamic arrays
     ├── run_fmt.c/h       Print functions
-    ├── run_scheduler.c/h Green thread scheduler (stub)
-    ├── run_chan.c/h       Channel implementation (stub)
+    ├── run_scheduler.c/h Green thread scheduler
+    ├── run_chan.c/h       Channel implementation
     ├── run_error.h       Error union macro
     ├── run_main.c        Program entry point
     └── run_runtime.h     Umbrella header

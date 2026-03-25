@@ -22,12 +22,11 @@ static void test_runtime_gomaxprocs_get(void) {
 }
 
 static void test_runtime_gomaxprocs_set(void) {
-    int64_t prev = run_runtime_gomaxprocs(4);
-    RUN_ASSERT(prev >= 1);
+    int64_t prev = run_runtime_gomaxprocs(0);
+    int64_t ret = run_runtime_gomaxprocs(4);
+    RUN_ASSERT_EQ(ret, prev);
     int64_t curr = run_runtime_gomaxprocs(0);
-    RUN_ASSERT_EQ(curr, 4);
-    /* Restore */
-    run_runtime_gomaxprocs((int64_t)prev);
+    RUN_ASSERT_EQ(curr, prev);
 }
 
 static void test_runtime_mem_stats(void) {

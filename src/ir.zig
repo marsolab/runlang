@@ -427,6 +427,24 @@ pub fn makeInst(op: Inst.Op, result: Ref, arg1: Ref, arg2: Ref) Inst {
     return .{ .op = op, .result = result, .arg1 = arg1, .arg2 = arg2 };
 }
 
+/// Build a const_int instruction without truncating the 64-bit payload.
+pub fn makeConstInt(result: Ref, value: i64) Inst {
+    const bits: u64 = @bitCast(value);
+    return .{
+        .op = .const_int,
+        .result = result,
+        .arg1 = @as(Ref, @truncate(bits)),
+        .arg2 = @as(Ref, @truncate(bits >> 32)),
+    };
+}
+
+/// Decode a const_int instruction's split 64-bit payload.
+pub fn decodeConstInt(inst: Inst) i64 {
+    const low = @as(u64, inst.arg1);
+    const high = @as(u64, inst.arg2) << 32;
+    return @as(i64, @bitCast(low | high));
+}
+
 /// Helper to build instructions with source location for debug info.
 pub fn makeInstWithLoc(op: Inst.Op, result: Ref, arg1: Ref, arg2: Ref, src_loc: SrcLoc) Inst {
     return .{ .op = op, .result = result, .arg1 = arg1, .arg2 = arg2, .src_loc = src_loc };
@@ -504,6 +522,16 @@ test "BasicBlock: addInst and isTerminated" {
 
     try block.addInst(std.testing.allocator, makeInst(.ret, 0, 1, 0));
     try std.testing.expect(block.isTerminated());
+}
+
+test "const_int round-trips signed 64-bit payloads" {
+    const inst = makeConstInt(7, -5);
+    try std.testing.expectEqual(Inst.Op.const_int, inst.op);
+    try std.testing.expectEqual(@as(Ref, 7), inst.result);
+    try std.testing.expectEqual(@as(i64, -5), decodeConstInt(inst));
+
+    const large = makeConstInt(1, 5_000_000_000);
+    try std.testing.expectEqual(@as(i64, 5_000_000_000), decodeConstInt(large));
 }
 
 test "Inst.Op: isTerminator" {

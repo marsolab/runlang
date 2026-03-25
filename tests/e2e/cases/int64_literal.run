@@ -1,9 +1,9 @@
-// expect: -5
+// expect: 5000000000
 package main
 
 use "fmt"
 
 pub fun main() {
-    let x = 0 - 5
+    let x = 5000000000
     fmt.println(x)
 }

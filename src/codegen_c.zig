@@ -248,7 +248,7 @@ pub const CCodegen = struct {
         switch (inst.op) {
             .const_int => {
                 try self.emitIndent();
-                try self.writer().print("_t{d} = (int64_t){d};\n", .{ inst.result, @as(i64, @bitCast(@as(u64, inst.arg1))) });
+                try self.writer().print("_t{d} = (int64_t){d};\n", .{ inst.result, ir.decodeConstInt(inst) });
             },
             .const_float => {
                 try self.emitIndent();

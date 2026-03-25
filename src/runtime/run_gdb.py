@@ -68,7 +68,25 @@ def read_context_registers(ctx):
             "r15": ctx["r15"],
         }
     except gdb.error:
-        return None
+        try:
+            return {
+                "sp": ctx["sp"],
+                "pc": ctx["lr"],
+                "lr": ctx["lr"],
+                "x19": ctx["x19"],
+                "x20": ctx["x20"],
+                "x21": ctx["x21"],
+                "x22": ctx["x22"],
+                "x23": ctx["x23"],
+                "x24": ctx["x24"],
+                "x25": ctx["x25"],
+                "x26": ctx["x26"],
+                "x27": ctx["x27"],
+                "x28": ctx["x28"],
+                "fp": ctx["fp"],
+            }
+        except gdb.error:
+            return None
 
 
 # --- Walk all Gs by traversing scheduler data structures ---

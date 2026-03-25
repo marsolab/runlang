@@ -1,7 +1,7 @@
 /*
  * run_context_arm64.S — AArch64 context switch for Linux/macOS
  *
- * run_context_t layout for ARM64 (14 fields x 8 bytes = 112 bytes):
+ * run_context_t layout for ARM64:
  *   offset 0x00: sp
  *   offset 0x08: lr   (x30, link register / return address)
  *   offset 0x10: x19
@@ -15,26 +15,19 @@
  *   offset 0x50: x27
  *   offset 0x58: x28
  *   offset 0x60: fp   (x29, frame pointer)
- *   offset 0x68: (padding/unused)
+ *   offset 0x68: reserved
+ *   offset 0x70: d8
+ *   offset 0x78: d9
+ *   offset 0x80: d10
+ *   offset 0x88: d11
+ *   offset 0x90: d12
+ *   offset 0x98: d13
+ *   offset 0xA0: d14
+ *   offset 0xA8: d15
  *
- * Note: on ARM64, the run_context_t struct differs from x86-64.
- * The scheduler.h uses a union or conditional compilation to handle this.
- * For now, this assembly file matches the x86-64 struct layout using
- * the first 8 slots differently:
- *   slot 0 (0x00): sp   (rsp on x86)
- *   slot 1 (0x08): lr   (rip on x86)
- *   slot 2 (0x10): x19  (rbx on x86)
- *   slot 3 (0x18): x20  (rbp on x86)
- *   slot 4 (0x20): x21  (r12 on x86)
- *   slot 5 (0x28): x22  (r13 on x86)
- *   slot 6 (0x30): x23  (r14 on x86)
- *   slot 7 (0x38): x24  (r15 on x86)
- *   Extended fields (beyond the base 8-slot struct):
- *   slot 8  (0x40): x25
- *   slot 9  (0x48): x26
- *   slot 10 (0x50): x27
- *   slot 11 (0x58): x28
- *   slot 12 (0x60): fp (x29)
+ * AArch64 requires x19-x29 and d8-d15 to be preserved across function calls.
+ * run_context_switch behaves like a non-returning call boundary, so it must
+ * preserve the full callee-saved register set for correctness.
  */
 
 .text
@@ -60,6 +53,14 @@ run_context_switch:
     stp     x25, x26, [x0, #0x40]
     stp     x27, x28, [x0, #0x50]
     str     x29,      [x0, #0x60]    /* fp */
+    str     d8,       [x0, #0x70]
+    str     d9,       [x0, #0x78]
+    str     d10,      [x0, #0x80]
+    str     d11,      [x0, #0x88]
+    str     d12,      [x0, #0x90]
+    str     d13,      [x0, #0x98]
+    str     d14,      [x0, #0xA0]
+    str     d15,      [x0, #0xA8]
 
     /* Restore callee-saved registers from 'to' */
     ldr     x2,       [x1, #0x00]    /* sp */
@@ -71,6 +72,14 @@ run_context_switch:
     ldp     x25, x26, [x1, #0x40]
     ldp     x27, x28, [x1, #0x50]
     ldr     x29,      [x1, #0x60]    /* fp */
+    ldr     d8,       [x1, #0x70]
+    ldr     d9,       [x1, #0x78]
+    ldr     d10,      [x1, #0x80]
+    ldr     d11,      [x1, #0x88]
+    ldr     d12,      [x1, #0x90]
+    ldr     d13,      [x1, #0x98]
+    ldr     d14,      [x1, #0xA0]
+    ldr     d15,      [x1, #0xA8]
 
     ret     /* return to restored lr */
 
@@ -107,6 +116,15 @@ run_context_init:
     stp     xzr, xzr, [x0, #0x40]   /* x25, x26 */
     stp     xzr, xzr, [x0, #0x50]   /* x27, x28 */
     str     xzr, [x0, #0x60]         /* fp */
+    str     xzr, [x0, #0x68]         /* reserved */
+    str     xzr, [x0, #0x70]         /* d8 */
+    str     xzr, [x0, #0x78]         /* d9 */
+    str     xzr, [x0, #0x80]         /* d10 */
+    str     xzr, [x0, #0x88]         /* d11 */
+    str     xzr, [x0, #0x90]         /* d12 */
+    str     xzr, [x0, #0x98]         /* d13 */
+    str     xzr, [x0, #0xA0]         /* d14 */
+    str     xzr, [x0, #0xA8]         /* d15 */
     ret
 
 /*

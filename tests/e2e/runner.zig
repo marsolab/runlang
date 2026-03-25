@@ -323,7 +323,11 @@ fn runProcess(allocator: Allocator, argv: []const []const u8) !ProcessResult {
     return .{
         .stdout = try stdout_buf.toOwnedSlice(allocator),
         .stderr = try stderr_buf.toOwnedSlice(allocator),
-        .exit_code = result.Exited,
+        .exit_code = switch (result) {
+            .Exited => |code| code,
+            .Signal => |sig| if (sig + 128 <= std.math.maxInt(u8)) @as(u8, @intCast(sig + 128)) else std.math.maxInt(u8),
+            .Stopped, .Unknown => 1,
+        },
     };
 }
 

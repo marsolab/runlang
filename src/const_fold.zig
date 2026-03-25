@@ -53,7 +53,7 @@ fn foldInst(
 ) !void {
     switch (inst.op) {
         .const_int => {
-            try ref_consts.put(inst.result, .{ .int = decodeInt(inst.arg1) });
+            try ref_consts.put(inst.result, .{ .int = ir.decodeConstInt(inst.*) });
         },
         .const_bool => {
             try ref_consts.put(inst.result, .{ .bool_val = inst.arg1 != 0 });
@@ -85,7 +85,7 @@ fn foldInst(
                 else => unreachable,
             };
 
-            inst.* = ir.makeInst(.const_int, inst.result, encodeInt(val), 0);
+            inst.* = ir.makeConstInt(inst.result, val);
             try ref_consts.put(inst.result, .{ .int = val });
             result.folded_count += 1;
         },
@@ -97,7 +97,7 @@ fn foldInst(
                 else => return,
             };
             const val = 0 -% a;
-            inst.* = ir.makeInst(.const_int, inst.result, encodeInt(val), 0);
+            inst.* = ir.makeConstInt(inst.result, val);
             try ref_consts.put(inst.result, .{ .int = val });
             result.folded_count += 1;
         },
@@ -183,7 +183,7 @@ fn foldInst(
             if (local_consts.get(inst.arg1)) |val| {
                 switch (val) {
                     .int => |v| {
-                        inst.* = ir.makeInst(.const_int, inst.result, encodeInt(v), 0);
+                        inst.* = ir.makeConstInt(inst.result, v);
                     },
                     .bool_val => |v| {
                         inst.* = ir.makeInst(.const_bool, inst.result, if (v) 1 else 0, 0);
@@ -198,14 +198,15 @@ fn foldInst(
     }
 }
 
-/// Decode a u32 arg1 value to i64, matching codegen_c's interpretation.
-fn decodeInt(arg: u32) i64 {
-    return @as(i64, @bitCast(@as(u64, arg)));
+/// Decode a split const_int payload into i64.
+fn decodeInt(low: u32, high: u32) i64 {
+    const bits = @as(u64, low) | (@as(u64, high) << 32);
+    return @as(i64, @bitCast(bits));
 }
 
-/// Encode an i64 value to u32 arg1, matching lower.zig's encoding.
+/// Encode an i64 value to the low 32 bits of the const_int payload.
 fn encodeInt(val: i64) u32 {
-    return @as(u32, @intCast(@as(u64, @bitCast(val)) & 0xFFFFFFFF));
+    return ir.makeConstInt(0, val).arg1;
 }
 
 // =============================================================================
@@ -692,7 +693,7 @@ test "fold: wrapping arithmetic on overflow" {
 
     // 0x7FFFFFFF * 2 = 0xFFFFFFFE = 4294967294 as i64
     // encoded as u32: 0xFFFFFFFE
-    const expected = encodeInt(decodeInt(large) *% decodeInt(2));
+    const expected = encodeInt(decodeInt(large, 0) *% decodeInt(2, 0));
     try testing.expectEqual(expected, ctx.block.insts.items[2].arg1);
 }
 

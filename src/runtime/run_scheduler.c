@@ -84,6 +84,11 @@ static pthread_mutex_t live_g_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool growable_stacks_enabled = false;
 static size_t stack_max_size_cached = 0;
 
+/* Multi-P scheduling is not yet safe: local run queues and stealing paths
+ * still assume a single active scheduler thread. Keep the runtime in a
+ * single-P configuration until those paths are synchronized. */
+static bool scheduler_initialized = false;
+
 /* Preemption timer active */
 static bool preemption_timer_active = false;
 
@@ -666,23 +671,22 @@ void *m_thread_entry(void *arg) {
  * ======================================================================== */
 
 void run_scheduler_init(void) {
+    if (scheduler_initialized)
+        return;
+
     /* Discover NUMA topology before creating Ps */
     run_numa_init();
 
-    /* Determine number of Ps */
+    /* Determine number of Ps.
+     * Until local queues and work stealing are synchronized, keep the
+     * runtime in a single-P configuration even on multi-core hosts. */
+    num_ps = 1;
     const char *maxprocs_env = getenv("RUN_MAXPROCS");
     if (maxprocs_env) {
         int n = (int)strtol(maxprocs_env, NULL, 10);
-        if (n > 0 && n <= RUN_MAX_P_COUNT) {
-            num_ps = (uint32_t)n;
-        }
-    }
-    if (num_ps == 0) {
-        num_ps = (uint32_t)sysconf(_SC_NPROCESSORS_ONLN);
-        if (num_ps == 0)
+        if (n == 1) {
             num_ps = 1;
-        if (num_ps > RUN_MAX_P_COUNT)
-            num_ps = RUN_MAX_P_COUNT;
+        }
     }
 
     /* Initialize all Ps and assign NUMA nodes round-robin */
@@ -725,6 +729,8 @@ void run_scheduler_init(void) {
         growable_stacks_enabled = true;
         run_stack_growth_init();
     }
+
+    scheduler_initialized = true;
 }
 
 void run_scheduler_run(void) {
@@ -1277,13 +1283,13 @@ int64_t run_scheduler_goroutine_count(void) {
 }
 
 uint32_t run_scheduler_get_maxprocs(void) {
-    return num_ps;
+    return num_ps > 0 ? num_ps : 1;
 }
 
 uint32_t run_scheduler_set_maxprocs(uint32_t n) {
-    uint32_t prev = num_ps;
-    if (n >= 1 && n <= RUN_MAX_P_COUNT) {
-        num_ps = n;
+    uint32_t prev = run_scheduler_get_maxprocs();
+    if (!scheduler_initialized && n == 1) {
+        num_ps = 1;
     }
     return prev;
 }

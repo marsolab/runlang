@@ -753,7 +753,7 @@ const LoweringContext = struct {
                 const text = self.tokenSlice(node.main_token);
                 const val = std.fmt.parseInt(i64, text, 10) catch 0;
                 const r = self.allocRef();
-                try self.emit(ir.makeInst(.const_int, r, @as(u32, @intCast(@as(u64, @bitCast(val)) & 0xFFFFFFFF)), 0));
+                try self.emit(ir.makeConstInt(r, val));
                 return r;
             },
             .string_literal => {
