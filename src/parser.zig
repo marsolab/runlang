@@ -415,26 +415,16 @@ pub const Parser = struct {
         return self.tokens[idx].tag == .comma or self.tokens[idx].tag == .r_paren;
     }
 
-    fn parseStructDecl(self: *Parser) Error!NodeIndex {
-        // Name struct { ... }
-        const tok = self.pos; // points to the name identifier
-        if (!self.isNameToken(self.peekTag())) {
-            try self.addError(.expected_identifier, self.currentLoc(), null);
-            return null_node;
-        }
-        self.advance(); // consume name
-        self.expect(.kw_struct);
-
-        self.skipNewlines();
-        self.expectToken(.l_brace);
-        self.skipNewlines();
-
-        const start: u32 = @intCast(self.tree.extra_data.items.len);
-
-        // Parse optional implements block
+    /// Parse an `implements(...)` or `implements { ... }` block.
+    /// Writes [implements_count, iface1, ..., ifaceN] into extra_data.
+    /// Returns the extra_data start index.
+    fn parseImplementsBlock(self: *Parser) Error!u32 {
+        const impl_start: u32 = @intCast(self.tree.extra_data.items.len);
         var implements_count: u32 = 0;
         // Reserve slot for implements_count
         const count_slot = try self.tree.addExtra(0);
+        _ = count_slot;
+
         if (self.peekTag() == .kw_implements) {
             self.advance(); // consume 'implements'
             self.skipNewlines();
@@ -470,7 +460,25 @@ pub const Parser = struct {
             self.skipNewlines();
         }
         // Patch the implements count
-        self.tree.extra_data.items[count_slot] = implements_count;
+        self.tree.extra_data.items[impl_start] = implements_count;
+        return impl_start;
+    }
+
+    fn parseStructDecl(self: *Parser) Error!NodeIndex {
+        // Name struct { ... }
+        const tok = self.pos; // points to the name identifier
+        if (!self.isNameToken(self.peekTag())) {
+            try self.addError(.expected_identifier, self.currentLoc(), null);
+            return null_node;
+        }
+        self.advance(); // consume name
+        self.expect(.kw_struct);
+
+        self.skipNewlines();
+        self.expectToken(.l_brace);
+        self.skipNewlines();
+
+        const start = try self.parseImplementsBlock();
 
         // Collect fields first — parseFieldDecl can call parseExpr for default
         // values, which may recursively add to extra_data.
@@ -675,17 +683,30 @@ pub const Parser = struct {
             }
         }
 
-        // Simple type declaration: `type Name <type>`
+        // Simple type declaration: `type Name <type>` or `type Name <type> { implements(...) }`
         if (!self.isTypeStart()) {
             try self.addError(.expected_type, self.currentLoc(), null);
             return null_node;
         }
         const type_node = try self.parseType();
 
+        // Parse optional implements block for newtypes
+        self.skipNewlines();
+        var implements_rhs: NodeIndex = null_node;
+        if (self.peekTag() == .l_brace) {
+            self.advance(); // consume '{'
+            self.skipNewlines();
+
+            const impl_start = try self.parseImplementsBlock();
+            implements_rhs = @intCast(impl_start);
+
+            self.expectToken(.r_brace);
+        }
+
         return self.tree.addNode(.{
             .tag = .type_decl,
             .main_token = tok,
-            .data = .{ .lhs = type_node, .rhs = null_node },
+            .data = .{ .lhs = type_node, .rhs = implements_rhs },
         });
     }
 
@@ -4082,4 +4103,122 @@ test "parse struct literal in for in loop body" {
 
     _ = try parser.parseFile();
     try std.testing.expectEqual(@as(usize, 0), parser.tree.errors.items.len);
+}
+
+test "parse newtype with implements" {
+    const source = "type Email string {\n    implements(\n        Stringer,\n    )\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_decl and node.data.rhs != null_node) {
+            found = true;
+            // Verify implements_count is 1
+            const impl_count = parser.tree.extra_data.items[node.data.rhs];
+            try std.testing.expectEqual(@as(u32, 1), impl_count);
+            break;
+        }
+    }
+    try std.testing.expect(found);
+}
+
+test "parse newtype with multiple implements" {
+    const source = "type ID int {\n    implements(\n        Stringer,\n        Hasher,\n    )\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_decl and node.data.rhs != null_node) {
+            found = true;
+            const impl_count = parser.tree.extra_data.items[node.data.rhs];
+            try std.testing.expectEqual(@as(u32, 2), impl_count);
+            break;
+        }
+    }
+    try std.testing.expect(found);
+}
+
+test "parse newtype with implements braces" {
+    const source = "type Email string {\n    implements {\n        Stringer\n    }\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_decl and node.data.rhs != null_node) {
+            found = true;
+            const impl_count = parser.tree.extra_data.items[node.data.rhs];
+            try std.testing.expectEqual(@as(u32, 1), impl_count);
+            break;
+        }
+    }
+    try std.testing.expect(found);
+}
+
+test "parse simple newtype has no implements" {
+    const source = "type UserID int";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_decl) {
+            // rhs should be null_node (no implements block)
+            try std.testing.expectEqual(null_node, node.data.rhs);
+            break;
+        }
+    }
+}
+
+test "parse newtype with qualified implements" {
+    const source = "type Email string {\n    implements(\n        fmt.Stringer,\n    )\n}";
+    var lexer = Lexer.init(source);
+    var tokens = try lexer.tokenize(std.testing.allocator);
+    defer tokens.deinit(std.testing.allocator);
+
+    var parser = Parser.init(std.testing.allocator, tokens.items, source);
+    defer parser.deinit();
+
+    _ = try parser.parseFile();
+    try std.testing.expect(parser.tree.errors.items.len == 0);
+
+    var found = false;
+    for (parser.tree.nodes.items) |node| {
+        if (node.tag == .type_decl and node.data.rhs != null_node) {
+            found = true;
+            const impl_count = parser.tree.extra_data.items[node.data.rhs];
+            try std.testing.expectEqual(@as(u32, 1), impl_count);
+            break;
+        }
+    }
+    try std.testing.expect(found);
 }
