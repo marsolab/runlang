@@ -325,13 +325,13 @@ Assertion operators inspired by [go-testdeep](https://github.com/maxatome/go-tes
 
 **Language constructs:**
 ```
-test "name" (t) { body }                          — unit test block
-test "name" for ["case" :: {}, ...] (t) { body }  — table-driven test ("case" :: { data })
-test "name" for [...] as { fields } (t) { body }  — table-driven test with destructuring
-test "name" fuzz(params) (t) { body }             — fuzz test
-test "name" fuzz(params) seed [...] (t) { body }  — fuzz test with seed corpus
-bench "name" (b) { body }                         — benchmark block
-bench "name" for ["case" :: {}, ...] (b) { body } — table-driven benchmark
+test "name" (t) { body }                              — unit test block
+for test "name" in ["case" :: {}, ...] (t) { body }   — table-driven test
+for test "name" in [...] as { fields } (t) { body }   — table-driven with destructuring
+test "name" fuzz(params) (t) { body }                  — fuzz test
+test "name" fuzz(params) seed [...] (t) { body }       — fuzz test with seed corpus
+bench "name" (b) { body }                              — benchmark block
+for bench "name" in ["case" :: {}, ...] (b) { body }  — table-driven benchmark
 test beforeAll { }                                 — file-level setup
 test afterAll { }                                  — file-level teardown
 test beforeEach { }                                — per-test setup

@@ -696,7 +696,7 @@ test "addition works" (t) {
 ### Table-Driven Tests
 
 ```
-test "parseInt" for [
+for test "parseInt" in [
     "simple"   :: { input: "42",  want: 42 },
     "negative" :: { input: "-7",  want: -7 },
     "zero"     :: { input: "0",   want: 0  },
@@ -706,7 +706,7 @@ test "parseInt" for [
 }
 ```
 
-- `for` introduces the case table — reuses the existing `for` keyword
+- `for test` / `for bench` introduces a table-driven variant
 - Each case is `"name" :: { fields }` — reuses `::` from `switch`
 - Row fields accessed via `row` binding, or destructured with `as { fields }`
 
@@ -739,7 +739,7 @@ bench "sort 1000" (b) {
 
 - `bench` blocks receive `(b)` — the benchmark context `&B`, explicitly
 - `b.n` is the iteration count set by the framework
-- Table-driven benchmarks via `bench "name" for ["case" :: {}, ...]`
+- Table-driven benchmarks via `for bench "name" in ["case" :: {}, ...]`
 
 ### Lifecycle Hooks
 
