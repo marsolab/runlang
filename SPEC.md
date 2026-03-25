@@ -669,6 +669,83 @@ language-level support without requiring user-facing generics.
 - Native codegen via **Zig's own backend** (no LLVM dependency)
 - File extension: `.run`
 
+## Testing
+
+Run has first-class testing built into the language via the `test` and `bench` keywords.
+Tests are not functions — they are dedicated language constructs with rich semantics.
+
+### Test Blocks
+
+```
+test "addition works" {
+    expect_eq(add(2, 3), 5)
+    expect_eq(add(-1, 1), 0)
+}
+```
+
+- `test` blocks are top-level declarations
+- String description is human-readable (not an identifier)
+- Implicit `t: &T` context for logging, skipping, subtests
+- Built-in assertions: `expect`, `expect_eq`, `expect_ne`, `expect_err`, `expect_ok`, `expect_nil`
+- Tests are stripped from production builds
+
+### Table-Driven Tests
+
+```
+test "parse_int" each [
+    { name: "simple",   input: "42",  want: 42 },
+    { name: "negative", input: "-7",  want: -7 },
+    { name: "zero",     input: "0",   want: 0  },
+] {
+    result := try parse_int(row.input)
+    expect_eq(result, row.want)
+}
+```
+
+- `each` introduces an inline table — array of anonymous structs
+- Each row is a subtest, named by the `name` field (or auto-generated)
+- Row fields accessed via `row` binding, or destructured with `as { fields }`
+
+### Fuzzing
+
+```
+test "json roundtrip" fuzz(data []byte) {
+    parsed := parse_json(data) or return
+    output := to_json(parsed)
+    reparsed := try parse_json(output)
+    expect_eq(parsed, reparsed)
+}
+```
+
+- `fuzz(params)` declares fuzz inputs (`[]byte`, `string`, `int`, `f64`, `bool`)
+- Optional `seed [...]` provides a seed corpus
+- `or return` skips inputs that don't meet preconditions
+
+### Benchmarks
+
+```
+bench "sort 1000" {
+    data := generate_random_slice(1000)
+    b.reset_timer()
+    for _ in 0..b.n {
+        sort(data)
+    }
+}
+```
+
+- `bench` blocks have an implicit `b: &B` context
+- `b.n` is the iteration count set by the framework
+- Table-driven benchmarks via `bench "name" each [...]`
+
+### Lifecycle Hooks
+
+```
+test before_all { }    // once before all tests in file
+test after_all { }     // once after all tests in file
+test before_each { }   // before each test
+test after_each { }    // after each test
+```
+
 ## Standard Library (Go-level comprehensive)
 
 - `io` — readers, writers, buffered I/O

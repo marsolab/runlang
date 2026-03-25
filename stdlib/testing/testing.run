@@ -1,15 +1,20 @@
 package testing
 
-// T is the test context passed to each test function.
-// It provides methods for logging, failing, and skipping tests.
+// T is the test context, implicitly available as `t` inside test blocks.
+// Provides logging, failure control, subtests, and test utilities.
 pub T struct {
-    name    string
-    failed  bool
-    skipped bool
-    log_buf []string
+    name      string
+    failed    bool
+    skipped   bool
+    log_buf   []string
+    parent    &T?
+    parallel  bool
+    deadline_ int
+    temp_dir_ string?
 }
 
 // log records a message in the test log.
+// Messages are only printed on failure or when running with -v.
 pub fun (t &T) log(msg string) {
 }
 
@@ -21,8 +26,8 @@ pub fun (t &T) logf(format string, args ...any) {
 pub fun (t &T) fail() {
 }
 
-// failNow marks the test as failed and stops execution.
-pub fun (t &T) failNow() {
+// fail_now marks the test as failed and stops execution immediately.
+pub fun (t &T) fail_now() {
 }
 
 // error logs a message and marks the test as failed.
@@ -33,49 +38,112 @@ pub fun (t &T) error(msg string) {
 pub fun (t &T) errorf(format string, args ...any) {
 }
 
-// fatal logs a message, marks the test as failed, and stops execution.
+// fatal logs a message, marks the test as failed, and stops immediately.
 pub fun (t &T) fatal(msg string) {
 }
 
-// fatalf logs a formatted message, marks the test as failed, and stops execution.
+// fatalf logs a formatted message, marks the test as failed, and stops immediately.
 pub fun (t &T) fatalf(format string, args ...any) {
 }
 
 // skip marks the test as skipped and stops execution.
-pub fun (t &T) skip(msg string) {
+pub fun (t &T) skip(reason string) {
 }
 
-// expect asserts that a condition is true. If not, the test is marked as failed
-// with the given message.
-pub fun expect(condition bool, msg string) {
+// run launches a subtest with the given name and body.
+// Subtests run as independent test units with their own T context.
+pub fun (t &T) run(name string, body fun(t &T)) {
 }
 
-// expectEq asserts that expected and actual are equal.
-pub fun expectEq(expected any, actual any) {
+// parallel marks this test as safe to run in parallel with other
+// parallel-marked tests. Must be called before any test logic.
+pub fun (t &T) parallel() {
 }
 
-// expectNe asserts that a and b are not equal.
-pub fun expectNe(a any, b any) {
+// name returns the fully-qualified name of the current test/subtest.
+pub fun (t @T) name() string {
+    return t.name
 }
 
-// expectTrue asserts that the condition is true.
-pub fun expectTrue(condition bool) {
+// deadline returns the test timeout deadline as a unix timestamp in nanoseconds.
+// Returns 0 if no deadline is set.
+pub fun (t @T) deadline() int {
+    return t.deadline_
 }
 
-// expectFalse asserts that the condition is false.
-pub fun expectFalse(condition bool) {
+// temp_dir returns a temporary directory that is automatically cleaned up
+// after the test completes. Each call returns the same directory.
+pub fun (t &T) temp_dir() string {
+    return ""
 }
 
-// expectError asserts that the given error union contains an error.
-pub fun expectError(result any) {
+// failed returns whether the test has been marked as failed.
+pub fun (t @T) failed() bool {
+    return t.failed
 }
 
-// fail marks the current test as failed with the given message.
-pub fun fail(msg string) {
+// skipped returns whether the test has been marked as skipped.
+pub fun (t @T) skipped() bool {
+    return t.skipped
 }
 
-// B is the benchmark context passed to each benchmark function.
-// It provides timing control and iteration counting.
+// --- Assertions ---
+// These are free functions, available without a receiver inside test blocks.
+// On failure, they report source location, expression text, and values.
+
+// expect asserts that a condition is true.
+// On failure, reports the condition expression and source location.
+pub fun expect(condition bool) {
+}
+
+// expect_eq asserts that got == want.
+// On failure, reports both values and a diff for large values.
+pub fun expect_eq(got any, want any) {
+}
+
+// expect_ne asserts that a != b.
+pub fun expect_ne(a any, b any) {
+}
+
+// expect_true asserts that condition is true.
+pub fun expect_true(condition bool) {
+}
+
+// expect_false asserts that condition is false.
+pub fun expect_false(condition bool) {
+}
+
+// expect_err asserts that an error union holds an error.
+pub fun expect_err(result any) {
+}
+
+// expect_ok asserts that an error union holds a success value.
+pub fun expect_ok(result any) {
+}
+
+// expect_nil asserts that a nullable value is null.
+pub fun expect_nil(value any) {
+}
+
+// expect_not_nil asserts that a nullable value is not null.
+pub fun expect_not_nil(value any) {
+}
+
+// expect_contains asserts that haystack contains needle.
+pub fun expect_contains(haystack string, needle string) {
+}
+
+// expect_has_prefix asserts that s starts with prefix.
+pub fun expect_has_prefix(s string, prefix string) {
+}
+
+// expect_has_suffix asserts that s ends with suffix.
+pub fun expect_has_suffix(s string, suffix string) {
+}
+
+// --- Benchmark Context ---
+
+// B is the benchmark context, implicitly available as `b` inside bench blocks.
 pub B struct {
     name     string
     n        int
@@ -84,47 +152,68 @@ pub B struct {
     bytes    int
 }
 
-// resetTimer resets the benchmark timer and counters.
-// It does not affect whether the timer is running.
-pub fun (b &B) resetTimer() {
+// reset_timer resets the benchmark timer and counters.
+// Call this after expensive setup that should not be measured.
+pub fun (b &B) reset_timer() {
 }
 
-// startTimer starts timing the benchmark. This function is called
-// automatically before a benchmark function is invoked.
-pub fun (b &B) startTimer() {
+// start_timer starts or resumes timing.
+// Called automatically before the benchmark body executes.
+pub fun (b &B) start_timer() {
 }
 
-// stopTimer stops timing the benchmark.
-pub fun (b &B) stopTimer() {
+// stop_timer pauses timing. Use with start_timer to exclude
+// sections from measurement.
+pub fun (b &B) stop_timer() {
 }
 
-// reportMetric adds a custom reported metric to the benchmark results.
-pub fun (b &B) reportMetric(n f64, unit string) {
+// report_metric adds a custom metric to the benchmark results.
+pub fun (b &B) report_metric(name string, value f64, unit string) {
 }
 
-// setBytes records the number of bytes processed in a single
-// benchmark iteration. This is used to compute throughput.
-pub fun (b &B) setBytes(n int) {
+// bytes_per_op sets the number of bytes processed per benchmark iteration.
+// Used to compute throughput (MB/s) in results.
+pub fun (b &B) bytes_per_op(n int) {
 }
 
-// runN runs the benchmark function f n times.
-pub fun (b &B) runN(n int, f fun(b &B)) {
+// run launches a sub-benchmark.
+pub fun (b &B) run(name string, body fun(b &B)) {
 }
+
+// --- Test Results ---
 
 // TestResult holds the summary of a test run.
 pub TestResult struct {
     passed   int
     failed   int
     skipped  int
+    fuzzed   int
+    benched  int
     failures []string
+    duration int
 }
 
 // total returns the total number of tests run.
 pub fun (r @TestResult) total() int {
-    return 0
+    return r.passed + r.failed + r.skipped
 }
 
-// ok returns true if all tests passed.
+// ok returns true if all tests passed (no failures).
 pub fun (r @TestResult) ok() bool {
-    return false
+    return r.failed == 0
+}
+
+// --- Fuzz Context ---
+
+// F is the fuzz context, available inside fuzz test blocks for
+// adding seed corpus entries programmatically.
+pub F struct {
+    name      string
+    corpus    [][]byte
+    fuzz_func fun(data []byte)
+}
+
+// add adds a seed corpus entry. Each argument is one entry.
+// The types must match the fuzz function parameters.
+pub fun (f &F) add(args ...any) {
 }
