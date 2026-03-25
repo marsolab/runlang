@@ -10,26 +10,94 @@ pub type Ordered interface {
 }
 
 // compare compares two values and returns an Ordering.
+// If both values implement Ordered, uses that interface.
+// Otherwise falls back to built-in type comparisons for int, f64, and string.
 pub fun compare(a any, b any) Ordering {
+    // Try the Ordered interface first.
+    var ao = a as Ordered
+    if ao != null {
+        return ao.compare(b)
+    }
+
+    // Fallback: compare built-in types.
+    var ai = a as int
+    var bi = b as int
+    if ai != null {
+        if bi != null {
+            if ai < bi {
+                return .less
+            }
+            if ai > bi {
+                return .greater
+            }
+            return .equal
+        }
+    }
+
+    var af = a as f64
+    var bf = b as f64
+    if af != null {
+        if bf != null {
+            if af < bf {
+                return .less
+            }
+            if af > bf {
+                return .greater
+            }
+            return .equal
+        }
+    }
+
+    var as_ = a as string
+    var bs = b as string
+    if as_ != null {
+        if bs != null {
+            if as_ < bs {
+                return .less
+            }
+            if as_ > bs {
+                return .greater
+            }
+            return .equal
+        }
+    }
+
     return .equal
 }
 
 // min returns the smaller of a or b.
 // If equal, returns a.
 pub fun min(a any, b any) any {
-    return a
+    var ord = compare(a, b)
+    switch ord {
+        .greater :: { return b },
+        _ :: { return a },
+    }
 }
 
 // max returns the larger of a or b.
 // If equal, returns a.
 pub fun max(a any, b any) any {
-    return a
+    var ord = compare(a, b)
+    switch ord {
+        .less :: { return b },
+        _ :: { return a },
+    }
 }
 
 // clamp returns val constrained to the range [lo, hi].
 // Panics if lo > hi.
 pub fun clamp(val any, lo any, hi any) any {
-    return val
+    var ord = compare(val, lo)
+    switch ord {
+        .less :: { return lo },
+        _ :: {},
+    }
+    var ord2 = compare(val, hi)
+    switch ord2 {
+        .greater :: { return hi },
+        _ :: { return val },
+    }
 }
 
 // minInt returns the smaller of a or b.

@@ -8,156 +8,594 @@ pub Builder struct {
 
 // writeString appends the contents of s to the builder's buffer.
 pub fun (b &Builder) writeString(s string) {
+    var data = s as []byte
+    var i = 0
+    for i < len(data) {
+        b.buf = append(b.buf, data[i])
+        i = i + 1
+    }
 }
 
 // writeByte appends a single byte to the builder's buffer.
 pub fun (b &Builder) writeByte(c byte) {
+    b.buf = append(b.buf, c)
 }
 
 // string returns the accumulated string and resets the builder.
 pub fun (b &Builder) string() string {
-    return ""
+    var result = b.buf as string
+    b.buf = alloc([]byte, 0)
+    return result
 }
 
 // reset resets the builder to be empty.
 pub fun (b &Builder) reset() {
+    b.buf = alloc([]byte, 0)
 }
 
 // len returns the number of accumulated bytes.
 pub fun (b @Builder) len() int {
-    return 0
+    return len(b.buf)
 }
 
 // contains reports whether substr is within s.
 pub fun contains(s string, substr string) bool {
-    return false
+    return indexOf(s, substr) != null
 }
 
 // hasPrefix reports whether s begins with prefix.
 pub fun hasPrefix(s string, prefix string) bool {
-    return false
+    var sb = s as []byte
+    var pb = prefix as []byte
+    if len(pb) > len(sb) {
+        return false
+    }
+    var i = 0
+    for i < len(pb) {
+        if sb[i] != pb[i] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
 }
 
 // hasSuffix reports whether s ends with suffix.
 pub fun hasSuffix(s string, suffix string) bool {
-    return false
+    var sb = s as []byte
+    var xb = suffix as []byte
+    if len(xb) > len(sb) {
+        return false
+    }
+    var offset = len(sb) - len(xb)
+    var i = 0
+    for i < len(xb) {
+        if sb[offset + i] != xb[i] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
 }
 
 // indexOf returns the index of the first occurrence of substr in s,
 // or null if substr is not present.
 pub fun indexOf(s string, substr string) int? {
+    var sb = s as []byte
+    var nb = substr as []byte
+    if len(nb) == 0 {
+        return .some(0)
+    }
+    if len(nb) > len(sb) {
+        return null
+    }
+    var i = 0
+    var limit = len(sb) - len(nb)
+    for i <= limit {
+        var j = 0
+        var match = true
+        for j < len(nb) {
+            if sb[i + j] != nb[j] {
+                match = false
+                break
+            }
+            j = j + 1
+        }
+        if match {
+            return .some(i)
+        }
+        i = i + 1
+    }
     return null
 }
 
 // lastIndexOf returns the index of the last occurrence of substr in s,
 // or null if substr is not present.
 pub fun lastIndexOf(s string, substr string) int? {
+    var sb = s as []byte
+    var nb = substr as []byte
+    if len(nb) == 0 {
+        return .some(len(sb))
+    }
+    if len(nb) > len(sb) {
+        return null
+    }
+    var i = len(sb) - len(nb)
+    for i >= 0 {
+        var j = 0
+        var match = true
+        for j < len(nb) {
+            if sb[i + j] != nb[j] {
+                match = false
+                break
+            }
+            j = j + 1
+        }
+        if match {
+            return .some(i)
+        }
+        i = i - 1
+    }
     return null
 }
 
 // count counts the number of non-overlapping instances of substr in s.
 pub fun count(s string, substr string) int {
-    return 0
+    var sb = s as []byte
+    var nb = substr as []byte
+    if len(nb) == 0 {
+        return len(sb) + 1
+    }
+    var n = 0
+    var pos = 0
+    for pos <= len(sb) - len(nb) {
+        var j = 0
+        var match = true
+        for j < len(nb) {
+            if sb[pos + j] != nb[j] {
+                match = false
+                break
+            }
+            j = j + 1
+        }
+        if match {
+            n = n + 1
+            pos = pos + len(nb)
+        } else {
+            pos = pos + 1
+        }
+    }
+    return n
 }
 
 // split splits s around each instance of sep, returning a slice of substrings.
 pub fun split(s string, sep string) []string {
-    return alloc([]string, 0)
+    return splitN(s, sep, -1)
 }
 
 // splitN splits s around the first n instances of sep.
 // If n < 0, there is no limit on the number of splits.
 pub fun splitN(s string, sep string, n int) []string {
-    return alloc([]string, 0)
+    var result = alloc([]string, 0)
+    var sb = s as []byte
+    var sepb = sep as []byte
+    if len(sepb) == 0 {
+        // Split into individual characters.
+        var i = 0
+        var count = 0
+        for i < len(sb) {
+            if n >= 0 {
+                if count >= n - 1 {
+                    break
+                }
+            }
+            var ch = alloc([]byte, 1)
+            ch[0] = sb[i]
+            result = append(result, ch as string)
+            count = count + 1
+            i = i + 1
+        }
+        if i < len(sb) {
+            result = append(result, sb[i..len(sb)] as string)
+        }
+        return result
+    }
+    var pos = 0
+    var splits = 0
+    for pos <= len(sb) {
+        if n >= 0 {
+            if splits >= n - 1 {
+                break
+            }
+        }
+        // Search for sep starting at pos.
+        var found = false
+        var idx = pos
+        for idx <= len(sb) - len(sepb) {
+            var j = 0
+            var match = true
+            for j < len(sepb) {
+                if sb[idx + j] != sepb[j] {
+                    match = false
+                    break
+                }
+                j = j + 1
+            }
+            if match {
+                found = true
+                break
+            }
+            idx = idx + 1
+        }
+        if found {
+            result = append(result, sb[pos..idx] as string)
+            pos = idx + len(sepb)
+            splits = splits + 1
+        } else {
+            break
+        }
+    }
+    // Append the remaining part.
+    result = append(result, sb[pos..len(sb)] as string)
+    return result
 }
 
 // fields splits s around runs of whitespace characters,
 // returning a slice of substrings with no empty strings.
 pub fun fields(s string) []string {
-    return alloc([]string, 0)
+    var result = alloc([]string, 0)
+    var sb = s as []byte
+    var i = 0
+    for i < len(sb) {
+        // Skip whitespace.
+        for i < len(sb) {
+            if sb[i] != 32 {
+                if sb[i] != 9 {
+                    if sb[i] != 10 {
+                        if sb[i] != 13 {
+                            break
+                        }
+                    }
+                }
+            }
+            i = i + 1
+        }
+        if i >= len(sb) {
+            break
+        }
+        // Collect non-whitespace.
+        var start = i
+        for i < len(sb) {
+            if sb[i] == 32 {
+                break
+            }
+            if sb[i] == 9 {
+                break
+            }
+            if sb[i] == 10 {
+                break
+            }
+            if sb[i] == 13 {
+                break
+            }
+            i = i + 1
+        }
+        result = append(result, sb[start..i] as string)
+    }
+    return result
 }
 
 // join concatenates the elements of parts with sep between each element.
 pub fun join(parts []string, sep string) string {
-    return ""
+    if len(parts) == 0 {
+        return ""
+    }
+    var b = Builder{ buf: alloc([]byte, 0) }
+    var i = 0
+    for i < len(parts) {
+        if i > 0 {
+            b.writeString(sep)
+        }
+        b.writeString(parts[i])
+        i = i + 1
+    }
+    return b.string()
 }
 
 // replace returns a copy of s with all non-overlapping instances of old
 // replaced by new.
 pub fun replace(s string, old string, new string) string {
-    return ""
+    return replaceN(s, old, new, -1)
 }
 
 // replaceN returns a copy of s with the first n non-overlapping instances
 // of old replaced by new. If n < 0, all instances are replaced.
 pub fun replaceN(s string, old string, new string, n int) string {
-    return ""
+    var sb = s as []byte
+    var oldb = old as []byte
+    if len(oldb) == 0 {
+        return s
+    }
+    var b = Builder{ buf: alloc([]byte, 0) }
+    var pos = 0
+    var replacements = 0
+    for pos <= len(sb) {
+        if n >= 0 {
+            if replacements >= n {
+                break
+            }
+        }
+        // Search for old starting at pos.
+        var found = false
+        var idx = pos
+        for idx <= len(sb) - len(oldb) {
+            var j = 0
+            var match = true
+            for j < len(oldb) {
+                if sb[idx + j] != oldb[j] {
+                    match = false
+                    break
+                }
+                j = j + 1
+            }
+            if match {
+                found = true
+                break
+            }
+            idx = idx + 1
+        }
+        if found {
+            // Append text before the match.
+            b.writeString(sb[pos..idx] as string)
+            b.writeString(new)
+            pos = idx + len(oldb)
+            replacements = replacements + 1
+        } else {
+            break
+        }
+    }
+    // Append remaining text.
+    b.writeString(sb[pos..len(sb)] as string)
+    return b.string()
+}
+
+fun isWhitespace(c byte) bool {
+    if c == 32 {
+        return true
+    }
+    if c == 9 {
+        return true
+    }
+    if c == 10 {
+        return true
+    }
+    if c == 13 {
+        return true
+    }
+    return false
 }
 
 // trim returns s with leading and trailing whitespace removed.
 pub fun trim(s string) string {
-    return ""
+    var sb = s as []byte
+    var start = 0
+    for start < len(sb) {
+        if !isWhitespace(sb[start]) {
+            break
+        }
+        start = start + 1
+    }
+    var end = len(sb)
+    for end > start {
+        if !isWhitespace(sb[end - 1]) {
+            break
+        }
+        end = end - 1
+    }
+    return sb[start..end] as string
 }
 
 // trimLeft returns s with leading whitespace removed.
 pub fun trimLeft(s string) string {
-    return ""
+    var sb = s as []byte
+    var start = 0
+    for start < len(sb) {
+        if !isWhitespace(sb[start]) {
+            break
+        }
+        start = start + 1
+    }
+    return sb[start..len(sb)] as string
 }
 
 // trimRight returns s with trailing whitespace removed.
 pub fun trimRight(s string) string {
-    return ""
+    var sb = s as []byte
+    var end = len(sb)
+    for end > 0 {
+        if !isWhitespace(sb[end - 1]) {
+            break
+        }
+        end = end - 1
+    }
+    return sb[0..end] as string
 }
 
 // trimPrefix returns s without the provided leading prefix.
 // If s doesn't start with prefix, s is returned unchanged.
 pub fun trimPrefix(s string, prefix string) string {
-    return ""
+    if hasPrefix(s, prefix) {
+        var sb = s as []byte
+        var pb = prefix as []byte
+        return sb[len(pb)..len(sb)] as string
+    }
+    return s
 }
 
 // trimSuffix returns s without the provided trailing suffix.
 // If s doesn't end with suffix, s is returned unchanged.
 pub fun trimSuffix(s string, suffix string) string {
-    return ""
+    if hasSuffix(s, suffix) {
+        var sb = s as []byte
+        var xb = suffix as []byte
+        return sb[0..len(sb) - len(xb)] as string
+    }
+    return s
 }
 
 // trimChars returns s with all leading and trailing characters
 // contained in cutset removed.
 pub fun trimChars(s string, cutset string) string {
-    return ""
+    var sb = s as []byte
+    var cb = cutset as []byte
+    var start = 0
+    for start < len(sb) {
+        if !charInSet(sb[start], cb) {
+            break
+        }
+        start = start + 1
+    }
+    var end = len(sb)
+    for end > start {
+        if !charInSet(sb[end - 1], cb) {
+            break
+        }
+        end = end - 1
+    }
+    return sb[start..end] as string
 }
 
-// toUpper returns s with all Unicode letters mapped to their upper case.
+fun charInSet(c byte, set []byte) bool {
+    var i = 0
+    for i < len(set) {
+        if set[i] == c {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// toUpper returns s with all ASCII letters mapped to their upper case.
 pub fun toUpper(s string) string {
-    return ""
+    var sb = s as []byte
+    var result = alloc([]byte, len(sb))
+    var i = 0
+    for i < len(sb) {
+        var c = sb[i]
+        if c >= 97 {
+            if c <= 122 {
+                c = c - 32
+            }
+        }
+        result[i] = c
+        i = i + 1
+    }
+    return result as string
 }
 
-// toLower returns s with all Unicode letters mapped to their lower case.
+// toLower returns s with all ASCII letters mapped to their lower case.
 pub fun toLower(s string) string {
-    return ""
+    var sb = s as []byte
+    var result = alloc([]byte, len(sb))
+    var i = 0
+    for i < len(sb) {
+        var c = sb[i]
+        if c >= 65 {
+            if c <= 90 {
+                c = c + 32
+            }
+        }
+        result[i] = c
+        i = i + 1
+    }
+    return result as string
 }
 
 // toTitle returns s with the first letter of each word capitalized.
 pub fun toTitle(s string) string {
-    return ""
+    var sb = s as []byte
+    var result = alloc([]byte, len(sb))
+    var capitalize = true
+    var i = 0
+    for i < len(sb) {
+        var c = sb[i]
+        if isWhitespace(c) {
+            capitalize = true
+            result[i] = c
+        } else {
+            if capitalize {
+                if c >= 97 {
+                    if c <= 122 {
+                        c = c - 32
+                    }
+                }
+                capitalize = false
+            } else {
+                if c >= 65 {
+                    if c <= 90 {
+                        c = c + 32
+                    }
+                }
+            }
+            result[i] = c
+        }
+        i = i + 1
+    }
+    return result as string
 }
 
 // repeat returns a string consisting of count copies of s.
 pub fun repeat(s string, count int) string {
-    return ""
+    if count <= 0 {
+        return ""
+    }
+    var b = Builder{ buf: alloc([]byte, 0) }
+    var i = 0
+    for i < count {
+        b.writeString(s)
+        i = i + 1
+    }
+    return b.string()
 }
 
 // equalFold reports whether s and t are equal under Unicode case-folding.
+// Currently handles ASCII case-folding only.
 pub fun equalFold(a string, b string) bool {
-    return false
+    var ab = a as []byte
+    var bb = b as []byte
+    if len(ab) != len(bb) {
+        return false
+    }
+    var i = 0
+    for i < len(ab) {
+        var ca = ab[i]
+        var cb = bb[i]
+        // Normalize to lower case for comparison.
+        if ca >= 65 {
+            if ca <= 90 {
+                ca = ca + 32
+            }
+        }
+        if cb >= 65 {
+            if cb <= 90 {
+                cb = cb + 32
+            }
+        }
+        if ca != cb {
+            return false
+        }
+        i = i + 1
+    }
+    return true
 }
 
 // startsWith is an alias for hasPrefix.
 pub fun startsWith(s string, prefix string) bool {
-    return false
+    return hasPrefix(s, prefix)
 }
 
 // endsWith is an alias for hasSuffix.
 pub fun endsWith(s string, suffix string) bool {
-    return false
+    return hasSuffix(s, suffix)
 }
