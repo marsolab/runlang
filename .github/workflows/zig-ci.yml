@@ -118,3 +118,62 @@ jobs:
 
       - name: Check formatting
         run: clang-format --dry-run --Werror src/runtime/*.c src/runtime/*.h
+
+  stdlib-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Build compiler
+        run: zig build
+
+      - name: Check all stdlib packages
+        run: |
+          passed=0
+          failed=0
+          failed_files=""
+
+          while IFS= read -r file; do
+            if ./zig-out/bin/run check "$file" > /dev/null 2>&1; then
+              echo "PASS: $file"
+              passed=$((passed + 1))
+            else
+              echo "FAIL: $file"
+              failed=$((failed + 1))
+              failed_files="$failed_files$file"$'\n'
+            fi
+          done < <(find stdlib/ -name '*.run' ! -name '*_test.run' | sort)
+
+          echo ""
+          echo "==============================="
+          echo "Results: $passed passed, $failed failed (out of $((passed + failed)) files)"
+          echo "==============================="
+
+          if [ "$failed" -gt 0 ]; then
+            echo ""
+            echo "Failed files:"
+            echo "$failed_files"
+            exit 1
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Stdlib Compilation Check" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| File | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r file; do
+            if ./zig-out/bin/run check "$file" > /dev/null 2>&1; then
+              echo "| \`$file\` | :white_check_mark: Pass |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| \`$file\` | :x: Fail |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done < <(find stdlib/ -name '*.run' ! -name '*_test.run' | sort)
