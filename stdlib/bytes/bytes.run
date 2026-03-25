@@ -2,6 +2,12 @@ package bytes
 
 use "io"
 
+// toBytes converts a string to a byte slice.
+fun toBytes(s string) []byte { return s }
+
+// toString converts a byte slice to a string.
+fun toString(b []byte) string { return b }
+
 // Buffer is a growable byte buffer that implements io.Reader and io.Writer.
 pub Buffer struct {
     implements {
@@ -44,7 +50,7 @@ pub fun (b &Buffer) write(data []byte) !int {
 
 // writeString appends the contents of s to the buffer.
 pub fun (b &Buffer) writeString(s string) !int {
-    var data = s as []byte
+    var data = toBytes(s)
     var i = 0
     for i < len(data) {
         b.buf = append(b.buf, data[i])
@@ -65,7 +71,7 @@ pub fun (b @Buffer) bytes() []byte {
 
 // string returns the unread portion of the buffer as a string.
 pub fun (b @Buffer) string() string {
-    return b.buf[b.pos..len(b.buf)] as string
+    return toString(b.buf[b.pos..len(b.buf)])
 }
 
 // reset resets the buffer to be empty.

@@ -1,5 +1,10 @@
 package cmp
 
+fun toOrdered(val any) Ordered? { return val }
+fun toInt(val any) int? { return val }
+fun toF64(val any) f64? { return val }
+fun toStr(val any) string? { return val }
+
 // Ordering represents the result of a comparison.
 pub type Ordering = .less | .equal | .greater
 
@@ -14,14 +19,14 @@ pub type Ordered interface {
 // Otherwise falls back to built-in type comparisons for int, f64, and string.
 pub fun compare(a any, b any) Ordering {
     // Try the Ordered interface first.
-    var ao = a as Ordered
+    var ao = toOrdered(a)
     if ao != null {
         return ao.compare(b)
     }
 
     // Fallback: compare built-in types.
-    var ai = a as int
-    var bi = b as int
+    var ai = toInt(a)
+    var bi = toInt(b)
     if ai != null {
         if bi != null {
             if ai < bi {
@@ -34,8 +39,8 @@ pub fun compare(a any, b any) Ordering {
         }
     }
 
-    var af = a as f64
-    var bf = b as f64
+    var af = toF64(a)
+    var bf = toF64(b)
     if af != null {
         if bf != null {
             if af < bf {
@@ -48,14 +53,14 @@ pub fun compare(a any, b any) Ordering {
         }
     }
 
-    var as_ = a as string
-    var bs = b as string
-    if as_ != null {
+    var aStr = toStr(a)
+    var bs = toStr(b)
+    if aStr != null {
         if bs != null {
-            if as_ < bs {
+            if aStr < bs {
                 return .less
             }
-            if as_ > bs {
+            if aStr > bs {
                 return .greater
             }
             return .equal

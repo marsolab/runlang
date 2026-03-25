@@ -29,9 +29,9 @@ pub T struct {
     skipped   bool
     logBuf    []string
     parent    &T?
-    parallel_ bool
-    deadline_ int
-    tempDir_  string?
+    isParallel bool
+    deadlineMs int
+    tempDirVal string?
 }
 
 // log records a message in the test log.
@@ -94,7 +94,7 @@ pub fun (t @T) name() string {
 // deadline returns the test timeout deadline as a unix timestamp in nanoseconds.
 // Returns 0 if no deadline is set.
 pub fun (t @T) deadline() int {
-    return t.deadline_
+    return t.deadlineMs
 }
 
 // tempDir returns a temporary directory that is automatically cleaned up

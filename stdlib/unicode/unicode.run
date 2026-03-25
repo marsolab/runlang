@@ -1,10 +1,10 @@
 package unicode
 
-// max_rune is the maximum valid Unicode code point.
-pub let max_rune = 1114111
+// maxRune is the maximum valid Unicode code point.
+pub let maxRune = 1114111
 
-// replacement_char is the Unicode replacement character U+FFFD.
-pub let replacement_char = 65533
+// replacementChar is the Unicode replacement character U+FFFD.
+pub let replacementChar = 65533
 
 // isLetter reports whether the rune is a Unicode letter.
 pub fun isLetter(r int) bool {

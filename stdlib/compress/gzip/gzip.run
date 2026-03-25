@@ -13,7 +13,7 @@ pub type GzipError = .invalidHeader
 pub Header struct {
     name    string
     comment string
-    mod_time time.Time
+    modTime time.Time
     extra   []byte
 }
 

@@ -3,11 +3,11 @@ package flate
 use "io"
 
 // Compression levels.
-pub let no_compression = 0
-pub let best_speed = 1
-pub let best_compression = 9
-pub let default_compression = -1
-pub let huffman_only = -2
+pub let noCompression = 0
+pub let bestSpeed = 1
+pub let bestCompression = 9
+pub let defaultCompression = -1
+pub let huffmanOnly = -2
 
 // FlateError represents errors during DEFLATE compression/decompression.
 pub type FlateError = .corruptInput
@@ -51,7 +51,7 @@ pub Writer struct {
 
 // newWriter returns a new Writer that compresses data at the default level.
 pub fun newWriter(w io.Writer) Writer {
-    return Writer{ writer: w, level: default_compression }
+    return Writer{ writer: w, level: defaultCompression }
 }
 
 // newWriterLevel returns a new Writer that compresses data at the given level.

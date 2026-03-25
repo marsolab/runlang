@@ -31,7 +31,7 @@ pub Command struct {
 pub FlagInfo struct {
     name          string
     usage         string
-    default_value string
+    defaultValue string
     required      bool
     isSet        bool
 }
@@ -172,8 +172,8 @@ pub fun (f @FlagSet) visitFlags(visitor fun(info FlagInfo)) {
 
 // Package-level convenience functions using a default FlagSet.
 
-// default_flags is the default FlagSet used by package-level functions.
-pub var default_flags = new("")
+// defaultFlags is the default FlagSet used by package-level functions.
+pub var defaultFlags = new("")
 
 // stringFlag defines a string flag on the default FlagSet.
 pub fun stringFlag(name string, default string, usage string) &string {

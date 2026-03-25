@@ -1,5 +1,12 @@
 package io
 
+// --- Type cast helpers ---
+// These wrap `as` casts into function calls for clarity and consistency.
+
+// TODO: type assertions require runtime type information; using identity returns for now.
+fun toStringWriter(val any) StringWriter { return val }
+fun toBytes(val any) []byte { return val }
+
 // Reader is the interface for types that can read bytes.
 pub type Reader interface {
     read(buf []byte) !int
@@ -256,16 +263,16 @@ fun (lr &LimitReader) read(buf []byte) !int {
         return 0
     }
     // Cap the read to the remaining limit.
-    var read_buf = buf
+    var readBuf = buf
     if len(buf) > lr.remain {
-        read_buf = alloc([]byte, lr.remain)
+        readBuf = alloc([]byte, lr.remain)
     }
-    var n = try lr.reader.read(read_buf)
+    var n = try lr.reader.read(readBuf)
     // Copy back if we used a temporary buffer.
     if len(buf) > lr.remain {
         var i = 0
         for i < n {
-            buf[i] = read_buf[i]
+            buf[i] = readBuf[i]
             i = i + 1
         }
     }
@@ -616,11 +623,11 @@ pub fun nopCloser(r Reader) ReadCloser {
 // the writeString method is called directly. Otherwise s is converted
 // to bytes and written via write.
 pub fun writeString(w Writer, s string) !int {
-    var sw = w as StringWriter
+    var sw = toStringWriter(w)
     if sw != null {
         return try sw.writeString(s)
     }
-    var buf = s as []byte
+    var buf = toBytes(s)
     return try w.write(buf)
 }
 

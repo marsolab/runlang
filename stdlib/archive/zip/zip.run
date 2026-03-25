@@ -17,12 +17,12 @@ pub type CompressionMethod = .store
 pub File struct {
     name               string
     comment            string
-    compressed_size    int
-    uncompressed_size  int
-    modification_time  time.Time
-    compression_method CompressionMethod
+    compressedSize    int
+    uncompressedSize  int
+    modificationTime  time.Time
+    compressionMethod CompressionMethod
     crc32              u32
-    is_dir             bool
+    isDir             bool
 }
 
 // Reader reads a zip archive.

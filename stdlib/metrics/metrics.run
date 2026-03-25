@@ -126,8 +126,8 @@ pub fun (s &Set) writePrometheus(w io.Writer) !void {
 
 // Default set used by package-level functions.
 
-// default_set is the default metric set.
-pub var default_set = newSet()
+// defaultSet is the default metric set.
+pub var defaultSet = newSet()
 
 // writePrometheus writes the default set's metrics in Prometheus format.
 pub fun writePrometheus(w io.Writer) !void {

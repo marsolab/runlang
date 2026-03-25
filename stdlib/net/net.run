@@ -28,11 +28,11 @@ pub type Addr interface {
 
 // ---- IP address type and constants ----
 
-// ipv4_len is the length in bytes of an IPv4 address.
-pub let ipv4_len = 4
+// ipv4Len is the length in bytes of an IPv4 address.
+pub let ipv4Len = 4
 
-// ipv6_len is the length in bytes of an IPv6 address.
-pub let ipv6_len = 16
+// ipv6Len is the length in bytes of an IPv6 address.
+pub let ipv6Len = 16
 
 // Ip represents an IP address (IPv4 or IPv6).
 pub Ip struct {
@@ -55,12 +55,12 @@ pub fun (ip @Ip) string() string {
 
 // isV4 reports whether ip is an IPv4 address.
 pub fun (ip @Ip) isV4() bool {
-    return len(ip.data) == ipv4_len
+    return len(ip.data) == ipv4Len
 }
 
 // isV6 reports whether ip is an IPv6 address.
 pub fun (ip @Ip) isV6() bool {
-    return len(ip.data) == ipv6_len
+    return len(ip.data) == ipv6Len
 }
 
 // isLoopback reports whether ip is a loopback address.
@@ -106,13 +106,13 @@ pub fun (ip @Ip) equal(other @Ip) bool {
 // toV4 returns the IPv4 representation of ip, or an error if ip is not
 // an IPv4 address or an IPv4-mapped IPv6 address.
 pub fun (ip @Ip) toV4() !Ip {
-    return Ip{ data: alloc([]byte, ipv4_len) }
+    return Ip{ data: alloc([]byte, ipv4Len) }
 }
 
 // toV16 returns the IPv6 representation of ip. If ip is an IPv4 address,
 // it returns the IPv4-mapped IPv6 form.
 pub fun (ip @Ip) toV16() Ip {
-    return Ip{ data: alloc([]byte, ipv6_len) }
+    return Ip{ data: alloc([]byte, ipv6Len) }
 }
 
 // mask applies the subnet mask m and returns the masked IP address.
@@ -122,12 +122,12 @@ pub fun (ip @Ip) mask(m @IpMask) Ip {
 
 // ipv4 creates an IPv4 address from four bytes.
 pub fun ipv4(a byte, b byte, c byte, d byte) Ip {
-    return Ip{ data: alloc([]byte, ipv4_len) }
+    return Ip{ data: alloc([]byte, ipv4Len) }
 }
 
 // ipv6 creates an IPv6 address from eight 16-bit groups.
 pub fun ipv6(a int, b int, c int, d int, e int, f int, g int, h int) Ip {
-    return Ip{ data: alloc([]byte, ipv6_len) }
+    return Ip{ data: alloc([]byte, ipv6Len) }
 }
 
 // parseIp parses an IP address string (IPv4 dotted-decimal or IPv6).
@@ -136,11 +136,11 @@ pub fun parseIp(s string) !Ip {
 }
 
 // Well-known IP addresses.
-pub let ipv4_zero = Ip{ data: alloc([]byte, ipv4_len) }
-pub let ipv4_loopback = ipv4(127, 0, 0, 1)
-pub let ipv4_broadcast = ipv4(255, 255, 255, 255)
-pub let ipv6_zero = Ip{ data: alloc([]byte, ipv6_len) }
-pub let ipv6_loopback = Ip{ data: alloc([]byte, ipv6_len) }
+pub let ipv4Zero = Ip{ data: alloc([]byte, ipv4Len) }
+pub let ipv4Loopback = ipv4(127, 0, 0, 1)
+pub let ipv4Broadcast = ipv4(255, 255, 255, 255)
+pub let ipv6Zero = Ip{ data: alloc([]byte, ipv6Len) }
+pub let ipv6Loopback = Ip{ data: alloc([]byte, ipv6Len) }
 
 // ---- IP mask and network ----
 
@@ -167,7 +167,7 @@ pub fun cidrMask(ones int, bits int) IpMask {
 
 // ipv4Mask returns an IPv4 subnet mask from four bytes.
 pub fun ipv4Mask(a byte, b byte, c byte, d byte) IpMask {
-    return IpMask{ data: alloc([]byte, ipv4_len) }
+    return IpMask{ data: alloc([]byte, ipv4Len) }
 }
 
 // IpNet represents an IP network (CIDR block).
@@ -369,7 +369,7 @@ pub fun (c &TcpConn) setKeepalivePeriod(d time.Duration) !void {
 
 // setNoDelay controls whether the operating system should delay packet
 // transmission in hopes of sending fewer packets (Nagle's algorithm).
-pub fun (c &TcpConn) setNoDelay(no_delay bool) !void {
+pub fun (c &TcpConn) setNoDelay(noDelay bool) !void {
 }
 
 // setLinger sets the behavior of close on a connection which still has
@@ -614,7 +614,7 @@ pub Dialer struct {
     timeout    time.Duration
     deadline   time.Time
     localAddr Addr?
-    keep_alive time.Duration
+    keepAlive time.Duration
 }
 
 // dial connects to the address on the named network.
@@ -622,12 +622,12 @@ pub fun (d @Dialer) dial(network string, address string) !Conn {
     return null
 }
 
-// default_dialer is the default Dialer used by the top-level dial functions.
-pub var default_dialer = Dialer{
+// defaultDialer is the default Dialer used by the top-level dial functions.
+pub var defaultDialer = Dialer{
     timeout: 0,
     deadline: time.Time{ seconds: 0, nanoseconds: 0 },
     localAddr: null,
-    keep_alive: 0,
+    keepAlive: 0,
 }
 
 // ---- Resolver ----
@@ -635,7 +635,7 @@ pub var default_dialer = Dialer{
 // Resolver looks up names and numbers. A zero-value Resolver uses the
 // system default resolver.
 pub Resolver struct {
-    prefer_go bool
+    preferGo bool
 }
 
 // lookupHost looks up the given host using the resolver.
@@ -683,8 +683,8 @@ pub fun (r @Resolver) lookupSrv(service string, proto string, name string) !stru
     return .{ cname: "", addrs: alloc([]SrvRecord, 0) }
 }
 
-// default_resolver is the resolver used by the top-level lookup functions.
-pub var default_resolver = Resolver{ prefer_go: false }
+// defaultResolver is the resolver used by the top-level lookup functions.
+pub var defaultResolver = Resolver{ preferGo: false }
 
 // ---- Free functions: listen / dial ----
 

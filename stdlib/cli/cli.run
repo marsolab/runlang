@@ -29,17 +29,17 @@ pub Command struct {
     version          string
     deprecated       string
     hidden           bool
-    pre_run          RunFunc?
+    preRun          RunFunc?
     run              RunFunc?
-    post_run         RunFunc?
-    args_validator   ArgsValidator?
+    postRun         RunFunc?
+    argsValidator   ArgsValidator?
     flags            flag.FlagSet
     persistentFlags flag.FlagSet
     parent           &Command?
     commands         []&Command
-    use_stderr       bool
-    silence_errors   bool
-    silence_usage    bool
+    useStderr       bool
+    silenceErrors   bool
+    silenceUsage    bool
 }
 
 // new creates a new Command with the given name.
@@ -53,17 +53,17 @@ pub fun new(name string) Command {
         version: "",
         deprecated: "",
         hidden: false,
-        pre_run: null,
+        preRun: null,
         run: null,
-        post_run: null,
-        args_validator: null,
+        postRun: null,
+        argsValidator: null,
         flags: flag.new(name),
         persistentFlags: flag.new(name),
         parent: null,
         commands: alloc([]&Command, 0),
-        use_stderr: false,
-        silence_errors: false,
-        silence_usage: false,
+        useStderr: false,
+        silenceErrors: false,
+        silenceUsage: false,
     }
 }
 
@@ -116,31 +116,31 @@ pub fun (c &Command) setRun(f RunFunc) &Command {
 
 // setPreRun sets a function that runs before the main run function.
 pub fun (c &Command) setPreRun(f RunFunc) &Command {
-    c.pre_run = f
+    c.preRun = f
     return c
 }
 
 // setPostRun sets a function that runs after the main run function.
 pub fun (c &Command) setPostRun(f RunFunc) &Command {
-    c.post_run = f
+    c.postRun = f
     return c
 }
 
 // setArgsValidator sets the positional argument validation function.
 pub fun (c &Command) setArgsValidator(v ArgsValidator) &Command {
-    c.args_validator = v
+    c.argsValidator = v
     return c
 }
 
 // setSilenceErrors prevents the command from printing errors on failure.
 pub fun (c &Command) setSilenceErrors(v bool) &Command {
-    c.silence_errors = v
+    c.silenceErrors = v
     return c
 }
 
 // setSilenceUsage prevents the command from printing usage on error.
 pub fun (c &Command) setSilenceUsage(v bool) &Command {
-    c.silence_usage = v
+    c.silenceUsage = v
     return c
 }
 
@@ -315,8 +315,8 @@ pub fun validArgs(valid []string) ArgsValidator {
 
 // --- Package-level convenience ---
 
-// default_app is the default root command used by package-level functions.
-pub var default_app = new("")
+// defaultApp is the default root command used by package-level functions.
+pub var defaultApp = new("")
 
 // addCommand adds a subcommand to the default app.
 pub fun addCommand(sub &Command) {

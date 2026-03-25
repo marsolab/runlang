@@ -1,16 +1,16 @@
 package utf8
 
-// max_rune is the maximum valid Unicode code point.
-pub let max_rune = 1114111
+// maxRune is the maximum valid Unicode code point.
+pub let maxRune = 1114111
 
-// rune_error is the "error" rune or "Unicode replacement character".
-pub let rune_error = 65533
+// runeError is the "error" rune or "Unicode replacement character".
+pub let runeError = 65533
 
-// rune_self is the threshold below which a single byte represents a rune.
-pub let rune_self = 128
+// runeSelf is the threshold below which a single byte represents a rune.
+pub let runeSelf = 128
 
-// utf_max is the maximum number of bytes of a UTF-8 encoded Unicode character.
-pub let utf_max = 4
+// utfMax is the maximum number of bytes of a UTF-8 encoded Unicode character.
+pub let utfMax = 4
 
 // encode writes into buf the UTF-8 encoding of the rune and returns
 // the number of bytes written.

@@ -1,17 +1,17 @@
 package numa
 
 // Policy constants for setMemoryPolicy.
-pub let POLICY_LOCAL      = 0
-pub let POLICY_BIND       = 1
-pub let POLICY_INTERLEAVE = 2
-pub let POLICY_PREFERRED  = 3
+pub let policyLocal      = 0
+pub let policyBind       = 1
+pub let policyInterleave = 2
+pub let policyPreferred  = 3
 
 // Node represents a single NUMA node.
 pub Node struct {
     id           int
     cpus         []int
-    memory_total int
-    memory_free  int
+    memoryTotal int
+    memoryFree  int
 }
 
 // Topology represents the system NUMA topology.
@@ -49,7 +49,7 @@ pub fun cpuCount(node int) int {
 // distance returns the relative distance between two NUMA nodes.
 // A distance of 10 indicates local access; higher values indicate
 // increasing latency.
-pub fun distance(node_a int, node_b int) int {
+pub fun distance(nodeA int, nodeB int) int {
     return 0
 }
 
@@ -93,7 +93,7 @@ pub fun bindGreenThread(node int) {
 
 // setMemoryPolicy sets the memory placement policy for the
 // calling thread. Use POLICY_* constants for the policy parameter.
-// node is used by POLICY_BIND and POLICY_PREFERRED.
+// node is used by policyBind and policyPreferred.
 // Returns 0 on success, -1 on failure.
 pub fun setMemoryPolicy(policy int, node int) int {
     return 0
