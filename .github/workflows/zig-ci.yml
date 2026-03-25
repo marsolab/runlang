@@ -154,17 +154,23 @@ jobs:
 
       - name: Check all stdlib packages
         if: steps.changes.outputs.should_run == 'true'
+        timeout-minutes: 10
         run: |
           passed=0
           failed=0
           failed_files=""
 
           while IFS= read -r file; do
-            if output=$(./zig-out/bin/run check "$file" 2>&1); then
+            if output=$(timeout 30 ./zig-out/bin/run check --no-color "$file" 2>&1); then
               echo "PASS: $file"
               passed=$((passed + 1))
             else
-              echo "FAIL: $file"
+              exit_code=$?
+              if [ "$exit_code" -eq 124 ]; then
+                echo "TIMEOUT: $file (killed after 30s)"
+              else
+                echo "FAIL: $file"
+              fi
               echo "$output"
               echo "---"
               failed=$((failed + 1))
@@ -186,16 +192,22 @@ jobs:
 
       - name: Summary
         if: always() && steps.changes.outputs.should_run == 'true'
+        timeout-minutes: 10
         run: |
           echo "## Stdlib Compilation Check" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| File | Status |" >> "$GITHUB_STEP_SUMMARY"
           echo "|------|--------|" >> "$GITHUB_STEP_SUMMARY"
           while IFS= read -r file; do
-            if output=$(./zig-out/bin/run check "$file" 2>&1); then
+            if output=$(timeout 30 ./zig-out/bin/run check --no-color "$file" 2>&1); then
               echo "| \`$file\` | :white_check_mark: Pass |" >> "$GITHUB_STEP_SUMMARY"
             else
-              echo "| \`$file\` | :x: Fail |" >> "$GITHUB_STEP_SUMMARY"
-              echo "| | <details><summary>Error</summary><pre>$output</pre></details> |" >> "$GITHUB_STEP_SUMMARY"
+              exit_code=$?
+              if [ "$exit_code" -eq 124 ]; then
+                echo "| \`$file\` | :warning: Timeout |" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "| \`$file\` | :x: Fail |" >> "$GITHUB_STEP_SUMMARY"
+                echo "| | <details><summary>Error</summary><pre>$output</pre></details> |" >> "$GITHUB_STEP_SUMMARY"
+              fi
             fi
           done < <(find stdlib/ -name '*.run' ! -name '*_test.run' | sort)
