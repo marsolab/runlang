@@ -45,27 +45,27 @@ test "assertions" {
 ## Table-Driven Tests
 
 The most common test pattern — testing a function with many inputs — is a
-first-class language construct using `each`:
+first-class language construct. Use `for` with named cases separated by `::`:
 
 ```run
-test "add" each [
-    { a: 2,  b: 3,  want: 5  },
-    { a: -1, b: 1,  want: 0  },
-    { a: 0,  b: 0,  want: 0  },
-    { a: -3, b: -7, want: -10 },
+test "add" for [
+    "positive"    :: { a: 2,  b: 3,  want: 5   },
+    "negative"    :: { a: -1, b: -2, want: -3   },
+    "zeros"       :: { a: 0,  b: 0,  want: 0    },
+    "mixed signs" :: { a: -3, b: 7,  want: 4    },
 ] {
     expect_eq(add(row.a, row.b), row.want)
 }
 ```
 
-Each row runs as a separate subtest. If a row has a `name` field, it's used
-as the subtest description:
+Each case runs as a separate subtest. The string before `::` is the case name
+(shown in output), the struct after `::` is the test data (accessed via `row`):
 
 ```run
-test "parse_int" each [
-    { name: "simple",     input: "42",   want: 42 },
-    { name: "negative",   input: "-7",   want: -7 },
-    { name: "whitespace", input: " 12 ", want: 12 },
+test "parse_int" for [
+    "simple"     :: { input: "42",   want: 42 },
+    "negative"   :: { input: "-7",   want: -7 },
+    "whitespace" :: { input: " 12 ", want: 12 },
 ] {
     result := try parse_int(row.input)
     expect_eq(result, row.want)
@@ -75,9 +75,9 @@ test "parse_int" each [
 For concise access to row fields, use destructuring with `as`:
 
 ```run
-test "add" each [
-    { a: 2, b: 3, want: 5 },
-    { a: 0, b: 0, want: 0 },
+test "add" for [
+    "positive" :: { a: 2, b: 3, want: 5 },
+    "zeros"    :: { a: 0, b: 0, want: 0 },
 ] as { a, b, want } {
     expect_eq(add(a, b), want)
 }
@@ -148,10 +148,10 @@ bench "sort 1000 elements" {
 Table-driven benchmarks compare different sizes:
 
 ```run
-bench "sort" each [
-    { name: "10",    size: 10    },
-    { name: "100",   size: 100   },
-    { name: "1000",  size: 1000  },
+bench "sort" for [
+    "10 elements"   :: { size: 10    },
+    "100 elements"  :: { size: 100   },
+    "1000 elements" :: { size: 1000  },
 ] {
     data := generate_random_slice(row.size)
     b.reset_timer()

@@ -63,46 +63,34 @@ When an assertion fails, it reports:
 ### Table-Driven Tests (First-Class)
 
 Table-driven testing is the most common pattern in Go. Run makes it a language
-construct with the `test ... each` form:
+construct using `for` with named cases. Each case uses the `::` separator
+(consistent with `switch` arms):
 
 ```run
-test "add" each [
-    { a: 2,  b: 3,  want: 5  },
-    { a: -1, b: 1,  want: 0  },
-    { a: 0,  b: 0,  want: 0  },
-    { a: -3, b: -7, want: -10 },
+test "add" for [
+    "positive"      :: { a: 2,  b: 3,  want: 5   },
+    "negative"      :: { a: -1, b: -2, want: -3   },
+    "zeros"         :: { a: 0,  b: 0,  want: 0    },
+    "mixed signs"   :: { a: -3, b: 7,  want: 4    },
 ] {
     expect_eq(add(row.a, row.b), row.want)
 }
 ```
 
 Key properties:
-- `each` introduces an **anonymous table** — an array of anonymous structs
-- Each row becomes a **subtest**, automatically named from the row values
-- The row is accessed via the implicit `row` binding
+- `for` introduces the case table — reuses the existing `for` keyword
+- Each case is `"name" :: { fields }` — reuses the `::` separator from `switch`
+- The string before `::` is the **subtest name**, shown in output
+- The struct after `::` is the **test data**, accessed via the implicit `row` binding
 - Row fields are inferred from the struct literals — no type declaration needed
-- If a row has a `name` field, it's used as the subtest description
-
-Named rows for clarity:
-
-```run
-test "parse_int" each [
-    { name: "simple",     input: "42",    want: 42    },
-    { name: "negative",   input: "-7",    want: -7    },
-    { name: "zero",       input: "0",     want: 0     },
-    { name: "whitespace", input: " 12 ",  want: 12    },
-] {
-    result := try parse_int(row.input)
-    expect_eq(result, row.want)
-}
-```
+- Each case runs as an independent subtest
 
 Rows can also bind with destructuring for conciseness:
 
 ```run
-test "add" each [
-    { a: 2, b: 3, want: 5 },
-    { a: 0, b: 0, want: 0 },
+test "add" for [
+    "positive" :: { a: 2, b: 3, want: 5 },
+    "zeros"    :: { a: 0, b: 0, want: 0 },
 ] as { a, b, want } {
     expect_eq(add(a, b), want)
 }
@@ -189,11 +177,11 @@ bench "sort 1000 elements" {
 With table-driven benchmarks:
 
 ```run
-bench "sort" each [
-    { name: "10",    size: 10    },
-    { name: "100",   size: 100   },
-    { name: "1000",  size: 1000  },
-    { name: "10000", size: 10000 },
+bench "sort" for [
+    "10 elements"    :: { size: 10    },
+    "100 elements"   :: { size: 100   },
+    "1000 elements"  :: { size: 1000  },
+    "10000 elements" :: { size: 10000 },
 ] {
     data := generate_random_slice(row.size)
     b.reset_timer()
@@ -307,12 +295,12 @@ math/
 | Syntax | Purpose |
 |--------|---------|
 | `test "name" { }` | Unit test block |
-| `test "name" each [...] { }` | Table-driven test |
-| `test "name" each [...] as { fields } { }` | Table-driven test with destructuring |
+| `test "name" for ["case" :: {}, ...] { }` | Table-driven test |
+| `test "name" for [...] as { fields } { }` | Table-driven test with destructuring |
 | `test "name" fuzz(params) { }` | Fuzz test |
 | `test "name" fuzz(params) seed [...] { }` | Fuzz test with seed corpus |
 | `bench "name" { }` | Benchmark block |
-| `bench "name" each [...] { }` | Table-driven benchmark |
+| `bench "name" for ["case" :: {}, ...] { }` | Table-driven benchmark |
 | `test before_all { }` | File-level setup |
 | `test after_all { }` | File-level teardown |
 | `test before_each { }` | Per-test setup |
@@ -320,13 +308,23 @@ math/
 | `t.run("name") { }` | Dynamic subtest |
 | `t.parallel()` | Parallel test marker |
 
+### Case Syntax: `"name" :: { fields }`
+
+The table-driven test case syntax reuses two existing language constructs:
+
+1. **`for`** — the iteration keyword, already used for loops (`for item in collection`)
+2. **`::`** — the arm separator, already used in `switch` (`pattern :: body`)
+
+This means no new keywords are needed for table-driven tests. A case reads naturally:
+`"description" :: { test data }`, just like a switch arm reads `pattern :: action`.
+
 ## Comparison
 
 | Feature | Go | Zig | Run (new) |
 |---------|-----|-----|-----------|
 | Test declaration | `func TestX(t *testing.T)` | `test "name" { }` | `test "name" { }` |
 | Test descriptions | Identifier names | String literals | String literals |
-| Table-driven | Manual struct + loop | Manual | `test ... each [...]` |
+| Table-driven | Manual struct + loop | Manual | `test ... for ["name" :: {}, ...]` |
 | Subtests | `t.Run("name", func(t *T))` | N/A | `t.run("name") { }` |
 | Fuzzing | `func FuzzX(f *testing.F)` | `std.testing.fuzz` | `test ... fuzz(params)` |
 | Benchmarks | `func BenchX(b *testing.B)` | Manual timing | `bench "name" { }` |
@@ -339,21 +337,22 @@ math/
 ### New Tokens
 - `kw_test` — the `test` keyword
 - `kw_bench` — the `bench` keyword
-- `kw_each` — the `each` keyword (contextual, only after test/bench)
 - `kw_fuzz` — the `fuzz` keyword (contextual, only after test)
 - `kw_seed` — the `seed` keyword (contextual, only after fuzz params)
 
+Note: `for` and `::` are already tokens. No new keyword needed for table-driven tests.
+
 ### New AST Nodes
 - `test_decl` — test block with description and body
-- `table_test_decl` — table-driven test with rows, optional destructuring, and body
+- `table_test_decl` — table-driven test with named cases and body
 - `fuzz_test_decl` — fuzz test with parameters, optional seed, and body
 - `bench_decl` — benchmark block with description and body
-- `table_bench_decl` — table-driven benchmark
+- `table_bench_decl` — table-driven benchmark with named cases
 - `test_hook_decl` — lifecycle hook (before_all, after_all, etc.)
 
 ### Compiler Changes
-- Lexer: Add new keyword tokens
-- Parser: Parse test/bench declarations at top level
+- Lexer: Add new keyword tokens (`test`, `bench`, `fuzz`, `seed`)
+- Parser: Parse test/bench declarations at top level; parse `for [...]` case tables
 - Codegen: Strip test/bench blocks from non-test builds
 - Test runner: Discover test/bench/fuzz declarations from AST instead of name prefix
 
