@@ -1,0 +1,8 @@
+package main
+
+use "os/signal"
+
+pub fun main() {
+    signal.ignore()
+    signal.reset()
+}

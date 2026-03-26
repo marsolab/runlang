@@ -1,5 +1,6 @@
 #include "run_signal.h"
 
+#include <fcntl.h>
 #include <errno.h>
 #include <pthread.h>
 #include <signal.h>
@@ -31,10 +32,12 @@ static int posix_to_run(int signo) {
 static int self_pipe[2] = {-1, -1};
 
 static void signal_handler(int signo) {
-    /* Async-signal-safe: write one byte (the signal number) to the pipe. */
+    /* Async-signal-safe: best-effort write one byte to the pipe. */
     int saved_errno = errno;
     unsigned char byte = (unsigned char)signo;
-    (void)write(self_pipe[1], &byte, 1);
+    if (self_pipe[1] != -1) {
+        (void)write(self_pipe[1], &byte, 1);
+    }
     errno = saved_errno;
 }
 
@@ -51,6 +54,8 @@ static registration_t registry[MAX_REGISTRATIONS];
 static int registry_count = 0;
 static pthread_mutex_t registry_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+static void remove_registration_at_locked(int idx, bool restore_handlers);
+
 /* ── Dispatcher thread ───────────────────────────────────────────────────── */
 
 static pthread_t dispatcher_thread;
@@ -61,8 +66,11 @@ static void *dispatcher_fn(void *arg) {
     for (;;) {
         unsigned char byte;
         ssize_t n = read(self_pipe[0], &byte, 1);
-        if (n != 1)
+        if (n != 1) {
+            if (n == -1 && errno == EINTR)
+                continue;
             continue;
+        }
 
         int signo = (int)byte;
         int run_sig = posix_to_run(signo);
@@ -72,9 +80,20 @@ static void *dispatcher_fn(void *arg) {
         int64_t ordinal = (int64_t)run_sig;
 
         pthread_mutex_lock(&registry_mutex);
-        for (int i = 0; i < registry_count; i++) {
-            if (registry[i].signals[run_sig]) {
-                run_chan_send(registry[i].ch, &ordinal);
+        for (int i = 0; i < registry_count;) {
+            if (!registry[i].signals[run_sig]) {
+                i++;
+                continue;
+            }
+
+            switch (run_chan_try_send(registry[i].ch, &ordinal)) {
+            case RUN_CHAN_SEND_OK:
+            case RUN_CHAN_SEND_WOULD_BLOCK:
+                i++;
+                break;
+            case RUN_CHAN_SEND_CLOSED:
+                remove_registration_at_locked(i, true);
+                break;
             }
         }
         pthread_mutex_unlock(&registry_mutex);
@@ -85,7 +104,18 @@ static void *dispatcher_fn(void *arg) {
 static void start_dispatcher(void) {
     if (pipe(self_pipe) != 0)
         return;
-    pthread_create(&dispatcher_thread, NULL, dispatcher_fn, NULL);
+
+    int flags = fcntl(self_pipe[1], F_GETFL, 0);
+    if (flags != -1) {
+        (void)fcntl(self_pipe[1], F_SETFL, flags | O_NONBLOCK);
+    }
+
+    if (pthread_create(&dispatcher_thread, NULL, dispatcher_fn, NULL) != 0) {
+        close(self_pipe[0]);
+        close(self_pipe[1]);
+        self_pipe[0] = -1;
+        self_pipe[1] = -1;
+    }
 }
 
 static void ensure_dispatcher(void) {
@@ -109,6 +139,26 @@ static bool signal_has_any_registration(int run_sig) {
             return true;
     }
     return false;
+}
+
+static void remove_registration_at_locked(int idx, bool restore_handlers) {
+    bool had[RUN_SIG_COUNT];
+    memcpy(had, registry[idx].signals, sizeof(had));
+
+    for (int j = idx; j < registry_count - 1; j++) {
+        registry[j] = registry[j + 1];
+    }
+    registry_count--;
+
+    if (!restore_handlers) {
+        return;
+    }
+
+    for (int s = 0; s < RUN_SIG_COUNT; s++) {
+        if (had[s] && !signal_has_any_registration(s)) {
+            signal(sig_run_to_posix[s], SIG_DFL);
+        }
+    }
 }
 
 /* ── Public API ──────────────────────────────────────────────────────────── */
@@ -165,22 +215,7 @@ void run_signal_stop(run_chan_t *ch) {
 
     for (int i = 0; i < registry_count; i++) {
         if (registry[i].ch == ch) {
-            /* Check which signals to potentially uninstall */
-            bool had[RUN_SIG_COUNT];
-            memcpy(had, registry[i].signals, sizeof(had));
-
-            /* Remove this entry by shifting */
-            for (int j = i; j < registry_count - 1; j++) {
-                registry[j] = registry[j + 1];
-            }
-            registry_count--;
-
-            /* Restore SIG_DFL for signals that have no remaining registrations */
-            for (int s = 0; s < RUN_SIG_COUNT; s++) {
-                if (had[s] && !signal_has_any_registration(s)) {
-                    signal(sig_run_to_posix[s], SIG_DFL);
-                }
-            }
+            remove_registration_at_locked(i, true);
             break;
         }
     }

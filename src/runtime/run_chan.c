@@ -27,6 +27,35 @@ struct run_chan {
     bool closed;
 };
 
+static run_chan_send_status_t chan_try_send_locked(run_chan_t *ch, const void *data, run_g_t **wake_receiver) {
+    if (wake_receiver) {
+        *wake_receiver = NULL;
+    }
+
+    if (ch->closed) {
+        return RUN_CHAN_SEND_CLOSED;
+    }
+
+    if (ch->recv_q.len > 0) {
+        run_g_t *receiver = run_g_queue_pop(&ch->recv_q);
+        memcpy(receiver->chan_data_ptr, data, ch->elem_size);
+        if (wake_receiver) {
+            *wake_receiver = receiver;
+        }
+        return RUN_CHAN_SEND_OK;
+    }
+
+    if (ch->buffer_len < ch->buffer_cap) {
+        void *slot = (char *)ch->buffer + (ch->send_idx * ch->elem_size);
+        memcpy(slot, data, ch->elem_size);
+        ch->send_idx = (ch->send_idx + 1) % ch->buffer_cap;
+        ch->buffer_len++;
+        return RUN_CHAN_SEND_OK;
+    }
+
+    return RUN_CHAN_SEND_WOULD_BLOCK;
+}
+
 /* ========================================================================
  * Channel Creation / Destruction
  * ======================================================================== */
@@ -79,32 +108,22 @@ void run_chan_free(run_chan_t *ch) {
  * ======================================================================== */
 
 void run_chan_send(run_chan_t *ch, const void *data) {
+    run_g_t *receiver = NULL;
     pthread_mutex_lock(&ch->lock);
 
-    if (ch->closed) {
+    switch (chan_try_send_locked(ch, data, &receiver)) {
+    case RUN_CHAN_SEND_OK:
+        pthread_mutex_unlock(&ch->lock);
+        if (receiver) {
+            run_g_ready(receiver);
+        }
+        return;
+    case RUN_CHAN_SEND_CLOSED:
         pthread_mutex_unlock(&ch->lock);
         fprintf(stderr, "run: send on closed channel\n");
         abort();
-    }
-
-    /* Fast path: waiting receiver exists */
-    if (ch->recv_q.len > 0) {
-        run_g_t *receiver = run_g_queue_pop(&ch->recv_q);
-        /* Direct copy: data -> receiver's waiting slot */
-        memcpy(receiver->chan_data_ptr, data, ch->elem_size);
-        pthread_mutex_unlock(&ch->lock);
-        run_g_ready(receiver);
-        return;
-    }
-
-    /* Buffer has space */
-    if (ch->buffer_len < ch->buffer_cap) {
-        void *slot = (char *)ch->buffer + (ch->send_idx * ch->elem_size);
-        memcpy(slot, data, ch->elem_size);
-        ch->send_idx = (ch->send_idx + 1) % ch->buffer_cap;
-        ch->buffer_len++;
-        pthread_mutex_unlock(&ch->lock);
-        return;
+    case RUN_CHAN_SEND_WOULD_BLOCK:
+        break;
     }
 
     /* Must block: buffer full (or unbuffered with no receiver) */
@@ -125,6 +144,23 @@ void run_chan_send(run_chan_t *ch, const void *data) {
 
     run_schedule(); /* context switch to scheduler */
     /* Resumed here after a receiver copies our data */
+}
+
+run_chan_send_status_t run_chan_try_send(run_chan_t *ch, const void *data) {
+    if (!ch) {
+        return RUN_CHAN_SEND_CLOSED;
+    }
+
+    run_g_t *receiver = NULL;
+    pthread_mutex_lock(&ch->lock);
+    const run_chan_send_status_t status = chan_try_send_locked(ch, data, &receiver);
+    pthread_mutex_unlock(&ch->lock);
+
+    if (receiver) {
+        run_g_ready(receiver);
+    }
+
+    return status;
 }
 
 /* ========================================================================

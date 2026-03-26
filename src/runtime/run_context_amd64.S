@@ -71,12 +71,14 @@ run_context_init:
     /* Align stack_top down to 16 bytes */
     andq    $-16, %rsi
 
-    /* Reserve space: return address for alignment */
-    subq    $8, %rsi
-
     /* The trampoline will be the initial rip. Store entry and arg in
      * callee-saved registers (r12=entry, r13=arg) so the trampoline
-     * can access them after context switch. */
+     * can access them after context switch.
+     *
+     * The first transfer into the trampoline is a jump, not a call, so the
+     * stack pointer must already satisfy the SysV pre-call alignment rule.
+     * Keeping rsp 16-byte aligned here lets the trampoline call entry(arg)
+     * with the expected ABI stack layout. */
     movq    %rsi, 0x00(%rdi)       /* rsp = adjusted stack top */
     leaq    .Ltrampoline(%rip), %rax
     movq    %rax, 0x08(%rdi)       /* rip = trampoline */

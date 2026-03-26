@@ -6,6 +6,12 @@
 
 typedef struct run_chan run_chan_t;
 
+typedef enum {
+    RUN_CHAN_SEND_OK,
+    RUN_CHAN_SEND_WOULD_BLOCK,
+    RUN_CHAN_SEND_CLOSED,
+} run_chan_send_status_t;
+
 /* Create a new channel.
  * elem_size: size of each element (e.g., sizeof(int64_t))
  * buffer_cap: buffer capacity (0 for unbuffered, >0 for buffered) */
@@ -13,6 +19,9 @@ run_chan_t *run_chan_new(size_t elem_size, size_t buffer_cap);
 
 /* Send data to channel. Blocks if buffer is full or no receiver (unbuffered). */
 void run_chan_send(run_chan_t *ch, const void *data);
+
+/* Send data to channel without blocking. */
+run_chan_send_status_t run_chan_try_send(run_chan_t *ch, const void *data);
 
 /* Receive data from channel. Blocks if buffer is empty and no sender. */
 void run_chan_recv(run_chan_t *ch, void *data);

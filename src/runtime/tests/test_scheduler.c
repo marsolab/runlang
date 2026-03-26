@@ -63,6 +63,21 @@ static void test_yield(void) {
     RUN_ASSERT_EQ(g_counter, 4);
 }
 
+static void test_context_init_stack_alignment(void) {
+#if defined(__x86_64__)
+    unsigned char stack[1024];
+    run_context_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+
+    run_context_init(&ctx, stack + sizeof(stack), increment_fn, NULL);
+
+    RUN_ASSERT_EQ(((uintptr_t)ctx.rsp) & 0xfu, 0);
+    RUN_ASSERT(ctx.rip != NULL);
+#else
+    RUN_ASSERT(1);
+#endif
+}
+
 static void test_spawn_many(void) {
     g_counter = 0;
     for (int i = 0; i < 100; i++) {
@@ -142,5 +157,6 @@ void run_test_scheduler(void) {
     RUN_TEST(test_spawn_multiple);
     RUN_TEST(test_spawn_with_arg);
     RUN_TEST(test_yield);
+    RUN_TEST(test_context_init_stack_alignment);
     RUN_TEST(test_spawn_many);
 }

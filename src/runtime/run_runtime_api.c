@@ -70,10 +70,13 @@ run_caller_info_t run_runtime_caller(int64_t skip) {
 
 #if defined(__APPLE__) || defined(__linux__)
     /* skip + 1 to skip this function, + 1 more for safety */
-    int depth = (int)skip + 2;
+    int depth = 2;
+    if (skip > 0) {
+        depth += (int)skip;
+    }
     void *frames[64];
     int count = backtrace(frames, 64);
-    if (depth < count) {
+    if (depth >= 0 && depth < count) {
         Dl_info dl;
         if (dladdr(frames[depth], &dl)) {
             info.file = run_string_from_cstr(dl.dli_fname ? dl.dli_fname : "<unknown>");

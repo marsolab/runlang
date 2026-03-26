@@ -101,7 +101,7 @@ fn findReachableFunctions(
 
             for (func.blocks.items) |*block| {
                 for (block.insts.items) |inst| {
-                    if (inst.op != .call and inst.op != .spawn) continue;
+                    if (inst.op != .call and inst.op != .spawn and inst.op != .spawn_on_node) continue;
                     if (inst.arg1 >= module.call_infos.items.len) continue;
 
                     const target = module.call_infos.items[inst.arg1].target_name;
@@ -327,6 +327,38 @@ test "eliminate: spawn targets are reachable" {
         var block = func.getBlock(b0);
         const ci = try module.addCallInfo(alloc, "run_main__worker", &.{});
         try block.addInst(alloc, ir.makeInst(.spawn, 0, ci, 0));
+        try block.addInst(alloc, ir.makeInst(.ret_void, 0, 0, 0));
+    }
+
+    const worker_id = try module.addFunction(alloc, "run_main__worker");
+    {
+        var func = module.getFunction(worker_id);
+        func.return_type_name = "void";
+        const b0 = try func.addBlock(alloc);
+        var block = func.getBlock(b0);
+        try block.addInst(alloc, ir.makeInst(.ret_void, 0, 0, 0));
+    }
+
+    var result = try eliminate(alloc, &module);
+    defer result.deinit(alloc);
+
+    try std.testing.expectEqual(@as(usize, 2), module.functions.items.len);
+    try std.testing.expectEqual(@as(usize, 0), result.warnings.items.len);
+}
+
+test "eliminate: spawn_on_node targets are reachable" {
+    const alloc = std.testing.allocator;
+    var module = ir.Module.init();
+    defer module.deinit(alloc);
+
+    const main_id = try module.addFunction(alloc, "run_main__main");
+    {
+        var func = module.getFunction(main_id);
+        func.return_type_name = "void";
+        const b0 = try func.addBlock(alloc);
+        var block = func.getBlock(b0);
+        const ci = try module.addCallInfo(alloc, "run_main__worker", &.{});
+        try block.addInst(alloc, ir.makeInst(.spawn_on_node, 0, ci, 0));
         try block.addInst(alloc, ir.makeInst(.ret_void, 0, 0, 0));
     }
 

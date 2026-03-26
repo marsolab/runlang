@@ -67,6 +67,8 @@ pub fn build(b: *std.Build) void {
         "src/runtime/run_simd.c",
         "src/runtime/run_numa.c",
         "src/runtime/run_poller.c",
+        "src/runtime/run_exec.c",
+        "src/runtime/run_signal.c",
         "src/runtime/run_runtime_api.c",
         "src/runtime/run_debug_api.c",
     };
@@ -179,6 +181,7 @@ pub fn build(b: *std.Build) void {
         "src/runtime/tests/test_numa.c",
         "src/runtime/tests/test_runtime_api.c",
         "src/runtime/tests/test_debug_api.c",
+        "src/runtime/tests/test_signal.c",
     };
     inline for (runtime_test_sources) |src| {
         runtime_test_exe.root_module.addCSourceFile(.{

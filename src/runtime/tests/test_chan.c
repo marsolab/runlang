@@ -68,6 +68,27 @@ static void test_chan_buffered_fifo(void) {
     run_chan_free(ch);
 }
 
+static void test_chan_try_send_would_block(void) {
+    run_chan_t *ch = run_chan_new(sizeof(int64_t), 1);
+    int64_t value = 7;
+
+    RUN_ASSERT_EQ(run_chan_try_send(ch, &value), RUN_CHAN_SEND_OK);
+    RUN_ASSERT_EQ(run_chan_try_send(ch, &value), RUN_CHAN_SEND_WOULD_BLOCK);
+
+    run_chan_close(ch);
+    run_chan_free(ch);
+}
+
+static void test_chan_try_send_closed(void) {
+    run_chan_t *ch = run_chan_new(sizeof(int64_t), 1);
+    int64_t value = 9;
+
+    run_chan_close(ch);
+    RUN_ASSERT_EQ(run_chan_try_send(ch, &value), RUN_CHAN_SEND_CLOSED);
+
+    run_chan_free(ch);
+}
+
 /* --- Unbuffered Channel Tests --- */
 
 static void test_chan_unbuffered(void) {
@@ -167,6 +188,8 @@ void run_test_chan(void) {
     TEST_SUITE("run_chan");
     RUN_TEST(test_chan_buffered_basic);
     RUN_TEST(test_chan_buffered_fifo);
+    RUN_TEST(test_chan_try_send_would_block);
+    RUN_TEST(test_chan_try_send_closed);
     RUN_TEST(test_chan_unbuffered);
     RUN_TEST(test_chan_producer_consumer);
     RUN_TEST(test_chan_close_recv_zero);

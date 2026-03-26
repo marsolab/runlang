@@ -144,12 +144,19 @@ pub const CCodegen = struct {
 
     fn emitTempDeclarations(self: *CCodegen, func: *const ir.Function) !void {
         // 1. Emit named local variable declarations (deduplicated)
-        var declared_locals: [64]bool = .{false} ** 64;
+        const local_count = self.module.local_infos.items.len;
+        const declared_locals = if (local_count > 0)
+            try self.allocator.alloc(bool, local_count)
+        else
+            &[_]bool{};
+        defer if (local_count > 0) self.allocator.free(declared_locals);
+        @memset(declared_locals, false);
+
         for (func.blocks.items) |*block| {
             for (block.insts.items) |inst| {
                 if (inst.op == .local_set or inst.op == .local_get) {
-                    const local_idx = inst.arg1;
-                    if (local_idx < self.module.local_infos.items.len and local_idx < 64 and !declared_locals[local_idx]) {
+                    const local_idx: usize = @intCast(inst.arg1);
+                    if (local_idx < local_count and !declared_locals[local_idx]) {
                         declared_locals[local_idx] = true;
                         const info = self.module.local_infos.items[local_idx];
                         try self.emitIndent();
@@ -164,13 +171,20 @@ pub const CCodegen = struct {
         }
 
         // 2. Emit SSA temporary declarations (deduplicated by ref)
-        var declared_refs: [256]bool = .{false} ** 256;
+        const ref_count: usize = @intCast(func.next_ref);
+        const declared_refs = if (ref_count > 0)
+            try self.allocator.alloc(bool, ref_count)
+        else
+            &[_]bool{};
+        defer if (ref_count > 0) self.allocator.free(declared_refs);
+        @memset(declared_refs, false);
+
         for (func.blocks.items) |*block| {
             for (block.insts.items) |inst| {
                 if (inst.result == ir.null_ref) continue;
-                if (inst.result >= 256) continue;
-                if (declared_refs[inst.result]) continue;
-                declared_refs[inst.result] = true;
+                const result_idx: usize = @intCast(inst.result);
+                if (result_idx >= ref_count or declared_refs[result_idx]) continue;
+                declared_refs[result_idx] = true;
 
                 var is_param = false;
                 for (func.params.items) |p| {
@@ -1142,4 +1156,67 @@ test "CCodegen: local_addr takes the address of the declared local" {
 
     const result = try cg.generate();
     try std.testing.expect(std.mem.indexOf(u8, result, "_t1 = &vec;") != null);
+}
+
+test "CCodegen: emits declarations for locals beyond legacy fixed cap" {
+    var module = ir.Module.init();
+    defer module.deinit(std.testing.allocator);
+
+    var local_names: std.ArrayList([]u8) = .empty;
+    defer {
+        for (local_names.items) |name| {
+            std.testing.allocator.free(name);
+        }
+        local_names.deinit(std.testing.allocator);
+    }
+
+    var last_local_idx: u32 = 0;
+    for (0..65) |i| {
+        const name = try std.fmt.allocPrint(std.testing.allocator, "local_{d}", .{i});
+        try local_names.append(std.testing.allocator, name);
+        last_local_idx = try module.addLocalInfo(std.testing.allocator, name, "int64_t");
+    }
+
+    const fid = try module.addFunction(std.testing.allocator, "run_main__many_locals");
+    var func = module.getFunction(fid);
+    func.return_type_name = "void";
+
+    const b0 = try func.addBlock(std.testing.allocator);
+    var block = func.getBlock(b0);
+
+    const t1 = func.allocRef();
+    try block.addInst(std.testing.allocator, ir.makeInst(.const_int, t1, 123, 0));
+    try block.addInst(std.testing.allocator, ir.makeInst(.local_set, 0, last_local_idx, t1));
+    try block.addInst(std.testing.allocator, ir.makeInst(.ret_void, 0, 0, 0));
+
+    var cg = CCodegen.init(std.testing.allocator, &module);
+    defer cg.deinit();
+
+    const result = try cg.generate();
+    try std.testing.expect(std.mem.indexOf(u8, result, "int64_t local_64;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "local_64 = _t1;") != null);
+}
+
+test "CCodegen: emits declarations for refs beyond legacy fixed cap" {
+    var module = ir.Module.init();
+    defer module.deinit(std.testing.allocator);
+
+    const fid = try module.addFunction(std.testing.allocator, "run_main__many_refs");
+    var func = module.getFunction(fid);
+    func.return_type_name = "void";
+
+    const b0 = try func.addBlock(std.testing.allocator);
+    var block = func.getBlock(b0);
+
+    for (0..256) |i| {
+        const ref = func.allocRef();
+        try block.addInst(std.testing.allocator, ir.makeInst(.const_int, ref, @intCast(i), 0));
+    }
+    try block.addInst(std.testing.allocator, ir.makeInst(.ret_void, 0, 0, 0));
+
+    var cg = CCodegen.init(std.testing.allocator, &module);
+    defer cg.deinit();
+
+    const result = try cg.generate();
+    try std.testing.expect(std.mem.indexOf(u8, result, "int64_t _t256;") != null);
 }

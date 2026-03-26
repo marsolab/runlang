@@ -67,6 +67,11 @@ static void test_runtime_caller(void) {
     RUN_ASSERT(info.line >= 0);
 }
 
+static void test_runtime_caller_negative_skip(void) {
+    run_caller_info_t info = run_runtime_caller(-1);
+    RUN_ASSERT(info.line >= 0);
+}
+
 static void test_runtime_stack(void) {
     run_string_t s = run_runtime_stack();
     RUN_ASSERT(s.ptr != NULL);
@@ -84,5 +89,6 @@ void run_test_runtime_api(void) {
     RUN_TEST(test_runtime_gc_disable_enable);
     RUN_TEST(test_runtime_yield);
     RUN_TEST(test_runtime_caller);
+    RUN_TEST(test_runtime_caller_negative_skip);
     RUN_TEST(test_runtime_stack);
 }
