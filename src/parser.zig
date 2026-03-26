@@ -698,7 +698,8 @@ pub const Parser = struct {
             self.skipNewlines();
 
             const impl_start = try self.parseImplementsBlock();
-            implements_rhs = impl_start;
+            // Bias by +1 so that extra_data index 0 is distinguishable from null_node (0)
+            implements_rhs = impl_start + 1;
 
             self.expectToken(.r_brace);
         }
@@ -4122,7 +4123,7 @@ test "parse newtype with implements" {
         if (node.tag == .type_decl and node.data.rhs != null_node) {
             found = true;
             // Verify implements_count is 1
-            const impl_count = parser.tree.extra_data.items[node.data.rhs];
+            const impl_count = parser.tree.extra_data.items[node.data.rhs - 1];
             try std.testing.expectEqual(@as(u32, 1), impl_count);
             break;
         }
@@ -4146,7 +4147,7 @@ test "parse newtype with multiple implements" {
     for (parser.tree.nodes.items) |node| {
         if (node.tag == .type_decl and node.data.rhs != null_node) {
             found = true;
-            const impl_count = parser.tree.extra_data.items[node.data.rhs];
+            const impl_count = parser.tree.extra_data.items[node.data.rhs - 1];
             try std.testing.expectEqual(@as(u32, 2), impl_count);
             break;
         }
@@ -4170,7 +4171,7 @@ test "parse newtype with implements braces" {
     for (parser.tree.nodes.items) |node| {
         if (node.tag == .type_decl and node.data.rhs != null_node) {
             found = true;
-            const impl_count = parser.tree.extra_data.items[node.data.rhs];
+            const impl_count = parser.tree.extra_data.items[node.data.rhs - 1];
             try std.testing.expectEqual(@as(u32, 1), impl_count);
             break;
         }
@@ -4215,7 +4216,7 @@ test "parse newtype with qualified implements" {
     for (parser.tree.nodes.items) |node| {
         if (node.tag == .type_decl and node.data.rhs != null_node) {
             found = true;
-            const impl_count = parser.tree.extra_data.items[node.data.rhs];
+            const impl_count = parser.tree.extra_data.items[node.data.rhs - 1];
             try std.testing.expectEqual(@as(u32, 1), impl_count);
             break;
         }

@@ -124,8 +124,9 @@ pub const Node = struct {
         /// lhs = extra_data start for variants, rhs = variant count
         type_alias,
         /// `type Name Type` or `type Name Type { implements(...) }`
-        /// main_token = kw_type, lhs = type node, rhs = extra_data start (or null_node)
+        /// main_token = kw_type, lhs = type node, rhs = extra_data start + 1 (or null_node)
         /// extra_data layout (when rhs != null_node): [implements_count, iface1, ..., ifaceN]
+        /// Note: rhs is biased by +1 to avoid ambiguity with null_node (0). Decode: extra_start = rhs - 1.
         type_decl,
         /// `package name`
         /// main_token points to the package name identifier
