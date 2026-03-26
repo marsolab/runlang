@@ -1,0 +1,23 @@
+name: Deploy Website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+  workflow_dispatch:
+
+permissions:
+  deployments: write
+
+jobs:
+  deployment:
+    runs-on: ubuntu-latest
+    name: Create GitHub Deployment
+    environment:
+      name: Website
+      url: https://runlang.dev
+
+    steps:
+      - name: Deployment registered
+        run: echo "Website deployment to Cloudflare Pages triggered"
