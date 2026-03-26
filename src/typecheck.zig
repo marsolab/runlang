@@ -220,6 +220,9 @@ const TypeChecker = struct {
             if (self.nodeTag(node) == .struct_decl) {
                 try self.checkInterfaceSatisfaction(node);
             }
+            if (self.nodeTag(node) == .type_decl) {
+                try self.checkNewtypeInterfaceSatisfaction(node);
+            }
         }
     }
 
@@ -423,12 +426,42 @@ const TypeChecker = struct {
         const main_tok = self.nodeMainToken(node);
         const name_tok = main_tok + 1;
         const name = self.tokenSlice(name_tok);
-        const underlying = self.resolveTypeNode(self.nodeData(node).lhs);
+        const data = self.nodeData(node);
+        const underlying = self.resolveTypeNode(data.lhs);
         if (underlying == types.null_type) return;
+
+        // Resolve implements interfaces if present (rhs != null_node).
+        // rhs is biased by +1 to avoid null_node ambiguity; decode: extra_start = rhs - 1
+        var impl_list: []const TypeId = &.{};
+        if (data.rhs != null_node) {
+            const extra = self.tree.extra_data.items;
+            const extra_start = data.rhs - 1;
+            const implements_count = extra[extra_start];
+            if (implements_count > 0) {
+                const owned = self.allocator.alloc(TypeId, implements_count) catch return;
+                self.allocated_type_id_slices.append(self.allocator, owned) catch return;
+                for (0..implements_count) |i| {
+                    const iface_ident_node = extra[extra_start + 1 + i];
+                    if (iface_ident_node == null_node) {
+                        owned[i] = types.null_type;
+                        continue;
+                    }
+                    const iface_name = self.tokenSlice(self.nodeMainToken(iface_ident_node));
+                    if (self.symbols.lookup(iface_name)) |sym_id| {
+                        const sym = self.symbols.getSymbol(sym_id);
+                        owned[i] = if (sym.type_id != types.null_type) sym.type_id else types.null_type;
+                    } else {
+                        owned[i] = types.null_type;
+                    }
+                }
+                impl_list = owned;
+            }
+        }
 
         const newtype_id = try self.type_pool.addType(self.allocator, .{ .newtype = .{
             .name = name,
             .underlying = underlying,
+            .implements = impl_list,
         } });
 
         if (self.symbols.lookup(name)) |sym_id| {
@@ -488,15 +521,32 @@ const TypeChecker = struct {
     /// Verify that a struct implements all methods required by its declared interfaces.
     fn checkInterfaceSatisfaction(self: *TypeChecker, node: NodeIndex) CheckError!void {
         const data = self.nodeData(node);
-        const struct_name = self.tokenSlice(self.nodeMainToken(node));
-        const extra = self.tree.extra_data.items;
+        const type_name = self.tokenSlice(self.nodeMainToken(node));
         const extra_start = data.lhs;
+        const type_id = self.type_map.items[node];
+        return self.checkImplementsSatisfaction(type_name, type_id, extra_start);
+    }
+
+    /// Verify that a newtype implements all methods required by its declared interfaces.
+    fn checkNewtypeInterfaceSatisfaction(self: *TypeChecker, node: NodeIndex) CheckError!void {
+        const data = self.nodeData(node);
+        if (data.rhs == null_node) return;
+        const name_tok = self.nodeMainToken(node) + 1;
+        const type_name = self.tokenSlice(name_tok);
+        const extra_start = data.rhs - 1; // decode biased index
+        const type_id = self.type_map.items[node];
+        return self.checkImplementsSatisfaction(type_name, type_id, extra_start);
+    }
+
+    /// Core logic: verify that a type satisfies all declared interfaces.
+    /// extra_start points to [implements_count, iface1, ..., ifaceN] in extra_data.
+    fn checkImplementsSatisfaction(self: *TypeChecker, type_name: []const u8, type_id: TypeId, extra_start: u32) CheckError!void {
+        const extra = self.tree.extra_data.items;
         const implements_count = extra[extra_start];
 
         if (implements_count == 0) return;
 
-        // Get the struct's TypeId.
-        const struct_type_id = self.type_map.items[node];
+        const struct_type_id = type_id;
         if (struct_type_id == types.null_type) return;
 
         var i: u32 = 0;
@@ -553,7 +603,7 @@ const TypeChecker = struct {
                         loc.start,
                         loc.end,
                         "type '{s}' does not implement interface '{s}': missing method '{s}'",
-                        .{ struct_name, iface_name, required_method.name },
+                        .{ type_name, iface_name, required_method.name },
                     );
                     continue;
                 }
@@ -579,7 +629,7 @@ const TypeChecker = struct {
                         loc.start,
                         loc.end,
                         "type '{s}' does not implement interface '{s}': method '{s}' has wrong signature",
-                        .{ struct_name, iface_name, required_method.name },
+                        .{ type_name, iface_name, required_method.name },
                     );
                 }
             }

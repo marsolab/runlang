@@ -170,6 +170,7 @@ pub const SumType = struct {
 pub const NewType = struct {
     name: []const u8,
     underlying: TypeId,
+    implements: []const TypeId = &.{},
 };
 
 pub const PtrType = struct {

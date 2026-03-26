@@ -388,6 +388,30 @@ pub const Formatter = struct {
         try self.writeToken(node.main_token + 1);
         try self.write(" ");
         try self.formatNode(node.data.lhs);
+
+        // Optional implements block
+        if (node.data.rhs != null_node) {
+            const extra_start = node.data.rhs - 1;
+            const implements_count = self.tree.extra_data.items[extra_start];
+            if (implements_count > 0) {
+                try self.write(" {");
+                try self.newline();
+                self.indent_level += 1;
+                try self.writeIndent();
+                try self.write("implements(");
+                var i: u32 = 0;
+                while (i < implements_count) : (i += 1) {
+                    if (i > 0) try self.write(", ");
+                    const iface_idx = self.tree.extra_data.items[extra_start + 1 + i];
+                    try self.formatNode(iface_idx);
+                }
+                try self.write(")");
+                try self.newline();
+                self.indent_level -= 1;
+                try self.writeIndent();
+                try self.write("}");
+            }
+        }
     }
 
     fn formatFieldDecl(self: *Formatter, node: Node) !void {
