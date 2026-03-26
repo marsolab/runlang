@@ -391,7 +391,7 @@ pub const Formatter = struct {
 
         // Optional implements block
         if (node.data.rhs != null_node) {
-            const extra_start = node.data.rhs;
+            const extra_start = node.data.rhs - 1;
             const implements_count = self.tree.extra_data.items[extra_start];
             if (implements_count > 0) {
                 try self.write(" {");

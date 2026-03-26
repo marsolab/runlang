@@ -431,10 +431,11 @@ const TypeChecker = struct {
         if (underlying == types.null_type) return;
 
         // Resolve implements interfaces if present (rhs != null_node).
+        // rhs is biased by +1 to avoid null_node ambiguity; decode: extra_start = rhs - 1
         var impl_list: []const TypeId = &.{};
         if (data.rhs != null_node) {
             const extra = self.tree.extra_data.items;
-            const extra_start = data.rhs;
+            const extra_start = data.rhs - 1;
             const implements_count = extra[extra_start];
             if (implements_count > 0) {
                 const owned = self.allocator.alloc(TypeId, implements_count) catch return;
@@ -532,7 +533,7 @@ const TypeChecker = struct {
         if (data.rhs == null_node) return;
         const name_tok = self.nodeMainToken(node) + 1;
         const type_name = self.tokenSlice(name_tok);
-        const extra_start = data.rhs;
+        const extra_start = data.rhs - 1; // decode biased index
         const type_id = self.type_map.items[node];
         return self.checkImplementsSatisfaction(type_name, type_id, extra_start);
     }
