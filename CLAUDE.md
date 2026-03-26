@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 zig build              # Compile the `run` binary
 zig build test         # Run all unit tests (lexer + parser)
+zig build test-e2e     # Run end-to-end tests
 zig build run -- <command> <file.run>  # Run compiler commands
 ```
 
@@ -14,20 +15,50 @@ Compiler commands: `run`, `build`, `check`, `tokens` (dump lexer output), `ast` 
 
 ## Architecture
 
-Run is a systems programming language compiler written in Zig 0.15. The compiler frontend pipeline:
+Run is a systems programming language compiler written in Zig 0.15. The full compilation pipeline:
 
 ```
-Source (.run) → Lexer → Token stream → Parser → Ast (flat node array)
+Source (.run) → Lexer → Parser → Naming → Resolve → TypeCheck → Lower (IR) → CodegenC → zig cc
 ```
 
+**Frontend:**
 - **token.zig** — Token types (~90 variants) and compile-time keyword map
 - **lexer.zig** — Stateless single-pass scanner. `Lexer.init(source)` then `.next()` for streaming or `.tokenize(allocator)` for batch
 - **parser.zig** — Single-pass recursive descent with precedence climbing for expressions. Collects errors without stopping (no panic mode)
 - **ast.zig** — Flat array design: `nodes: ArrayList(Node)` + `extra_data: ArrayList(NodeIndex)` for variable-length data. `null_node = 0` sentinel (node 0 is always `.root`)
-- **main.zig** — CLI entry point dispatching to the 5 commands
-- **root.zig** — Re-exports all modules; test entry point via `refAllDecls`
 
-Tests are embedded `test` blocks in lexer.zig and parser.zig, discovered through root.zig.
+**Semantic analysis:**
+- **naming.zig** — Naming convention checker
+- **resolve.zig** — Name resolution and scope analysis
+- **symbol.zig** — Symbol table with scope stack
+- **typecheck.zig** — Type checking pass (stub — needs real type inference)
+- **types.zig** — Type system definitions
+- **diagnostics.zig** — Structured error reporting
+
+**Backend:**
+- **ir.zig** — Three-address code IR. Uses `local_set`/`local_get` for variables, `CallInfo` for named calls
+- **lower.zig** — AST→IR lowering
+- **codegen_c.zig** — IR→C code generation. Function name mangling: `run_main__<name>`, built-in mapping: `fmt.println` → `run_fmt_println`
+- **driver.zig** — Compilation pipeline orchestration (invokes `zig cc`)
+
+**Tooling:**
+- **formatter.zig** — Code formatter
+- **lsp.zig** — Language server protocol implementation
+- **dap.zig** / **debug_engine.zig** / **gdb_mi.zig** — Debug adapter protocol
+- **test_runner.zig** — Test runner
+- **init.zig** — Project scaffolding
+
+**Optimization:**
+- **const_fold.zig** — Constant folding
+- **dce.zig** — Dead code elimination
+- **ownership.zig** — Ownership analysis
+
+**Other:**
+- **main.zig** — CLI entry point dispatching commands
+- **root.zig** — Re-exports all modules; test entry point via `refAllDecls`
+- **runtime/** — C runtime library (librunrt.a): allocator, strings, slices, fmt, green thread scheduler, channels
+
+Tests are embedded `test` blocks in source files, discovered through root.zig.
 
 ## Zig 0.15 Conventions
 
@@ -55,7 +86,7 @@ These differ from older Zig versions and are critical to get right:
 
 ## Current Status
 
-Lexer and parser are complete. No semantic analysis, type checking, or code generation yet.
+Full pipeline working: Source → Lex → Parse → Naming → Resolve → TypeCheck → Lower → CodegenC → zig cc. Functions, let/var, assignments, if/else, for loops, literals, binary/unary ops, and calls all compile and run. Type checking is a stub (needs real type inference). Missing in lower.zig: for-in, switch, structs, defer, closures, channels, error handling.
 
 ## Self-Improvement
 
@@ -104,14 +135,7 @@ The milestones are ordered by dependency — each builds on the previous:
 14. **M14: Package Manager Core** — TOML manifest, semver resolution, GitHub fetching, local cache, MVS dependency resolution, `run get`/`run mod` CLI commands
 15. **M15: Package Manager Integration** — External import resolution, scope-aware dependency checking, multi-module compilation, vendor mode, offline builds, private repo auth
 
-M7 is the foundation (assembly provides the low-level escape hatch). M8 and M9 can proceed in parallel after M7. M10-M13 expand the stdlib from M4's core. M14 depends on M5 (Tooling). M15 depends on M14. See RFC #218 for the full package manager design.
-
-10. **M10: Stdlib Foundation** — errors package, fmt, io, os, strings, bytes (P0 — exercises interfaces, error unions, sum types, syscall builtins)
-11. **M11: Stdlib Utilities** — iter, slices, maps, cmp, math/bits, path, math, testing, time, log, sync, strconv, sort, bufio, unicode (P1 — mostly pure Run code)
-12. **M12: Stdlib Application** — encoding/json+yaml+toml+xml+csv, crypto/*, compress/*, io/fs, html, text/template, hash/*, net, net/http, archive/* (P2 — requires working networking and I/O)
-13. **M13: Stdlib Specialized** — context, flag, regex, unsafe, runtime, debug, embed, os/exec, os/signal, net/http2, net/grpc, encoding/proto, metrics, simd/numa/asm wrappers (P3 — advanced systems programming)
-
-M10-M13 implement the stdlib redesign (RFC #219). M10 is the foundation; M11-M12 build on it. M13 can proceed in parallel with M12 for independent packages.
+M7 is the foundation (assembly provides the low-level escape hatch). M8 and M9 can proceed in parallel after M7. M10-M13 expand the stdlib from M4's core (see RFC #219). M14 depends on M5 (Tooling). M15 depends on M14. See RFC #218 for the full package manager design.
 
 ### Long-term Goal: Self-Hosted Compiler (#188)
 
@@ -139,4 +163,8 @@ bun run preview        # Preview production build
 
 ### Deployment
 
-The website deploys to **Cloudflare Pages**. Configuration is in `website/wrangler.jsonc`.
+The website deploys to **Cloudflare Pages** automatically on push to `main`. Configuration is in `website/wrangler.jsonc`.
+
+## Blog (Strapi CMS)
+
+The `blog/` directory contains a Helm chart for deploying the Strapi CMS (`blog/helm/`). Chart name: `runlang-strapi`. Deployed to Kubernetes via `.github/workflows/deploy-blog.yml` on pushes to `main` that change `blog/` files. Strapi secrets are passed from GitHub repo secrets via `--set` flags. PostgreSQL runs as a subchart dependency (Bitnami).
