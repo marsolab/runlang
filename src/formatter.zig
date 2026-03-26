@@ -994,6 +994,19 @@ pub const Formatter = struct {
         try self.write(")");
     }
 
+    fn formatTypeTuple(self: *Formatter, node: Node) !void {
+        const items_start = node.data.lhs;
+        const item_count = node.data.rhs;
+
+        try self.write("(");
+        var i: u32 = 0;
+        while (i < item_count) : (i += 1) {
+            if (i > 0) try self.write(", ");
+            try self.formatNode(self.tree.extra_data.items[items_start + i]);
+        }
+        try self.write(")");
+    }
+
     fn formatTypeAnonStruct(self: *Formatter, node: Node) !void {
         try self.write("struct {");
         const fields_start = node.data.lhs;
