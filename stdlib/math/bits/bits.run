@@ -1,82 +1,199 @@
 package bits
 
+let wordBits = 64
+let wordBase = 18446744073709551616
+
+fun normalize64(x int) int {
+    var v = x
+    while v < 0 {
+        v = v + wordBase
+    }
+    while v >= wordBase {
+        v = v - wordBase
+    }
+    return v
+}
+
 // leadingZeros returns the number of leading zero bits in x.
 // Returns 64 for x == 0.
 pub fun leadingZeros(x int) int {
-    return 0
+    var v = normalize64(x)
+    if v == 0 {
+        return wordBits
+    }
+    var bits = 0
+    for v > 0 {
+        bits = bits + 1
+        v = v / 2
+    }
+    return wordBits - bits
 }
 
 // trailingZeros returns the number of trailing zero bits in x.
 // Returns 64 for x == 0.
 pub fun trailingZeros(x int) int {
-    return 0
+    var v = normalize64(x)
+    if v == 0 {
+        return wordBits
+    }
+    var n = 0
+    for (v % 2) == 0 {
+        n = n + 1
+        v = v / 2
+    }
+    return n
 }
 
 // onesCount returns the number of one bits (population count) in x.
 pub fun onesCount(x int) int {
-    return 0
+    var v = normalize64(x)
+    var n = 0
+    for v > 0 {
+        n = n + (v % 2)
+        v = v / 2
+    }
+    return n
+}
+
+fun rotateLeftNorm(x int, k int) int {
+    var v = normalize64(x)
+    var r = k % wordBits
+    if r < 0 {
+        r = r + wordBits
+    }
+    var i = 0
+    for i < r {
+        var msb = v / (wordBase / 2)
+        v = (v * 2) % wordBase
+        if msb != 0 {
+            v = v + 1
+        }
+        i = i + 1
+    }
+    return v
 }
 
 // rotateLeft returns the value of x rotated left by k bits.
 // To rotate right, use a negative k.
 pub fun rotateLeft(x int, k int) int {
-    return 0
+    return rotateLeftNorm(x, k)
 }
 
 // rotateRight returns the value of x rotated right by k bits.
 // To rotate left, use a negative k.
 pub fun rotateRight(x int, k int) int {
-    return 0
+    return rotateLeftNorm(x, -k)
 }
 
 // reverse returns the value of x with its bits in reversed order.
 pub fun reverse(x int) int {
-    return 0
+    var src = normalize64(x)
+    var dst = 0
+    var i = 0
+    for i < wordBits {
+        dst = dst * 2
+        dst = dst + (src % 2)
+        src = src / 2
+        i = i + 1
+    }
+    return dst
 }
 
 // reverseBytes returns the value of x with its bytes in reversed order.
 pub fun reverseBytes(x int) int {
-    return 0
+    var src = normalize64(x)
+    var dst = 0
+    var i = 0
+    for i < 8 {
+        dst = (dst * 256) + (src % 256)
+        src = src / 256
+        i = i + 1
+    }
+    return dst
 }
 
 // len returns the minimum number of bits required to represent x.
 // Returns 0 for x == 0.
 pub fun len(x int) int {
-    return 0
+    var v = normalize64(x)
+    var n = 0
+    for v > 0 {
+        n = n + 1
+        v = v / 2
+    }
+    return n
 }
 
-// add returns the sum with carry of x, y, and carryIn.
-// carryIn must be 0 or 1; otherwise the behavior is undefined.
-// Returns (sum, carry_out) where carry_out is 0 or 1.
+// add returns the low 64-bit sum of x, y, and carryIn.
 pub fun add(x int, y int, carryIn int) int {
-    return 0
+    var sum = normalize64(x) + normalize64(y) + carryIn
+    return normalize64(sum)
 }
 
-// sub returns the difference of x, y, and borrowIn.
-// borrowIn must be 0 or 1; otherwise the behavior is undefined.
-// Returns (diff, borrow_out) where borrow_out is 0 or 1.
+// sub returns the low 64-bit difference of x, y, and borrowIn.
 pub fun sub(x int, y int, borrowIn int) int {
-    return 0
+    var diff = normalize64(x) - normalize64(y) - borrowIn
+    return normalize64(diff)
 }
 
-// mul returns the full-width product of x and y: (hi, lo) = x * y
-// with the product bits' upper half returned in hi and the lower
-// half returned in lo.
+// mul returns the low 64 bits of x*y.
 pub fun mul(x int, y int) int {
-    return 0
+    var a = normalize64(x)
+    var b = normalize64(y)
+    var result = 0
+    for b > 0 {
+        if (b % 2) != 0 {
+            result = normalize64(result + a)
+        }
+        a = normalize64(a * 2)
+        b = b / 2
+    }
+    return result
 }
 
 // leadingZeros32 returns the number of leading zero bits in a 32-bit value.
 pub fun leadingZeros32(x int) int {
-    return 0
+    var v = normalize64(x) % 4294967296
+    if v == 0 {
+        return 32
+    }
+    var bits = 0
+    for v > 0 {
+        bits = bits + 1
+        v = v / 2
+    }
+    return 32 - bits
 }
 
 // trailingZeros32 returns the number of trailing zero bits in a 32-bit value.
 pub fun trailingZeros32(x int) int {
-    return 0
+    var v = normalize64(x) % 4294967296
+    if v == 0 {
+        return 32
+    }
+    var n = 0
+    for (v % 2) == 0 {
+        n = n + 1
+        v = v / 2
+    }
+    return n
 }
 
 // onesCount32 returns the number of one bits in a 32-bit value.
 pub fun onesCount32(x int) int {
-    return 0
+    var v = normalize64(x) % 4294967296
+    var n = 0
+    for v > 0 {
+        n = n + (v % 2)
+        v = v / 2
+    }
+    return n
 }
+
+// snake_case aliases for API compatibility.
+pub fun leading_zeros(x int) int { return leadingZeros(x) }
+pub fun trailing_zeros(x int) int { return trailingZeros(x) }
+pub fun ones_count(x int) int { return onesCount(x) }
+pub fun rotate_left(x int, k int) int { return rotateLeft(x, k) }
+pub fun rotate_right(x int, k int) int { return rotateRight(x, k) }
+pub fun reverse_bytes(x int) int { return reverseBytes(x) }

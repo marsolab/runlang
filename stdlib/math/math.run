@@ -7,175 +7,331 @@ pub let phi = 1.61803398874989484820
 pub let sqrt2 = 1.41421356237309504880
 pub let ln2 = 0.693147180559945309417
 pub let ln10 = 2.30258509299404568402
-pub let maxF64 = 1.7976931348623157e308
-pub let minF64 = 5.0e-324
-pub let maxInt = 9223372036854775807
-pub let minInt = -9223372036854775808
+pub let max_float = 1.7976931348623157e308
+pub let min_float = 5.0e-324
 pub let inf = 1.0 / 0.0
 pub let nan = 0.0 / 0.0
 
+// Backward-compatible aliases.
+pub let maxF64 = max_float
+pub let minF64 = min_float
+pub let maxInt = 9223372036854775807
+pub let minInt = -9223372036854775808
+
 // abs returns the absolute value of x.
 pub fun abs(x f64) f64 {
-    return 0.0
+    if x < 0.0 {
+        return -x
+    }
+    return x
 }
 
 // absInt returns the absolute value of an integer.
 pub fun absInt(x int) int {
-    return 0
+    if x < 0 {
+        return -x
+    }
+    return x
 }
 
 // min returns the smaller of a or b.
 pub fun min(a f64, b f64) f64 {
-    return 0.0
+    if a < b { return a }
+    return b
 }
 
 // max returns the larger of a or b.
 pub fun max(a f64, b f64) f64 {
-    return 0.0
+    if a > b { return a }
+    return b
 }
 
 // minInt returns the smaller of a or b.
 pub fun minInt(a int, b int) int {
-    return 0
+    if a < b { return a }
+    return b
 }
 
 // maxInt returns the larger of a or b.
 pub fun maxInt(a int, b int) int {
-    return 0
+    if a > b { return a }
+    return b
 }
 
 // floor returns the greatest integer value less than or equal to x.
 pub fun floor(x f64) f64 {
-    return 0.0
+    var n = trunc(x)
+    if n > x {
+        return n - 1.0
+    }
+    return n
 }
 
 // ceil returns the least integer value greater than or equal to x.
 pub fun ceil(x f64) f64 {
-    return 0.0
+    var n = trunc(x)
+    if n < x {
+        return n + 1.0
+    }
+    return n
 }
 
 // round returns the nearest integer, rounding half away from zero.
 pub fun round(x f64) f64 {
-    return 0.0
+    if x >= 0.0 {
+        return floor(x + 0.5)
+    }
+    return ceil(x - 0.5)
 }
 
 // sqrt returns the square root of x.
 pub fun sqrt(x f64) f64 {
-    return 0.0
+    if x < 0.0 { return nan }
+    if x == 0.0 { return 0.0 }
+    var z = x
+    if z < 1.0 {
+        z = 1.0
+    }
+    var i = 0
+    for i < 32 {
+        z = 0.5 * (z + (x / z))
+        i = i + 1
+    }
+    return z
 }
 
 // pow returns base raised to the power of exp.
-pub fun pow(base f64, exp f64) f64 {
-    return 0.0
+pub fun pow(base f64, expv f64) f64 {
+    if expv == 0.0 { return 1.0 }
+    if base == 0.0 { return 0.0 }
+    return exp(expv * log(abs(base)))
 }
 
 // log returns the natural logarithm of x.
 pub fun log(x f64) f64 {
-    return 0.0
+    if x <= 0.0 { return nan }
+    var y = 0.0
+    var i = 0
+    for i < 20 {
+        var ey = exp(y)
+        y = y + ((x - ey) / ey)
+        i = i + 1
+    }
+    return y
 }
 
 // log2 returns the base-2 logarithm of x.
 pub fun log2(x f64) f64 {
-    return 0.0
+    return log(x) / ln2
 }
 
 // log10 returns the base-10 logarithm of x.
 pub fun log10(x f64) f64 {
-    return 0.0
+    return log(x) / ln10
 }
 
 // sin returns the sine of x (in radians).
 pub fun sin(x f64) f64 {
-    return 0.0
+    var xx = mod(x, 2.0 * pi)
+    var term = xx
+    var sum = xx
+    var n = 1.0
+    var i = 0
+    for i < 10 {
+        term = -term * xx * xx / ((2.0 * n) * (2.0 * n + 1.0))
+        sum = sum + term
+        n = n + 1.0
+        i = i + 1
+    }
+    return sum
 }
 
 // cos returns the cosine of x (in radians).
 pub fun cos(x f64) f64 {
-    return 0.0
+    var xx = mod(x, 2.0 * pi)
+    var term = 1.0
+    var sum = 1.0
+    var n = 1.0
+    var i = 0
+    for i < 10 {
+        term = -term * xx * xx / ((2.0 * n - 1.0) * (2.0 * n))
+        sum = sum + term
+        n = n + 1.0
+        i = i + 1
+    }
+    return sum
 }
 
 // tan returns the tangent of x (in radians).
 pub fun tan(x f64) f64 {
-    return 0.0
+    return sin(x) / cos(x)
 }
 
 // asin returns the arcsine of x (in radians).
 pub fun asin(x f64) f64 {
-    return 0.0
+    if x < -1.0 or x > 1.0 { return nan }
+    var y = x
+    var i = 0
+    for i < 12 {
+        var sy = sin(y)
+        var cy = cos(y)
+        y = y + ((x - sy) / cy)
+        i = i + 1
+    }
+    return y
 }
 
 // acos returns the arccosine of x (in radians).
 pub fun acos(x f64) f64 {
-    return 0.0
+    return (pi / 2.0) - asin(x)
 }
 
 // atan returns the arctangent of x (in radians).
 pub fun atan(x f64) f64 {
-    return 0.0
+    return atan2(x, 1.0)
 }
 
 // atan2 returns the arctangent of y/x, using the signs of both
 // to determine the quadrant of the return value.
 pub fun atan2(y f64, x f64) f64 {
+    if x > 0.0 {
+        return atan_series(y / x)
+    }
+    if x < 0.0 and y >= 0.0 {
+        return atan_series(y / x) + pi
+    }
+    if x < 0.0 and y < 0.0 {
+        return atan_series(y / x) - pi
+    }
+    if y > 0.0 { return pi / 2.0 }
+    if y < 0.0 { return -pi / 2.0 }
     return 0.0
+}
+
+fun atan_series(x f64) f64 {
+    if abs(x) > 1.0 {
+        if x > 0.0 {
+            return (pi / 2.0) - atan_series(1.0 / x)
+        }
+        return (-pi / 2.0) - atan_series(1.0 / x)
+    }
+    var term = x
+    var sum = x
+    var n = 1.0
+    var i = 0
+    for i < 20 {
+        term = -term * x * x
+        sum = sum + (term / (2.0 * n + 1.0))
+        n = n + 1.0
+        i = i + 1
+    }
+    return sum
 }
 
 // exp returns e raised to the power of x.
 pub fun exp(x f64) f64 {
-    return 0.0
+    var term = 1.0
+    var sum = 1.0
+    var n = 1.0
+    var i = 0
+    for i < 30 {
+        term = term * x / n
+        sum = sum + term
+        n = n + 1.0
+        i = i + 1
+    }
+    return sum
 }
 
 // isNan reports whether x is an IEEE 754 "not-a-number" value.
 pub fun isNan(x f64) bool {
-    return false
+    return x != x
 }
 
 // isInf reports whether x is positive or negative infinity.
 pub fun isInf(x f64) bool {
-    return false
+    return x == inf or x == -inf
 }
 
 // clamp returns x clamped to the range [lo, hi].
 pub fun clamp(x f64, lo f64, hi f64) f64 {
-    return 0.0
+    if x < lo { return lo }
+    if x > hi { return hi }
+    return x
 }
 
 // clampInt returns x clamped to the integer range [lo, hi].
 pub fun clampInt(x int, lo int, hi int) int {
-    return 0
+    if x < lo { return lo }
+    if x > hi { return hi }
+    return x
 }
 
 // trunc returns the integer value of x, truncating toward zero.
 pub fun trunc(x f64) f64 {
-    return 0.0
+    var y = x
+    if y >= 0.0 {
+        for y >= 1.0 {
+            y = y - 1.0
+        }
+        return x - y
+    }
+    for y <= -1.0 {
+        y = y + 1.0
+    }
+    return x - y
 }
 
 // exp2 returns 2 raised to the power of x.
 pub fun exp2(x f64) f64 {
-    return 0.0
+    return exp(x * ln2)
 }
 
 // mod returns the floating-point remainder of x/y.
 pub fun mod(x f64, y f64) f64 {
-    return 0.0
+    if y == 0.0 { return nan }
+    var q = trunc(x / y)
+    return x - (q * y)
 }
 
 // remainder returns the IEEE 754 floating-point remainder of x/y.
 pub fun remainder(x f64, y f64) f64 {
-    return 0.0
+    if y == 0.0 { return nan }
+    var q = round(x / y)
+    return x - (q * y)
 }
 
 // hypot returns sqrt(x*x + y*y), taking care to avoid overflow and underflow.
 pub fun hypot(x f64, y f64) f64 {
-    return 0.0
+    return sqrt((x * x) + (y * y))
 }
 
 // copysign returns a value with the magnitude of x and the sign of y.
 pub fun copysign(x f64, y f64) f64 {
-    return 0.0
+    var m = abs(x)
+    if signbit(y) {
+        return -m
+    }
+    return m
 }
 
 // signbit reports whether x is negative or negative zero.
 pub fun signbit(x f64) bool {
-    return false
+    return (1.0 / x) < 0.0 or x < 0.0
 }
+
+// cbrt returns the real cube root of x.
+pub fun cbrt(x f64) f64 {
+    if x == 0.0 { return 0.0 }
+    var z = x
+    var i = 0
+    for i < 24 {
+        z = (2.0 * z + (x / (z * z))) / 3.0
+        i = i + 1
+    }
+    return z
+}
+
+// aliases requested in issue scope.
+pub fun is_nan(x f64) bool { return isNan(x) }
+pub fun is_inf(x f64) bool { return isInf(x) }
