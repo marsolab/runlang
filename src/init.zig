@@ -82,10 +82,10 @@ fn scaffoldFiles(
     // Generate .gitignore
     writeFileIfNotExists(dir, ".gitignore", gitignore_content, force, stderr);
 
-    // Generate project.run (project config)
-    const project_config = generateProjectConfig(allocator, project_name) catch return error.OutOfMemory;
-    defer allocator.free(project_config);
-    writeFileIfNotExists(dir, "project.run", project_config, force, stderr);
+    // Generate run.toml (project config)
+    const run_toml = generateRunToml(allocator, project_name) catch return error.OutOfMemory;
+    defer allocator.free(run_toml);
+    writeFileIfNotExists(dir, "run.toml", run_toml, force, stderr);
 
     // Generate README.md
     const readme = generateReadme(allocator, project_name) catch return error.OutOfMemory;
@@ -125,15 +125,14 @@ fn generateMainFile(allocator: std.mem.Allocator, project_name: []const u8) ![]c
     , .{project_name});
 }
 
-fn generateProjectConfig(allocator: std.mem.Allocator, project_name: []const u8) ![]const u8 {
+fn generateRunToml(allocator: std.mem.Allocator, project_name: []const u8) ![]const u8 {
     return std.fmt.allocPrint(allocator,
-        \\// Project configuration for {s}
-        \\package project
+        \\[package]
+        \\name = "{s}"
+        \\version = "0.1.0"
+        \\run-version = "0.1.0"
         \\
-        \\let name = "{s}"
-        \\let version = "0.1.0"
-        \\
-    , .{ project_name, project_name });
+    , .{project_name});
 }
 
 fn generateReadme(allocator: std.mem.Allocator, project_name: []const u8) ![]const u8 {
@@ -182,12 +181,14 @@ test "generateMainFile: contains package and main" {
     try std.testing.expect(std.mem.indexOf(u8, content, "Hello from myapp!") != null);
 }
 
-test "generateProjectConfig: contains name and version" {
-    const content = try generateProjectConfig(std.testing.allocator, "myapp");
+test "generateRunToml: contains package fields" {
+    const content = try generateRunToml(std.testing.allocator, "myapp");
     defer std.testing.allocator.free(content);
 
-    try std.testing.expect(std.mem.indexOf(u8, content, "\"myapp\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, content, "\"0.1.0\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, content, "[package]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, content, "name = \"myapp\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, content, "version = \"0.1.0\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, content, "run-version = \"0.1.0\"") != null);
 }
 
 test "generateReadme: contains project name" {
