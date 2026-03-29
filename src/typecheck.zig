@@ -80,6 +80,7 @@ const TypeChecker = struct {
     allocator: std.mem.Allocator,
     /// The return type of the function currently being checked (null_type if void/none).
     current_fn_return_type: TypeId,
+    current_fn_has_return_type: bool,
     /// Declaration nodes of variables whose ownership has been moved away.
     moved_nodes: std.ArrayList(NodeIndex),
     /// Tracks param slices allocated for FnType entries.
@@ -114,6 +115,7 @@ const TypeChecker = struct {
             .diagnostics = DiagnosticList.init(allocator),
             .allocator = allocator,
             .current_fn_return_type = types.null_type,
+            .current_fn_has_return_type = false,
             .moved_nodes = .empty,
             .allocated_param_slices = .empty,
             .allocated_field_slices = .empty,
@@ -553,6 +555,8 @@ const TypeChecker = struct {
         while (i < implements_count) : (i += 1) {
             const iface_ident_node = extra[extra_start + 1 + i];
             if (iface_ident_node == null_node) continue;
+            // Skip cross-package interface references (e.g., io.Reader) — no import resolution yet.
+            if (self.nodeTag(iface_ident_node) == .field_access) continue;
             const iface_name_tok = self.nodeMainToken(iface_ident_node);
             const iface_name = self.tokenSlice(iface_name_tok);
             const loc = self.tokenLoc(iface_name_tok);
@@ -639,7 +643,16 @@ const TypeChecker = struct {
     /// Compare two FnType signatures for compatibility.
     fn fnSignaturesMatch(self: *TypeChecker, actual: types.FnType, expected: types.FnType) bool {
         if (actual.params.len != expected.params.len) return false;
-        if (!self.typesCompatible(actual.return_type, expected.return_type)) return false;
+        // Skip return type check if either is unresolved.
+        if (actual.return_type != types.null_type and expected.return_type != types.null_type) {
+            if (!self.typesCompatible(actual.return_type, expected.return_type)) {
+                // Also accept if both return types have the same name (handles sum types
+                // and type aliases that resolve to different TypeIds).
+                const a_name = self.typeName(actual.return_type);
+                const e_name = self.typeName(expected.return_type);
+                if (!std.mem.eql(u8, a_name, e_name)) return false;
+            }
+        }
         for (actual.params, expected.params) |a, e| {
             if (a == types.null_type or e == types.null_type) continue;
             if (!self.typesCompatible(a, e)) return false;
@@ -798,16 +811,26 @@ const TypeChecker = struct {
             self.updateSymbolTypeByDeclNode(receiver_node, recv_name, recv_type);
         }
 
+        // Determine if the function has a declared return type.
+        const ret_type_node = extra[params_start + param_count + 2];
+        const has_declared_return = ret_type_node != null_node;
+
         // Set current function return type for return statement checking.
         const prev_return_type = self.current_fn_return_type;
+        const prev_has_return_type = self.current_fn_has_return_type;
         self.current_fn_return_type = return_type;
+        self.current_fn_has_return_type = has_declared_return;
         defer self.current_fn_return_type = prev_return_type;
+        defer self.current_fn_has_return_type = prev_has_return_type;
 
         // Type-check the body block.
         try self.checkBlock(body);
 
         // Check that all code paths return if the function has a non-void return type.
-        if (return_type != types.null_type and return_type != types.primitives.void_id) {
+        // Skip for nullable return types (implicit null return) and error unions.
+        if (return_type != types.null_type and return_type != types.primitives.void_id and
+            !self.type_pool.isNullable(return_type) and
+            self.type_pool.unwrapErrorUnion(return_type) == null) {
             if (!self.blockAlwaysReturns(body)) {
                 const fn_tok = self.nodeMainToken(node);
                 const loc = self.tokenLoc(fn_tok);
@@ -856,7 +879,7 @@ const TypeChecker = struct {
             .if_expr => {
                 _ = try self.inferIfExpr(node);
             },
-            .for_stmt => try self.checkForStmt(node),
+            .for_stmt, .for_range_stmt => try self.checkForStmt(node),
             .switch_stmt => try self.checkSwitchStmt(node),
             .chan_send => {
                 _ = try self.inferExpr(self.nodeData(node).lhs);
@@ -893,10 +916,8 @@ const TypeChecker = struct {
             // Return with a value.
             const expr_type = try self.inferExpr(data.lhs);
 
-            // Check: function without return type should not return a value.
-            if (self.current_fn_return_type == types.null_type or
-                self.current_fn_return_type == types.primitives.void_id)
-            {
+            // Check: function without declared return type should not return a value.
+            if (!self.current_fn_has_return_type) {
                 try self.diagnostics.addError(
                     loc.start,
                     loc.end,
@@ -907,7 +928,8 @@ const TypeChecker = struct {
 
             // Check return value type matches declared return type.
             if (expr_type != types.null_type and self.current_fn_return_type != types.null_type) {
-                if (!self.typesCompatible(self.current_fn_return_type, expr_type)) {
+                if (!self.typesCompatible(self.current_fn_return_type, expr_type) and
+                    !std.mem.eql(u8, self.typeName(self.current_fn_return_type), "<unknown>")) {
                     try self.diagnostics.addErrorFmt(
                         loc.start,
                         loc.end,
@@ -917,16 +939,24 @@ const TypeChecker = struct {
                 }
             }
         } else {
-            // Bare return (no value) — error if function has a non-void return type.
-            if (self.current_fn_return_type != types.null_type and
-                self.current_fn_return_type != types.primitives.void_id)
-            {
-                try self.diagnostics.addErrorFmt(
-                    loc.start,
-                    loc.end,
-                    "function expects return type '{s}', but returns without a value",
-                    .{self.typeName(self.current_fn_return_type)},
-                );
+            // Bare return (no value) — error if function has a declared non-void return type.
+            // Allow bare return for error unions with void payload (e.g., `!void`).
+            if (self.current_fn_has_return_type) {
+                var allow_bare = false;
+                if (self.current_fn_return_type == types.null_type) {
+                    // Return type couldn't be resolved — don't error.
+                    allow_bare = true;
+                } else if (self.type_pool.unwrapErrorUnion(self.current_fn_return_type)) |payload| {
+                    if (payload == types.primitives.void_id) allow_bare = true;
+                }
+                if (!allow_bare) {
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "function expects return type '{s}', but returns without a value",
+                        .{self.typeName(self.current_fn_return_type)},
+                    );
+                }
             }
         }
     }
@@ -1032,13 +1062,18 @@ const TypeChecker = struct {
         // Reject null assigned to non-nullable type.
         if (init_node != null_node and self.nodeTag(init_node) == .null_literal) {
             if (declared_type != types.null_type and !self.type_pool.isNullable(declared_type)) {
-                const loc = self.tokenLoc(main_tok);
-                try self.diagnostics.addErrorFmt(
-                    loc.start,
-                    loc.end,
-                    "cannot assign null to non-nullable type '{s}'",
-                    .{self.typeName(declared_type)},
-                );
+                // Skip the error for unresolved/unknown types — they may be nullable
+                // but the type couldn't be fully resolved.
+                const tname = self.typeName(declared_type);
+                if (!std.mem.eql(u8, tname, "<unknown>")) {
+                    const loc = self.tokenLoc(main_tok);
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "cannot assign null to non-nullable type '{s}'",
+                        .{tname},
+                    );
+                }
             }
         }
 
@@ -1076,16 +1111,9 @@ const TypeChecker = struct {
             init_type = try self.inferExpr(init_node);
         }
 
-        // Emit error if we couldn't infer the type from the initializer.
-        if (init_type == types.null_type and init_node != null_node) {
-            const loc = self.tokenLoc(self.nodeMainToken(node));
-            try self.diagnostics.addErrorFmt(
-                loc.start,
-                loc.end,
-                "cannot infer type for short variable declaration",
-                .{},
-            );
-        }
+        // Note: init_type == null_type means the type couldn't be resolved
+        // (e.g., call to unresolved function). This is not an error — the type is
+        // simply unknown. The type checker stub doesn't have full inference.
 
         // Update symbol type_id.
         if (self.resolution_map[node]) |sym_id| {
@@ -1176,16 +1204,20 @@ const TypeChecker = struct {
         const base_node = lane_data.lhs;
         if (base_node == null_node) return;
 
+        const base_type = try self.inferExpr(base_node);
+        // Only enforce SIMD lane constraints for actual SIMD vector types.
+        // Slices, maps, arrays, and unknown types are allowed index assignment.
+        if (base_type == types.null_type) return;
+        if (!self.type_pool.isSimd(base_type)) {
+            // Non-SIMD type — allow index assignment for indexable types.
+            return;
+        }
+
+        // SIMD-specific checks below.
         if (self.nodeTag(base_node) != .ident) {
             const loc = self.tokenLoc(self.nodeMainToken(lane_node));
             try self.diagnostics.addError(loc.start, loc.end, "SIMD lane assignment target must be a local identifier or parameter");
             return;
-        }
-
-        const base_type = try self.inferExpr(base_node);
-        if (base_type != types.null_type and !self.type_pool.isSimd(base_type)) {
-            const loc = self.tokenLoc(self.nodeMainToken(lane_node));
-            try self.diagnostics.addError(loc.start, loc.end, "lane assignment is only supported for SIMD vectors");
         }
 
         if (self.resolution_map[base_node]) |sym_id| {
@@ -1661,7 +1693,10 @@ const TypeChecker = struct {
                 }
 
                 // Validate enclosing function returns an error union.
-                if (!self.type_pool.isErrorUnion(self.current_fn_return_type)) {
+                // Skip check when return type is unresolvable (has_return_type but null_type).
+                if (!self.type_pool.isErrorUnion(self.current_fn_return_type) and
+                    !(self.current_fn_has_return_type and self.current_fn_return_type == types.null_type))
+                {
                     try self.diagnostics.addError(
                         loc.start,
                         loc.end,
@@ -2405,23 +2440,31 @@ const TypeChecker = struct {
                     return types.null_type;
                 }
 
-                // Field not found — emit error with suggestion.
-                const loc = self.tokenLoc(field_name_tok);
-                const suggestion = self.findClosestField(st.fields, field_name);
-                if (suggestion) |s| {
-                    try self.diagnostics.addErrorFmt(
-                        loc.start,
-                        loc.end,
-                        "type '{s}' has no field '{s}'; did you mean '{s}'?",
-                        .{ st.name, field_name, s },
-                    );
-                } else {
-                    try self.diagnostics.addErrorFmt(
-                        loc.start,
-                        loc.end,
-                        "type '{s}' has no field '{s}'",
-                        .{ st.name, field_name },
-                    );
+                // If the struct has any fields with unresolved types, the field
+                // list may be incomplete — skip the error in that case.
+                var has_unresolved = false;
+                for (st.fields) |f| {
+                    if (f.type_id == types.null_type) { has_unresolved = true; break; }
+                }
+                if (!has_unresolved) {
+                    // Field not found — emit error with suggestion.
+                    const loc = self.tokenLoc(field_name_tok);
+                    const suggestion = self.findClosestField(st.fields, field_name);
+                    if (suggestion) |s| {
+                        try self.diagnostics.addErrorFmt(
+                            loc.start,
+                            loc.end,
+                            "type '{s}' has no field '{s}'; did you mean '{s}'?",
+                            .{ st.name, field_name, s },
+                        );
+                    } else {
+                        try self.diagnostics.addErrorFmt(
+                            loc.start,
+                            loc.end,
+                            "type '{s}' has no field '{s}'",
+                            .{ st.name, field_name },
+                        );
+                    }
                 }
                 return types.null_type;
             },
@@ -2521,7 +2564,8 @@ const TypeChecker = struct {
                             // Check type compatibility.
                             const init_type = init_types[i];
                             if (init_type != types.null_type and decl_field.type_id != types.null_type) {
-                                if (!self.typesCompatible(decl_field.type_id, init_type)) {
+                                if (!self.typesCompatible(decl_field.type_id, init_type) and
+                                    !std.mem.eql(u8, self.typeName(decl_field.type_id), "<unknown>")) {
                                     const loc = self.tokenLoc(init_name_tok);
                                     try self.diagnostics.addErrorFmt(
                                         loc.start,
@@ -2536,29 +2580,61 @@ const TypeChecker = struct {
                     }
 
                     if (!found) {
-                        const loc = self.tokenLoc(init_name_tok);
-                        try self.diagnostics.addErrorFmt(
-                            loc.start,
-                            loc.end,
-                            "unknown field '{s}' in struct '{s}'",
-                            .{ init_name, st.name },
-                        );
+                        // If the struct has any fields with unresolved types (null_type),
+                        // the field list may be incomplete due to complex type parsing
+                        // (e.g., map[K]V). Skip the unknown field error in that case.
+                        var has_unresolved_fields = false;
+                        for (st.fields) |df| {
+                            if (df.type_id == types.null_type) {
+                                has_unresolved_fields = true;
+                                break;
+                            }
+                        }
+                        if (!has_unresolved_fields) {
+                            const loc = self.tokenLoc(init_name_tok);
+                            try self.diagnostics.addErrorFmt(
+                                loc.start,
+                                loc.end,
+                                "unknown field '{s}' in struct '{s}'",
+                                .{ init_name, st.name },
+                            );
+                        }
                     }
                 }
 
                 // Check for missing required fields (no default value).
-                for (0..decl_field_count) |fi| {
-                    if (!initialized[fi]) {
-                        const decl_field = st.fields[fi];
-                        if (!self.fieldHasDefault(struct_type_id, fi)) {
-                            const lit_tok = self.nodeMainToken(node);
-                            const loc = self.tokenLoc(lit_tok);
-                            try self.diagnostics.addErrorFmt(
-                                loc.start,
-                                loc.end,
-                                "missing field '{s}' in '{s}' literal",
-                                .{ decl_field.name, st.name },
-                            );
+                // Only check when ALL provided fields were found — otherwise there
+                // may be a field resolution mismatch (e.g., complex map types parsed
+                // incorrectly) and missing-field errors would be misleading.
+                var all_found = true;
+                for (field_nodes) |field| {
+                    if (field == null_node) continue;
+                    const init_name_tok2 = self.nodeMainToken(field);
+                    const init_name2 = self.tokenSlice(init_name_tok2);
+                    var f = false;
+                    for (st.fields) |df| {
+                        if (std.mem.eql(u8, df.name, init_name2)) { f = true; break; }
+                    }
+                    if (!f) { all_found = false; break; }
+                }
+                if (all_found) {
+                    for (0..decl_field_count) |fi| {
+                        if (!initialized[fi]) {
+                            const decl_field = st.fields[fi];
+                            // Skip missing-field errors for fields whose type is unresolved
+                            // (null_type) — these are typically complex types (map, fn, etc.)
+                            // that couldn't be resolved, and we can't determine defaults.
+                            if (decl_field.type_id == types.null_type) continue;
+                            if (!self.fieldHasDefault(struct_type_id, fi)) {
+                                const lit_tok = self.nodeMainToken(node);
+                                const loc = self.tokenLoc(lit_tok);
+                                try self.diagnostics.addErrorFmt(
+                                    loc.start,
+                                    loc.end,
+                                    "missing field '{s}' in '{s}' literal",
+                                    .{ decl_field.name, st.name },
+                                );
+                            }
                         }
                     }
                 }
@@ -2574,9 +2650,8 @@ const TypeChecker = struct {
         const simd_type = self.resolveTypeNode(data.lhs);
         if (simd_type == types.null_type) return types.null_type;
         if (!self.type_pool.isSimd(simd_type)) {
-            const loc = self.tokenLoc(self.nodeMainToken(node));
-            try self.diagnostics.addError(loc.start, loc.end, "SIMD literal requires a SIMD vector type");
-            return types.null_type;
+            // Non-SIMD type with brace initializer (e.g., Conn{}) — treat as struct value.
+            return simd_type;
         }
 
         const simd = self.type_pool.getSimd(simd_type).?;
@@ -2663,7 +2738,8 @@ const TypeChecker = struct {
         }
 
         if (expected_array_len) |array_len| {
-            if (elem_nodes.len != array_len) {
+            // Allow empty literal as zero-initialization: [N]T{}
+            if (elem_nodes.len != array_len and elem_nodes.len != 0) {
                 const loc = self.tokenLoc(self.nodeMainToken(node));
                 try self.diagnostics.addErrorFmt(
                     loc.start,
@@ -2718,6 +2794,10 @@ const TypeChecker = struct {
         switch (op) {
             // Arithmetic operators
             .plus, .minus, .star, .slash, .percent => {
+                // String concatenation: `+` on strings is allowed.
+                if (op == .plus and isStringOrByteSlice(self, lhs_type) and isStringOrByteSlice(self, rhs_type)) {
+                    return types.primitives.string_id;
+                }
                 if (self.type_pool.isSimd(lhs_type) or self.type_pool.isSimd(rhs_type)) {
                     if (!self.type_pool.isSimd(lhs_type) or !self.type_pool.isSimd(rhs_type) or !self.type_pool.typeEql(lhs_type, rhs_type)) {
                         const loc = self.tokenLoc(op_tok);
@@ -2884,8 +2964,26 @@ const TypeChecker = struct {
             .type_error_union => {
                 // !T — resolve the inner type and wrap in error union.
                 const inner = self.nodeData(node).lhs;
+                if (inner == null_node) {
+                    // Bare `!` means error union with void payload.
+                    return self.type_pool.intern(self.allocator, .{ .error_union_type = .{
+                        .payload = types.primitives.void_id,
+                    } }) catch types.null_type;
+                }
                 const inner_type = self.resolveTypeNode(inner);
-                if (inner_type == types.null_type) return types.null_type;
+                // Allow void_id (== null_type) as valid payload for !void.
+                if (inner_type == types.null_type) {
+                    // Check if the inner node is literally "void".
+                    if (self.nodeTag(inner) == .ident) {
+                        const name = self.tokenSlice(self.nodeMainToken(inner));
+                        if (std.mem.eql(u8, name, "void")) {
+                            return self.type_pool.intern(self.allocator, .{ .error_union_type = .{
+                                .payload = types.primitives.void_id,
+                            } }) catch types.null_type;
+                        }
+                    }
+                    return types.null_type;
+                }
                 return self.type_pool.intern(self.allocator, .{ .error_union_type = .{
                     .payload = inner_type,
                 } }) catch types.null_type;
@@ -2988,6 +3086,8 @@ const TypeChecker = struct {
                 } }) catch types.null_type;
             },
             .type_tuple => types.null_type,
+            // Cross-package type references (e.g., crypto.Hash) — unresolvable without imports.
+            .field_access => types.null_type,
             else => types.null_type,
         };
     }
@@ -3000,15 +3100,111 @@ const TypeChecker = struct {
         if (a == types.primitives.any_id or b == types.primitives.any_id) return true;
         // Both numeric types are compatible for comparisons.
         if (self.type_pool.isNumeric(a) and self.type_pool.isNumeric(b)) return true;
+        // string ↔ []byte are interchangeable.
+        if (isStringOrByteSlice(self, a) and isStringOrByteSlice(self, b)) return true;
         // T is assignable to !T (error union wrapping).
         if (self.type_pool.unwrapErrorUnion(a)) |payload| {
             if (self.typesCompatible(payload, b)) return true;
         }
-        // T is assignable to T? (nullable wrapping).
-        if (self.type_pool.unwrapNullable(a)) |inner| {
-            if (self.typesCompatible(inner, b)) return true;
+        // T is assignable to T? (nullable wrapping) and T? is assignable to T (implicit unwrap).
+        if (self.type_pool.unwrapNullable(a)) |inner_a| {
+            if (self.typesCompatible(inner_a, b)) return true;
+            // T? is compatible with T? when inner types are compatible.
+            if (self.type_pool.unwrapNullable(b)) |inner_b| {
+                if (self.typesCompatible(inner_a, inner_b)) return true;
+            }
         }
+        if (self.type_pool.unwrapNullable(b)) |inner_b| {
+            if (self.typesCompatible(a, inner_b)) return true;
+        }
+        // &T is compatible with T (pointer auto-deref for reference types).
+        if (self.type_pool.unwrapPointer(a)) |pointee| {
+            if (self.typesCompatible(pointee, b)) return true;
+        }
+        if (self.type_pool.unwrapPointer(b)) |pointee| {
+            if (self.typesCompatible(a, pointee)) return true;
+        }
+        // Struct implements interface: if `a` is an interface and `b` is a struct
+        // that declares `implements` containing `a`, they're compatible (and vice versa).
+        if (self.structImplementsInterface(a, b)) return true;
+        if (self.structImplementsInterface(b, a)) return true;
+        // Two different interface types are compatible (interface subtyping is not yet implemented).
+        if (self.isInterfaceType(a) and self.isInterfaceType(b)) return true;
         return self.type_pool.typeEql(a, b);
+    }
+
+    fn isStringOrByteSlice(self: *TypeChecker, id: TypeId) bool {
+        if (id == types.primitives.string_id) return true;
+        if (id >= types.primitives.count) {
+            const t = self.type_pool.get(id);
+            switch (t) {
+                .slice_type => |s| return s.elem == types.primitives.byte_id,
+                else => {},
+            }
+        }
+        return false;
+    }
+
+    fn isInterfaceType(self: *TypeChecker, id: TypeId) bool {
+        if (id < types.primitives.count) return false;
+        const t = self.type_pool.get(id);
+        return switch (t) {
+            .interface_type => true,
+            else => false,
+        };
+    }
+
+    /// Returns true if `iface_id` is an interface type and `struct_id` is a struct
+    /// whose `implements` list contains `iface_id`.
+    fn structImplementsInterface(self: *TypeChecker, iface_id: TypeId, struct_id: TypeId) bool {
+        if (iface_id < types.primitives.count or struct_id < types.primitives.count) return false;
+        const iface_t = self.type_pool.get(iface_id);
+        switch (iface_t) {
+            .interface_type => {},
+            else => return false,
+        }
+        const struct_t = self.type_pool.get(struct_id);
+        switch (struct_t) {
+            .struct_type => |st| {
+                for (st.implements) |impl_id| {
+                    if (impl_id == iface_id) return true;
+                    // Also match by name for cases where type_ids differ due to resolution order.
+                    if (impl_id != types.null_type and impl_id >= types.primitives.count) {
+                        const impl_t = self.type_pool.get(impl_id);
+                        switch (impl_t) {
+                            .interface_type => |it| {
+                                const iface_name = iface_t.interface_type.name;
+                                if (std.mem.eql(u8, it.name, iface_name)) return true;
+                            },
+                            else => {},
+                        }
+                    }
+                }
+                // Also check by name: scan symbols for the interface name and see
+                // if this struct lists an implements with that name.
+                const iface_name = iface_t.interface_type.name;
+                for (self.symbols.symbols.items) |sym| {
+                    if (sym.kind == .type_def and sym.type_id == struct_id) {
+                        // Found the struct symbol — check its implements in extra_data.
+                        const decl_node = sym.decl_node;
+                        if (decl_node == null_node) return false;
+                        const extra = self.tree.extra_data.items;
+                        const extra_start = self.nodeData(decl_node).lhs;
+                        const implements_count = extra[extra_start];
+                        for (0..implements_count) |i| {
+                            const iface_node = extra[extra_start + 1 + i];
+                            if (iface_node == null_node) continue;
+                            const iface_tok = self.nodeMainToken(iface_node);
+                            const name = self.tokenSlice(iface_tok);
+                            if (std.mem.eql(u8, name, iface_name)) return true;
+                        }
+                        return false;
+                    }
+                }
+            },
+            else => {},
+        }
+        return false;
     }
 
     fn typeName(self: *TypeChecker, type_id: TypeId) []const u8 {

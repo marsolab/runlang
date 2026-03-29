@@ -5,10 +5,10 @@ let wordBase = 18446744073709551616
 
 fun normalize64(x int) int {
     var v = x
-    while v < 0 {
+    for v < 0 {
         v = v + wordBase
     }
-    while v >= wordBase {
+    for v >= wordBase {
         v = v - wordBase
     }
     return v

@@ -151,7 +151,7 @@ const OwnershipAnalyzer = struct {
                 try self.popScope();
             },
             .if_stmt => try self.analyzeIfStmt(node_idx),
-            .for_stmt => try self.analyzeForStmt(node_idx),
+            .for_stmt, .for_range_stmt => try self.analyzeForStmt(node_idx),
             .return_stmt => try self.analyzeReturn(node_idx),
             .expr_stmt => try self.analyzeExpr(node.data.lhs),
             .defer_stmt => {},

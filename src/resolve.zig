@@ -355,25 +355,25 @@ pub const Resolver = struct {
             if (self.symbols.lookup(type_name)) |type_sym_id| {
                 const type_sym = self.symbols.getSymbol(type_sym_id);
                 if (type_sym.kind == .type_def) {
-                    // Define the method as a symbol.
-                    const method_sym_id = self.symbols.define(self.allocator, name, .{
+                    // Check for duplicate method on the same type.
+                    // Use type_sym_id (SymbolId) instead of type_sym.type_id (TypeId)
+                    // because type_id is null_type for all unresolved types during resolution.
+                    if (self.symbols.lookupMethod(type_sym_id, name) != null) {
+                        const loc = self.tokenLoc(name_tok);
+                        try self.diagnostics.addErrorFmt(loc.start, loc.end, "duplicate method '{s}' on type '{s}'", .{ name, type_name });
+                        return;
+                    }
+                    // Register method symbol without polluting the global scope.
+                    const method_sym_id: SymbolId = @intCast(self.symbols.symbols.items.len);
+                    try self.symbols.symbols.append(self.allocator, .{
                         .name = name,
                         .kind = .method,
                         .type_id = types.null_type,
                         .is_pub = is_pub,
                         .is_mutable = false,
                         .decl_node = node,
-                    }) catch |err| switch (err) {
-                        error.DuplicateSymbol => {
-                            // Methods can shadow top-level names — that's ok.
-                            // But duplicate method on same type is an error.
-                            const loc = self.tokenLoc(name_tok);
-                            try self.diagnostics.addErrorFmt(loc.start, loc.end, "duplicate method '{s}' on type '{s}'", .{ name, type_name });
-                            return;
-                        },
-                        else => |e| return @as(ResolveError, e),
-                    };
-                    try self.symbols.defineMethod(type_sym.type_id, name, method_sym_id);
+                    });
+                    try self.symbols.defineMethod(type_sym_id, name, method_sym_id);
                 } else {
                     const loc = self.tokenLoc(name_tok);
                     try self.diagnostics.addErrorFmt(loc.start, loc.end, "receiver type '{s}' is not a type", .{type_name});
@@ -545,7 +545,7 @@ pub const Resolver = struct {
             },
             .unary_op => try self.resolveNode(self.nodeData(node).lhs),
             .call => try self.resolveCall(node),
-            .field_access => try self.resolveNode(self.nodeData(node).lhs),
+            .field_access => try self.resolveFieldAccess(node),
             .index_access => {
                 try self.resolveNode(self.nodeData(node).lhs);
                 try self.resolveNode(self.nodeData(node).rhs);
@@ -725,8 +725,23 @@ pub const Resolver = struct {
 
         // Skip if it's a primitive type name used as ident (e.g., in type position).
         if (types.TypePool.lookupPrimitive(name) != null) return;
-        // Compiler-recognized pseudo-packages.
-        if (std.mem.eql(u8, name, "simd") or std.mem.eql(u8, name, "unsafe") or std.mem.eql(u8, name, "close")) return;
+        // Compiler-recognized pseudo-packages and built-in identifiers.
+        if (std.mem.eql(u8, name, "simd") or
+            std.mem.eql(u8, name, "unsafe") or
+            std.mem.eql(u8, name, "close") or
+            std.mem.eql(u8, name, "syscall") or
+            std.mem.eql(u8, name, "fs") or
+            std.mem.eql(u8, name, "len") or
+            std.mem.eql(u8, name, "append") or
+            std.mem.eql(u8, name, "delete") or
+            std.mem.eql(u8, name, "copy") or
+            std.mem.eql(u8, name, "make") or
+            std.mem.eql(u8, name, "panic") or
+            std.mem.eql(u8, name, "assert") or
+            std.mem.eql(u8, name, "print") or
+            std.mem.eql(u8, name, "println")) return;
+        // Compiler built-in intrinsics.
+        if (std.mem.startsWith(u8, name, "__builtin_")) return;
 
         if (self.symbols.lookup(name)) |sym_id| {
             self.resolution_map.items[node] = sym_id;
@@ -734,6 +749,26 @@ pub const Resolver = struct {
             const loc = self.tokenLoc(name_tok);
             try self.diagnostics.addErrorFmt(loc.start, loc.end, "undefined reference to '{s}'", .{name});
         }
+    }
+
+    fn resolveFieldAccess(self: *Resolver, node: NodeIndex) ResolveError!void {
+        const lhs = self.nodeData(node).lhs;
+        if (lhs == null_node) return;
+        // If the LHS is a simple identifier that isn't in scope, treat it as a
+        // potential package reference rather than erroring. Without an import
+        // system, cross-package references (e.g., io.Reader, time.now()) cannot
+        // be resolved.
+        if (self.nodeTag(lhs) == .ident) {
+            const name_tok = self.nodeMainToken(lhs);
+            const name = self.tokenSlice(name_tok);
+            if (types.TypePool.lookupPrimitive(name) != null) return;
+            if (self.symbols.lookup(name)) |sym_id| {
+                self.resolution_map.items[lhs] = sym_id;
+            }
+            // Don't error — could be a package reference.
+            return;
+        }
+        try self.resolveNode(lhs);
     }
 
     fn resolveCall(self: *Resolver, node: NodeIndex) ResolveError!void {
@@ -854,9 +889,72 @@ pub const Resolver = struct {
     fn resolveForStmt(self: *Resolver, node: NodeIndex) ResolveError!void {
         const data = self.nodeData(node);
         const main_tok = self.nodeMainToken(node);
+        const node_tag = self.nodeTag(node);
 
         self.loop_depth += 1;
         defer self.loop_depth -= 1;
+
+        // Handle `for key, value in collection { body }` (two iteration variables)
+        if (node_tag == .for_range_stmt) {
+            // Resolve the iterable expression first.
+            try self.resolveNode(data.lhs);
+
+            // Create scope for body and register both iteration variables.
+            try self.symbols.pushScope(self.allocator);
+            defer self.symbols.popScope(self.allocator);
+
+            // Scan tokens after `for` to find the two iteration variable identifiers.
+            // Token layout: kw_for [newlines...] ident1 , [newlines...] ident2 kw_in ...
+            var scan = main_tok + 1;
+            while (scan < self.tokens.len and self.tokens[scan].tag == .newline) : (scan += 1) {}
+            if (scan < self.tokens.len and self.tokens[scan].tag == .identifier) {
+                const name1 = self.tokenSlice(scan);
+                if (!std.mem.eql(u8, name1, "_")) {
+                    _ = self.symbols.define(self.allocator, name1, .{
+                        .name = name1,
+                        .kind = .variable,
+                        .type_id = types.null_type,
+                        .is_pub = false,
+                        .is_mutable = false,
+                        .decl_node = node,
+                    }) catch |err| switch (err) {
+                        error.DuplicateSymbol => {},
+                        else => |e| return @as(ResolveError, e),
+                    };
+                }
+                scan += 1;
+            }
+            // Skip comma and newlines.
+            while (scan < self.tokens.len and (self.tokens[scan].tag == .comma or self.tokens[scan].tag == .newline)) : (scan += 1) {}
+            if (scan < self.tokens.len and self.tokens[scan].tag == .identifier) {
+                const name2 = self.tokenSlice(scan);
+                if (!std.mem.eql(u8, name2, "_")) {
+                    _ = self.symbols.define(self.allocator, name2, .{
+                        .name = name2,
+                        .kind = .variable,
+                        .type_id = types.null_type,
+                        .is_pub = false,
+                        .is_mutable = false,
+                        .decl_node = node,
+                    }) catch |err| switch (err) {
+                        error.DuplicateSymbol => {},
+                        else => |e| return @as(ResolveError, e),
+                    };
+                }
+            }
+
+            // Resolve body statements directly within our scope.
+            if (data.rhs != null_node) {
+                const block_data = self.nodeData(data.rhs);
+                const start = block_data.lhs;
+                const count = block_data.rhs;
+                const stmts = self.tree.extra_data.items[start .. start + count];
+                for (stmts) |stmt| {
+                    try self.resolveNode(stmt);
+                }
+            }
+            return;
+        }
 
         // Detect for-in: `for item in collection { body }`
         // Check tokens: main_tok = kw_for, main_tok+1 might be identifier, main_tok+2 might be kw_in
