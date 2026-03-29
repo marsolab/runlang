@@ -5,9 +5,9 @@ package testing
 // and describe how to compare a value against an expectation.
 pub Operator struct {
     kind    OperatorKind
-    want    any
-    extra   any
-    inner   []Operator
+    want    any = null
+    extra   any = null
+    inner   []Operator = []Operator{}
 }
 
 // OperatorKind enumerates the built-in comparison operators.

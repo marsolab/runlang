@@ -406,6 +406,7 @@ NopCloser struct {
     implements {
         Reader
         Closer
+        ReadCloser
     }
 
     reader Reader
