@@ -1,0 +1,95 @@
+package html
+
+use "testing"
+
+// --- escapeString tests ---
+
+test "escapeString with empty string" (t &testing.T) {
+    t.assertEqual(escapeString(""), "")
+}
+
+test "escapeString with no special chars" (t &testing.T) {
+    t.assertEqual(escapeString("hello world"), "hello world")
+}
+
+test "escapeString escapes ampersand" (t &testing.T) {
+    t.assertEqual(escapeString("a&b"), "a&amp;b")
+}
+
+test "escapeString escapes less-than" (t &testing.T) {
+    t.assertEqual(escapeString("a<b"), "a&lt;b")
+}
+
+test "escapeString escapes greater-than" (t &testing.T) {
+    t.assertEqual(escapeString("a>b"), "a&gt;b")
+}
+
+test "escapeString escapes double quote" (t &testing.T) {
+    t.assertEqual(escapeString("a\"b"), "a&quot;b")
+}
+
+test "escapeString escapes single quote" (t &testing.T) {
+    t.assertEqual(escapeString("a'b"), "a&#39;b")
+}
+
+test "escapeString escapes all five characters" (t &testing.T) {
+    t.assertEqual(escapeString("<div class=\"a\" data='b'>&</div>"), "&lt;div class=&quot;a&quot; data=&#39;b&#39;&gt;&amp;&lt;/div&gt;")
+}
+
+test "escapeString double-escapes entities" (t &testing.T) {
+    t.assertEqual(escapeString("&amp;"), "&amp;amp;")
+}
+
+// --- unescapeString tests ---
+
+test "unescapeString with empty string" (t &testing.T) {
+    t.assertEqual(unescapeString(""), "")
+}
+
+test "unescapeString with no entities" (t &testing.T) {
+    t.assertEqual(unescapeString("hello world"), "hello world")
+}
+
+test "unescapeString decodes amp" (t &testing.T) {
+    t.assertEqual(unescapeString("a&amp;b"), "a&b")
+}
+
+test "unescapeString decodes lt" (t &testing.T) {
+    t.assertEqual(unescapeString("a&lt;b"), "a<b")
+}
+
+test "unescapeString decodes gt" (t &testing.T) {
+    t.assertEqual(unescapeString("a&gt;b"), "a>b")
+}
+
+test "unescapeString decodes quot" (t &testing.T) {
+    t.assertEqual(unescapeString("a&quot;b"), "a\"b")
+}
+
+test "unescapeString decodes numeric apos" (t &testing.T) {
+    t.assertEqual(unescapeString("a&#39;b"), "a'b")
+}
+
+test "unescapeString decodes all five entities" (t &testing.T) {
+    t.assertEqual(unescapeString("&lt;div class=&quot;a&quot;&gt;&amp;&#39;&lt;/div&gt;"), "<div class=\"a\">&'</div>")
+}
+
+test "unescapeString passes through unknown entities" (t &testing.T) {
+    t.assertEqual(unescapeString("&foo;"), "&foo;")
+}
+
+test "unescapeString handles trailing ampersand" (t &testing.T) {
+    t.assertEqual(unescapeString("hello&"), "hello&")
+}
+
+// --- round-trip tests ---
+
+test "round-trip escape then unescape" (t &testing.T) {
+    var original = "<p class=\"greeting\">Hello & 'world'</p>"
+    t.assertEqual(unescapeString(escapeString(original)), original)
+}
+
+test "round-trip with plain text" (t &testing.T) {
+    var original = "no special chars here"
+    t.assertEqual(unescapeString(escapeString(original)), original)
+}

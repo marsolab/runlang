@@ -1,5 +1,11 @@
 package html
 
+use "strings"
+
+// Helper functions for type conversions.
+fun toBytes(s string) []byte { return s }
+fun toString(b []byte) string { return b }
+
 // escapeString replaces special characters in s with HTML entities.
 // It escapes the five characters: < > & " '
 //   < becomes &lt;
@@ -8,12 +14,100 @@ package html
 //   " becomes &quot;
 //   ' becomes &#39;
 pub fun escapeString(s string) string {
-    return ""
+    var sb = toBytes(s)
+    var b = strings.Builder{ buf: alloc([]byte, 0) }
+    var i = 0
+    for i < len(sb) {
+        var c = sb[i]
+        if c == 38 {
+            // & → &amp;
+            b.writeString("&amp;")
+        } else {
+            if c == 60 {
+                // < → &lt;
+                b.writeString("&lt;")
+            } else {
+                if c == 62 {
+                    // > → &gt;
+                    b.writeString("&gt;")
+                } else {
+                    if c == 34 {
+                        // " → &quot;
+                        b.writeString("&quot;")
+                    } else {
+                        if c == 39 {
+                            // ' → &#39;
+                            b.writeString("&#39;")
+                        } else {
+                            b.writeByte(c)
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return b.string()
 }
 
 // unescapeString unescapes HTML entities in s.
-// It converts &lt; &gt; &amp; &quot; &#39; and numeric character
-// references back to their original characters.
+// It converts &lt; &gt; &amp; &quot; &#39; back to their original characters.
 pub fun unescapeString(s string) string {
-    return ""
+    var sb = toBytes(s)
+    var b = strings.Builder{ buf: alloc([]byte, 0) }
+    var i = 0
+    for i < len(sb) {
+        if sb[i] == 38 {
+            // Found '&', try to match known entities.
+            if matchEntity(sb, i, "amp;") {
+                b.writeByte(38)
+                i = i + 5
+            } else {
+                if matchEntity(sb, i, "lt;") {
+                    b.writeByte(60)
+                    i = i + 4
+                } else {
+                    if matchEntity(sb, i, "gt;") {
+                        b.writeByte(62)
+                        i = i + 4
+                    } else {
+                        if matchEntity(sb, i, "quot;") {
+                            b.writeByte(34)
+                            i = i + 6
+                        } else {
+                            if matchEntity(sb, i, "#39;") {
+                                b.writeByte(39)
+                                i = i + 5
+                            } else {
+                                // Unknown entity, pass through the '&'.
+                                b.writeByte(38)
+                                i = i + 1
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            b.writeByte(sb[i])
+            i = i + 1
+        }
+    }
+    return b.string()
+}
+
+// matchEntity checks whether the bytes starting at pos+1 in src match the
+// given entity suffix (e.g. "lt;" for &lt;).
+fun matchEntity(src []byte, pos int, entity string) bool {
+    var eb = toBytes(entity)
+    if pos + 1 + len(eb) > len(src) {
+        return false
+    }
+    var j = 0
+    for j < len(eb) {
+        if src[pos + 1 + j] != eb[j] {
+            return false
+        }
+        j = j + 1
+    }
+    return true
 }
