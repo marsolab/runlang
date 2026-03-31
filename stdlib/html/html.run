@@ -19,31 +19,13 @@ pub fun escapeString(s string) string {
     var i = 0
     for i < len(sb) {
         var c = sb[i]
-        if c == 38 {
-            // & → &amp;
-            b.writeString("&amp;")
-        } else {
-            if c == 60 {
-                // < → &lt;
-                b.writeString("&lt;")
-            } else {
-                if c == 62 {
-                    // > → &gt;
-                    b.writeString("&gt;")
-                } else {
-                    if c == 34 {
-                        // " → &quot;
-                        b.writeString("&quot;")
-                    } else {
-                        if c == 39 {
-                            // ' → &#39;
-                            b.writeString("&#39;")
-                        } else {
-                            b.writeByte(c)
-                        }
-                    }
-                }
-            }
+        switch c {
+            38 :: { b.writeString("&amp;") },
+            60 :: { b.writeString("&lt;") },
+            62 :: { b.writeString("&gt;") },
+            34 :: { b.writeString("&quot;") },
+            39 :: { b.writeString("&#39;") },
+            _ :: { b.writeByte(c) },
         }
         i = i + 1
     }
