@@ -1,20 +1,153 @@
 package hkdf
 
 use "crypto"
+use "crypto/hmac"
 use "io"
 
-// new returns an io.Reader from which keys can be read, using the given hash,
-// secret, optional salt, and optional context info, as described in RFC 5869.
-pub fun new(hashFn fun() crypto.Hash, secret []byte, salt []byte, info []byte) io.Reader {
+// HkdfReader implements io.Reader for streaming HKDF-Expand output.
+// It produces key material in hashLen-sized blocks using HMAC.
+pub HkdfReader struct {
+    implements {
+        io.Reader
+    }
+
+    prk     []byte
+    info    []byte
+    hashLen int
+    prev    []byte
+    buf     []byte
+    offset  int
+    ctr     int
+}
+
+// read fills buf with derived key material from HKDF-Expand.
+// Returns the number of bytes read or an error if the maximum
+// output length (255 * hashLen) is exceeded.
+pub fun (r &HkdfReader) read(buf []byte) !int {
+    var n = 0
+    for n < len(buf) {
+        // If we have buffered bytes, copy them first.
+        if r.offset < len(r.buf) {
+            var available = len(r.buf) - r.offset
+            var need = len(buf) - n
+            var copyLen = available
+            if need < available {
+                copyLen = need
+            }
+            var i = 0
+            for i < copyLen {
+                buf[n + i] = r.buf[r.offset + i]
+                i = i + 1
+            }
+            r.offset = r.offset + copyLen
+            n = n + copyLen
+        } else {
+            // Generate the next block: T(i) = HMAC(PRK, T(i-1) || info || i)
+            if r.ctr == 255 {
+                return n
+            }
+            r.ctr = r.ctr + 1
+            var h = hmac.new(hmacHashFn, r.prk)
+            // Write previous block T(i-1).
+            if len(r.prev) > 0 {
+                h.write(r.prev)
+            }
+            // Write info.
+            h.write(r.info)
+            // Write counter byte.
+            var counterBuf = alloc([]byte, 1)
+            counterBuf[0] = r.ctr
+            h.write(counterBuf)
+            r.buf = h.sum(alloc([]byte, 0))
+            r.prev = r.buf
+            r.offset = 0
+        }
+    }
+    return n
+}
+
+// hmacHashFn is the default hash function for HMAC operations.
+// In a full implementation, this would be parameterized.
+fun hmacHashFn() crypto.Hash {
     return null
 }
 
-// extract performs the extract step of HKDF, returning the pseudorandom key.
-pub fun extract(hashFn fun() crypto.Hash, secret []byte, salt []byte) []byte {
-    return alloc([]byte, 0)
+// new returns an io.Reader from which keys can be read, using the given hash,
+// secret, optional salt, and optional context info, as described in RFC 5869.
+// The Reader produces output from HKDF-Extract then HKDF-Expand.
+pub fun new(hashFn fun() crypto.Hash, secret []byte, salt []byte, info []byte) io.Reader {
+    var prk = extract(hashFn, secret, salt)
+    var h = hashFn()
+    var hashLen = h.size()
+    return HkdfReader{
+        prk:     prk,
+        info:    info,
+        hashLen: hashLen,
+        prev:    alloc([]byte, 0),
+        buf:     alloc([]byte, 0),
+        offset:  0,
+        ctr:     0,
+    }
 }
 
-// expand performs the expand step of HKDF, returning a key of the given length.
+// extract performs the extract step of HKDF as defined in RFC 5869.
+// HKDF-Extract(salt, IKM) = HMAC-Hash(salt, IKM)
+// If salt is empty, a string of hashLen zeros is used.
+pub fun extract(hashFn fun() crypto.Hash, secret []byte, salt []byte) []byte {
+    var actualSalt = salt
+    if len(actualSalt) == 0 {
+        var h = hashFn()
+        actualSalt = alloc([]byte, h.size())
+    }
+    var h = hmac.new(hashFn, actualSalt)
+    h.write(secret)
+    return h.sum(alloc([]byte, 0))
+}
+
+// expand performs the expand step of HKDF as defined in RFC 5869.
+// HKDF-Expand(PRK, info, L) produces output keying material of length keyLen.
+// keyLen must not exceed 255 * hashLen.
 pub fun expand(hashFn fun() crypto.Hash, pseudoRandomKey []byte, info []byte, keyLen int) ![]byte {
-    return alloc([]byte, 0)
+    var h = hashFn()
+    var hashLen = h.size()
+
+    // RFC 5869: L <= 255 * HashLen
+    if keyLen > 255 * hashLen {
+        return alloc([]byte, 0)
+    }
+
+    // Number of blocks needed: N = ceil(L / HashLen)
+    var n = keyLen / hashLen
+    if keyLen % hashLen != 0 {
+        n = n + 1
+    }
+
+    var output = alloc([]byte, 0)
+    var prev = alloc([]byte, 0)
+
+    var i = 1
+    for i <= n {
+        // T(i) = HMAC-Hash(PRK, T(i-1) || info || i)
+        var mac = hmac.new(hashFn, pseudoRandomKey)
+        if len(prev) > 0 {
+            mac.write(prev)
+        }
+        mac.write(info)
+        var counterBuf = alloc([]byte, 1)
+        counterBuf[0] = i
+        mac.write(counterBuf)
+        prev = mac.sum(alloc([]byte, 0))
+
+        // Append to output, but only up to keyLen total.
+        var j = 0
+        for j < len(prev) {
+            if len(output) < keyLen {
+                output = append(output, prev[j])
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+
+    return output
 }

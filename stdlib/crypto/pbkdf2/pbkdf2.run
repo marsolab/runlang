@@ -1,10 +1,97 @@
 package pbkdf2
 
 use "crypto"
+use "crypto/hmac"
 
 // key derives a key from the password, salt, and iteration count,
-// using the given hash function. Use at least 600,000 iterations
-// with HMAC-SHA-256 for password hashing.
+// using the given hash function, as defined in RFC 2898 / RFC 8018.
+// Use at least 600,000 iterations with HMAC-SHA-256 for password hashing.
+//
+// PBKDF2(P, S, c, dkLen):
+//   DK = T1 || T2 || ... || Tdklen/hlen
+//   Ti = U1 ^ U2 ^ ... ^ Uc
+//   U1 = PRF(P, S || INT(i)), U2 = PRF(P, U1), ..., Uc = PRF(P, Uc-1)
 pub fun key(password []byte, salt []byte, iter int, keyLen int, hashFn fun() crypto.Hash) []byte {
-    return alloc([]byte, 0)
+    var h = hashFn()
+    var hashLen = h.size()
+
+    // Number of blocks needed: ceil(keyLen / hashLen)
+    var numBlocks = keyLen / hashLen
+    if keyLen % hashLen != 0 {
+        numBlocks = numBlocks + 1
+    }
+
+    var dk = alloc([]byte, 0)
+
+    var blockNum = 1
+    for blockNum <= numBlocks {
+        // U1 = HMAC(password, salt || INT_32_BE(blockNum))
+        var mac = hmac.new(hashFn, password)
+        mac.write(salt)
+
+        // Encode block number as 4-byte big-endian integer.
+        var intBuf = alloc([]byte, 4)
+        intBuf[0] = (blockNum / 16777216) % 256
+        intBuf[1] = (blockNum / 65536) % 256
+        intBuf[2] = (blockNum / 256) % 256
+        intBuf[3] = blockNum % 256
+        mac.write(intBuf)
+
+        var u = mac.sum(alloc([]byte, 0))
+
+        // T = U1 (accumulator for XOR of all U values).
+        var t = alloc([]byte, len(u))
+        var k = 0
+        for k < len(u) {
+            t[k] = u[k]
+            k = k + 1
+        }
+
+        // Iterate: U2 through Uc, XOR each into T.
+        var j = 2
+        for j <= iter {
+            var innerMac = hmac.new(hashFn, password)
+            innerMac.write(u)
+            u = innerMac.sum(alloc([]byte, 0))
+
+            k = 0
+            for k < len(u) {
+                t[k] = xorByte(t[k], u[k])
+                k = k + 1
+            }
+            j = j + 1
+        }
+
+        // Append block T to derived key, but only up to keyLen total.
+        k = 0
+        for k < len(t) {
+            if len(dk) < keyLen {
+                dk = append(dk, t[k])
+            }
+            k = k + 1
+        }
+
+        blockNum = blockNum + 1
+    }
+
+    return dk
+}
+
+// xorByte computes the XOR of two byte values using arithmetic.
+fun xorByte(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var va = a % 256
+    var vb = b % 256
+    var i = 0
+    for i < 8 {
+        var bitA = (va / bitVal) % 2
+        var bitB = (vb / bitVal) % 2
+        if bitA != bitB {
+            result = result + bitVal
+        }
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
 }
