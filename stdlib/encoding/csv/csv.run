@@ -2,6 +2,32 @@ package csv
 
 use "io"
 
+// Helper functions for type conversions.
+fun toBytes(s string) []byte { return s }
+fun toString(b []byte) string { return b }
+
+// unwrapBytes extracts the value from an optional byte slice.
+// TODO: proper null check when runtime type info is available.
+fun unwrapBytes(val []byte?) []byte { return val }
+
+// unwrapStrings extracts the value from an optional string slice.
+// TODO: proper null check when runtime type info is available.
+fun unwrapStrings(val []string?) []string { return val }
+
+// wrapBytes wraps a byte slice as an optional byte slice.
+// TODO: proper optional wrapping when runtime type info is available.
+fun wrapBytes(val []byte) []byte? { return val }
+
+// wrapStrings wraps a string slice as an optional string slice.
+// TODO: proper optional wrapping when runtime type info is available.
+fun wrapStrings(val []string) []string? { return val }
+
+// CsvError represents errors during CSV reading or writing.
+pub type CsvError = .parse_error
+    | .quote_error
+    | .field_count
+    | .write_error
+
 // Reader reads records from a CSV-encoded file.
 pub Reader struct {
     reader    io.Reader
@@ -15,24 +41,166 @@ pub fun newReader(r io.Reader) Reader {
     return Reader{ reader: r, delimiter: 44, comment: 0 }
 }
 
+// readLine reads bytes from the reader until a newline is found.
+// Returns the line without the trailing newline, or null at EOF.
+fun (r &Reader) readLine() ![]byte? {
+    var buf = alloc([]byte, 0)
+    var tmp = alloc([]byte, 1)
+    var gotAny = false
+
+    for true {
+        var n = try r.reader.read(tmp)
+        if n == 0 {
+            if gotAny {
+                return wrapBytes(buf)
+            }
+            return null
+        }
+        gotAny = true
+        // 10 = newline
+        if tmp[0] == 10 {
+            return wrapBytes(buf)
+        }
+        // 13 = carriage return, skip it (handle CRLF)
+        if tmp[0] == 13 {
+            // Peek ahead for LF
+            var peek = alloc([]byte, 1)
+            var pn = try r.reader.read(peek)
+            if pn > 0 and peek[0] != 10 {
+                // Not LF after CR, include the next byte
+                buf = append(buf, peek[0])
+            }
+            return wrapBytes(buf)
+        }
+        buf = append(buf, tmp[0])
+    }
+
+    return null
+}
+
 // read reads one record (a slice of fields) from the reader.
-// Returns null at end of input.
+// Returns null at end of input. Handles quoted fields per RFC 4180:
+// fields enclosed in double quotes may contain delimiters, newlines,
+// and escaped double quotes (represented as "").
 pub fun (r &Reader) read() ![]string? {
+    var fields = alloc([]string, 0)
+    var field = alloc([]byte, 0)
+    var inQuotes = false
+    var lineStart = true
+
+    for true {
+        var lineData = try r.readLine()
+        if lineData == null {
+            // EOF reached
+            if inQuotes {
+                // Unterminated quoted field
+                return null
+            }
+            if len(fields) == 0 and len(field) == 0 and lineStart {
+                return null
+            }
+            // Return the last accumulated field
+            fields = append(fields, toString(field))
+            return wrapStrings(fields)
+        }
+
+        var line = unwrapBytes(lineData)
+
+        // Skip comment lines (only at the start of a record, not inside quotes)
+        if lineStart and !inQuotes and r.comment != 0 and len(line) > 0 {
+            if line[0] == r.comment {
+                fields = alloc([]string, 0)
+                field = alloc([]byte, 0)
+                continue
+            }
+        }
+
+        lineStart = false
+
+        // If inside a quoted field spanning multiple lines, add a newline.
+        if inQuotes {
+            field = append(field, 10)
+        }
+
+        var i = 0
+        for i < len(line) {
+            var c = line[i]
+
+            if inQuotes {
+                // 34 = double quote
+                if c == 34 {
+                    // Check for escaped quote (two consecutive double quotes)
+                    if i + 1 < len(line) and line[i + 1] == 34 {
+                        field = append(field, 34)
+                        i = i + 2
+                        continue
+                    }
+                    // End of quoted field
+                    inQuotes = false
+                    i = i + 1
+                    continue
+                }
+                field = append(field, c)
+                i = i + 1
+                continue
+            }
+
+            // Not in quotes: check for delimiter
+            if c == r.delimiter {
+                fields = append(fields, toString(field))
+                field = alloc([]byte, 0)
+                i = i + 1
+                continue
+            }
+
+            // 34 = double quote at start of field begins a quoted field
+            if c == 34 and len(field) == 0 {
+                inQuotes = true
+                i = i + 1
+                continue
+            }
+
+            field = append(field, c)
+            i = i + 1
+        }
+
+        // If still in quotes, the field spans multiple lines; continue reading
+        if inQuotes {
+            continue
+        }
+
+        // End of record: append the last field and return
+        fields = append(fields, toString(field))
+        return wrapStrings(fields)
+    }
+
     return null
 }
 
 // readAll reads all remaining records from the reader.
 pub fun (r &Reader) readAll() ![][]string {
-    return alloc([][]string, 0)
+    var records = alloc([][]string, 0)
+
+    for true {
+        var record = try r.read()
+        if record == null {
+            return records
+        }
+        records = append(records, unwrapStrings(record))
+    }
+
+    return records
 }
 
 // setDelimiter sets the field delimiter (default is comma).
 pub fun (r &Reader) setDelimiter(delim byte) {
+    r.delimiter = delim
 }
 
 // setComment sets the comment character. Lines beginning with this
 // character (without leading whitespace) are ignored.
 pub fun (r &Reader) setComment(comment byte) {
+    r.comment = comment
 }
 
 // Writer writes records to a CSV-encoded file.
@@ -46,18 +214,105 @@ pub fun newWriter(w io.Writer) Writer {
     return Writer{ writer: w, delimiter: 44 }
 }
 
+// needsQuoting checks if a field needs to be enclosed in double quotes.
+// A field must be quoted if it contains the delimiter, a double quote,
+// a newline, or a carriage return (per RFC 4180).
+fun (w @Writer) needsQuoting(field string) bool {
+    var data = toBytes(field)
+    var i = 0
+    for i < len(data) {
+        var c = data[i]
+        if c == w.delimiter {
+            return true
+        }
+        // 34 = double quote
+        if c == 34 {
+            return true
+        }
+        // 10 = newline
+        if c == 10 {
+            return true
+        }
+        // 13 = carriage return
+        if c == 13 {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// writeField writes a single field, quoting it if necessary.
+// Double quotes within the field are escaped by doubling them.
+fun (w &Writer) writeField(field string) !void {
+    var data = toBytes(field)
+
+    if w.needsQuoting(field) {
+        // Write opening double quote
+        var q = alloc([]byte, 1)
+        q[0] = 34
+        try w.writer.write(q)
+
+        // Write field contents, escaping double quotes by doubling
+        var i = 0
+        for i < len(data) {
+            if data[i] == 34 {
+                var dq = alloc([]byte, 2)
+                dq[0] = 34
+                dq[1] = 34
+                try w.writer.write(dq)
+            } else {
+                var ch = alloc([]byte, 1)
+                ch[0] = data[i]
+                try w.writer.write(ch)
+            }
+            i = i + 1
+        }
+
+        // Write closing double quote
+        try w.writer.write(q)
+    } else {
+        try w.writer.write(data)
+    }
+}
+
 // write writes a single CSV record, followed by a newline.
+// Each field is separated by the delimiter. Fields containing
+// the delimiter, double quotes, or newlines are quoted per RFC 4180.
 pub fun (w &Writer) write(record []string) !void {
+    var i = 0
+    for i < len(record) {
+        if i > 0 {
+            var delim = alloc([]byte, 1)
+            delim[0] = w.delimiter
+            try w.writer.write(delim)
+        }
+        try w.writeField(record[i])
+        i = i + 1
+    }
+    // Write newline (10 = LF)
+    var nl = alloc([]byte, 1)
+    nl[0] = 10
+    try w.writer.write(nl)
 }
 
 // writeAll writes multiple CSV records and then calls flush.
 pub fun (w &Writer) writeAll(records [][]string) !void {
+    var i = 0
+    for i < len(records) {
+        try w.write(records[i])
+        i = i + 1
+    }
+    try w.flush()
 }
 
 // flush writes any buffered data to the underlying writer.
+// Since the writer writes directly to the underlying io.Writer,
+// this is currently a no-op.
 pub fun (w &Writer) flush() !void {
 }
 
 // setDelimiter sets the field delimiter (default is comma).
 pub fun (w &Writer) setDelimiter(delim byte) {
+    w.delimiter = delim
 }
