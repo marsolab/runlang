@@ -5,51 +5,396 @@ pub type Less interface {
     less(other any) bool
 }
 
-// ints sorts a slice of integers in ascending order.
-pub fun ints(s []int) {
+// insertionSort sorts s[lo..hi] using the comparison function.
+fun insertionSort(s []any, lo int, hi int, cmp fun(a any, b any) bool) {
+    var i = lo + 1
+    for i < hi {
+        var j = i
+        for j > lo and cmp(s[j], s[j - 1]) {
+            var tmp = s[j]
+            s[j] = s[j - 1]
+            s[j - 1] = tmp
+            j = j - 1
+        }
+        i = i + 1
+    }
 }
 
-// floats sorts a slice of floats in ascending order.
-pub fun floats(s []f64) {
+// partition partitions s[lo..hi] around a pivot and returns the pivot index.
+fun partition(s []any, lo int, hi int, cmp fun(a any, b any) bool) int {
+    // Use median-of-three for pivot selection.
+    var mid = lo + (hi - lo) / 2
+    // Sort lo, mid, hi-1 to find median.
+    if cmp(s[mid], s[lo]) {
+        var tmp = s[lo]
+        s[lo] = s[mid]
+        s[mid] = tmp
+    }
+    if cmp(s[hi - 1], s[lo]) {
+        var tmp = s[lo]
+        s[lo] = s[hi - 1]
+        s[hi - 1] = tmp
+    }
+    if cmp(s[mid], s[hi - 1]) {
+        var tmp = s[mid]
+        s[mid] = s[hi - 1]
+        s[hi - 1] = tmp
+    }
+    // Pivot is now at hi-1.
+    var pivot = s[hi - 1]
+    var i = lo
+    var j = lo
+    for j < hi - 1 {
+        if cmp(s[j], pivot) {
+            var tmp = s[i]
+            s[i] = s[j]
+            s[j] = tmp
+            i = i + 1
+        }
+        j = j + 1
+    }
+    var tmp = s[i]
+    s[i] = s[hi - 1]
+    s[hi - 1] = tmp
+    return i
 }
 
-// stringsSort sorts a slice of strings in ascending order.
-pub fun stringsSort(s []string) {
+// quicksort sorts s[lo..hi] using quicksort with insertion sort for small ranges.
+fun quicksort(s []any, lo int, hi int, cmp fun(a any, b any) bool) {
+    var low = lo
+    var high = hi
+    for high - low > 16 {
+        var p = partition(s, low, high, cmp)
+        // Recurse on the smaller side, loop on the larger side.
+        if p - low < high - p {
+            quicksort(s, low, p, cmp)
+            low = p + 1
+        } else {
+            quicksort(s, p + 1, high, cmp)
+            high = p
+        }
+    }
+    insertionSort(s, low, high, cmp)
 }
 
 // sort sorts the slice s using the provided comparison function.
 // The comparison function should return true if a should come before b.
 pub fun sort(s []any, cmp fun(a any, b any) bool) {
+    if len(s) <= 1 {
+        return
+    }
+    quicksort(s, 0, len(s), cmp)
+}
+
+// merge merges two sorted runs s[lo..mid] and s[mid..hi] using cmp.
+// Uses a temporary buffer for stability.
+fun merge(s []any, lo int, mid int, hi int, cmp fun(a any, b any) bool) {
+    var tmp = alloc([]any, mid - lo)
+    var i = 0
+    for i < mid - lo {
+        tmp[i] = s[lo + i]
+        i = i + 1
+    }
+    var left = 0
+    var right = mid
+    var k = lo
+    for left < len(tmp) and right < hi {
+        if cmp(tmp[left], s[right]) or !cmp(s[right], tmp[left]) {
+            s[k] = tmp[left]
+            left = left + 1
+        } else {
+            s[k] = s[right]
+            right = right + 1
+        }
+        k = k + 1
+    }
+    for left < len(tmp) {
+        s[k] = tmp[left]
+        left = left + 1
+        k = k + 1
+    }
+}
+
+// mergeSort sorts s[lo..hi] using a stable merge sort algorithm.
+fun mergeSort(s []any, lo int, hi int, cmp fun(a any, b any) bool) {
+    if hi - lo <= 16 {
+        insertionSort(s, lo, hi, cmp)
+        return
+    }
+    var mid = lo + (hi - lo) / 2
+    mergeSort(s, lo, mid, cmp)
+    mergeSort(s, mid, hi, cmp)
+    // Skip merge if already sorted.
+    if !cmp(s[mid], s[mid - 1]) {
+        return
+    }
+    merge(s, lo, mid, hi, cmp)
 }
 
 // stable sorts the slice s using a stable sort algorithm and the
 // provided comparison function.
 pub fun stable(s []any, cmp fun(a any, b any) bool) {
+    if len(s) <= 1 {
+        return
+    }
+    mergeSort(s, 0, len(s), cmp)
+}
+
+// ints sorts a slice of integers in ascending order.
+pub fun ints(s []int) {
+    if len(s) <= 1 {
+        return
+    }
+    // Insertion sort for small slices.
+    if len(s) <= 16 {
+        var i = 1
+        for i < len(s) {
+            var j = i
+            for j > 0 and s[j] < s[j - 1] {
+                var tmp = s[j]
+                s[j] = s[j - 1]
+                s[j - 1] = tmp
+                j = j - 1
+            }
+            i = i + 1
+        }
+        return
+    }
+    // Quicksort with median-of-three.
+    intsQuicksort(s, 0, len(s))
+}
+
+// intsQuicksort sorts s[lo..hi] of ints.
+fun intsQuicksort(s []int, lo int, hi int) {
+    var low = lo
+    var high = hi
+    for high - low > 16 {
+        var mid = low + (high - low) / 2
+        if s[mid] < s[low] {
+            var tmp = s[low]
+            s[low] = s[mid]
+            s[mid] = tmp
+        }
+        if s[high - 1] < s[low] {
+            var tmp = s[low]
+            s[low] = s[high - 1]
+            s[high - 1] = tmp
+        }
+        if s[mid] < s[high - 1] {
+            var tmp = s[mid]
+            s[mid] = s[high - 1]
+            s[high - 1] = tmp
+        }
+        var pivot = s[high - 1]
+        var i = low
+        var j = low
+        for j < high - 1 {
+            if s[j] < pivot {
+                var tmp = s[i]
+                s[i] = s[j]
+                s[j] = tmp
+                i = i + 1
+            }
+            j = j + 1
+        }
+        var tmp = s[i]
+        s[i] = s[high - 1]
+        s[high - 1] = tmp
+        if i - low < high - i {
+            intsQuicksort(s, low, i)
+            low = i + 1
+        } else {
+            intsQuicksort(s, i + 1, high)
+            high = i
+        }
+    }
+    // Insertion sort for small ranges.
+    var i = low + 1
+    for i < high {
+        var j = i
+        for j > lo and s[j] < s[j - 1] {
+            var tmp = s[j]
+            s[j] = s[j - 1]
+            s[j - 1] = tmp
+            j = j - 1
+        }
+        i = i + 1
+    }
+}
+
+// floats sorts a slice of floats in ascending order.
+pub fun floats(s []f64) {
+    if len(s) <= 1 {
+        return
+    }
+    if len(s) <= 16 {
+        var i = 1
+        for i < len(s) {
+            var j = i
+            for j > 0 and s[j] < s[j - 1] {
+                var tmp = s[j]
+                s[j] = s[j - 1]
+                s[j - 1] = tmp
+                j = j - 1
+            }
+            i = i + 1
+        }
+        return
+    }
+    floatsQuicksort(s, 0, len(s))
+}
+
+// floatsQuicksort sorts s[lo..hi] of f64.
+fun floatsQuicksort(s []f64, lo int, hi int) {
+    var low = lo
+    var high = hi
+    for high - low > 16 {
+        var mid = low + (high - low) / 2
+        if s[mid] < s[low] {
+            var tmp = s[low]
+            s[low] = s[mid]
+            s[mid] = tmp
+        }
+        if s[high - 1] < s[low] {
+            var tmp = s[low]
+            s[low] = s[high - 1]
+            s[high - 1] = tmp
+        }
+        if s[mid] < s[high - 1] {
+            var tmp = s[mid]
+            s[mid] = s[high - 1]
+            s[high - 1] = tmp
+        }
+        var pivot = s[high - 1]
+        var i = low
+        var j = low
+        for j < high - 1 {
+            if s[j] < pivot {
+                var tmp = s[i]
+                s[i] = s[j]
+                s[j] = tmp
+                i = i + 1
+            }
+            j = j + 1
+        }
+        var tmp = s[i]
+        s[i] = s[high - 1]
+        s[high - 1] = tmp
+        if i - low < high - i {
+            floatsQuicksort(s, low, i)
+            low = i + 1
+        } else {
+            floatsQuicksort(s, i + 1, high)
+            high = i
+        }
+    }
+    var i = low + 1
+    for i < high {
+        var j = i
+        for j > lo and s[j] < s[j - 1] {
+            var tmp = s[j]
+            s[j] = s[j - 1]
+            s[j - 1] = tmp
+            j = j - 1
+        }
+        i = i + 1
+    }
+}
+
+// stringsSort sorts a slice of strings in ascending order.
+pub fun stringsSort(s []string) {
+    if len(s) <= 1 {
+        return
+    }
+    // Use insertion sort for simplicity (strings comparison).
+    var i = 1
+    for i < len(s) {
+        var j = i
+        for j > 0 and s[j] < s[j - 1] {
+            var tmp = s[j]
+            s[j] = s[j - 1]
+            s[j - 1] = tmp
+            j = j - 1
+        }
+        i = i + 1
+    }
 }
 
 // isSorted reports whether the slice is sorted according to the
 // provided comparison function.
 pub fun isSorted(s []any, cmp fun(a any, b any) bool) bool {
-    return false
+    if len(s) <= 1 {
+        return true
+    }
+    var i = 1
+    for i < len(s) {
+        if cmp(s[i], s[i - 1]) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
 }
 
 // isSortedInts reports whether the int slice is sorted in ascending order.
 pub fun isSortedInts(s []int) bool {
-    return false
+    if len(s) <= 1 {
+        return true
+    }
+    var i = 1
+    for i < len(s) {
+        if s[i] < s[i - 1] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
 }
 
 // isSortedFloats reports whether the float slice is sorted in ascending order.
 pub fun isSortedFloats(s []f64) bool {
-    return false
+    if len(s) <= 1 {
+        return true
+    }
+    var i = 1
+    for i < len(s) {
+        if s[i] < s[i - 1] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
 }
 
 // isSortedStrings reports whether the string slice is sorted in ascending order.
 pub fun isSortedStrings(s []string) bool {
-    return false
+    if len(s) <= 1 {
+        return true
+    }
+    var i = 1
+    for i < len(s) {
+        if s[i] < s[i - 1] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
 }
 
 // reverse reverses the elements of the slice in place.
 pub fun reverse(s []any) {
+    if len(s) <= 1 {
+        return
+    }
+    var lo = 0
+    var hi = len(s) - 1
+    for lo < hi {
+        var tmp = s[lo]
+        s[lo] = s[hi]
+        s[hi] = tmp
+        lo = lo + 1
+        hi = hi - 1
+    }
 }
 
 // search uses binary search to find and return the smallest index i
@@ -57,23 +402,63 @@ pub fun reverse(s []any) {
 // [0, len(s)), cmp(s[i]) == true implies cmp(s[i+1]) == true.
 // Returns len(s) if no such index exists.
 pub fun search(s []any, cmp fun(a any) bool) int {
-    return 0
+    var lo = 0
+    var hi = len(s)
+    for lo < hi {
+        var mid = lo + (hi - lo) / 2
+        if cmp(s[mid]) {
+            hi = mid
+        } else {
+            lo = mid + 1
+        }
+    }
+    return lo
 }
 
 // searchInts searches for x in a sorted slice of ints and returns
 // the index as specified by search.
 pub fun searchInts(s []int, x int) int {
-    return 0
+    var lo = 0
+    var hi = len(s)
+    for lo < hi {
+        var mid = lo + (hi - lo) / 2
+        if s[mid] >= x {
+            hi = mid
+        } else {
+            lo = mid + 1
+        }
+    }
+    return lo
 }
 
 // searchFloats searches for x in a sorted slice of floats and returns
 // the index as specified by search.
 pub fun searchFloats(s []f64, x f64) int {
-    return 0
+    var lo = 0
+    var hi = len(s)
+    for lo < hi {
+        var mid = lo + (hi - lo) / 2
+        if s[mid] >= x {
+            hi = mid
+        } else {
+            lo = mid + 1
+        }
+    }
+    return lo
 }
 
 // searchStrings searches for x in a sorted slice of strings and returns
 // the index as specified by search.
 pub fun searchStrings(s []string, x string) int {
-    return 0
+    var lo = 0
+    var hi = len(s)
+    for lo < hi {
+        var mid = lo + (hi - lo) / 2
+        if s[mid] >= x {
+            hi = mid
+        } else {
+            lo = mid + 1
+        }
+    }
+    return lo
 }
