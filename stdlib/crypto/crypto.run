@@ -1,5 +1,11 @@
 package crypto
 
+use "crypto/blake3"
+use "crypto/chacha20poly1305"
+use "crypto/ed25519"
+use "crypto/hkdf"
+use "crypto/rand"
+
 // Hash is the interface for cryptographic hash functions.
 pub Hash interface {
     // write adds data to the running hash.
@@ -81,40 +87,100 @@ pub type CryptoError = .invalidKey
 // For specific algorithm control, use the sub-packages directly.
 
 // hash computes a cryptographic hash of data using BLAKE3.
+// Returns a 32-byte hash digest.
 pub fun hash(data []byte) []byte {
-    return alloc([]byte, 0)
+    var h = blake3.new()
+    h.write(data)
+    return h.sum(alloc([]byte, 0))
 }
 
-// encrypt encrypts plaintext using ChaCha20-Poly1305 AEAD.
-// Key must be 32 bytes. Returns nonce prepended to ciphertext.
+// encrypt encrypts plaintext using XChaCha20-Poly1305 AEAD.
+// Key must be 32 bytes. Returns a 24-byte nonce prepended to the ciphertext.
+// Uses XChaCha20-Poly1305 with random nonces for safe nonce generation.
 pub fun encrypt(key []byte, plaintext []byte) ![]byte {
-    return alloc([]byte, 0)
+    if len(key) != chacha20poly1305.keySize {
+        return CryptoError.invalidKeyLength
+    }
+
+    var aead = try chacha20poly1305.newX(key)
+
+    // Generate a random nonce for each encryption.
+    var nonce = try rand.bytes(chacha20poly1305.nonceSizeX)
+
+    // Seal: nonce || ciphertext || tag
+    var dst = alloc([]byte, 0)
+    dst = append(dst, nonce)
+    dst = aead.seal(dst, nonce, plaintext, alloc([]byte, 0))
+
+    return dst
 }
 
 // decrypt decrypts ciphertext produced by encrypt.
-// Key must be 32 bytes. Expects nonce prepended to ciphertext.
+// Key must be 32 bytes. Expects 24-byte nonce prepended to ciphertext.
 pub fun decrypt(key []byte, ciphertext []byte) ![]byte {
-    return alloc([]byte, 0)
+    if len(key) != chacha20poly1305.keySize {
+        return CryptoError.invalidKeyLength
+    }
+
+    // Ciphertext must contain at least the nonce + tag overhead.
+    if len(ciphertext) < chacha20poly1305.nonceSizeX + chacha20poly1305.overhead {
+        return CryptoError.invalidCiphertext
+    }
+
+    var aead = try chacha20poly1305.newX(key)
+
+    // Split nonce from ciphertext.
+    var nonce = ciphertext[0..chacha20poly1305.nonceSizeX]
+    var sealed = ciphertext[chacha20poly1305.nonceSizeX..]
+
+    var plaintext = try aead.open(alloc([]byte, 0), nonce, sealed, alloc([]byte, 0))
+    return plaintext
 }
 
 // sign signs a message using Ed25519.
+// The key must implement PrivateKey and contain a valid Ed25519 private key.
 pub fun sign(key PrivateKey, message []byte) ![]byte {
-    return alloc([]byte, 0)
+    var keyBytes = key.bytes()
+    if len(keyBytes) != ed25519.privateKeySize {
+        return CryptoError.invalidKeyLength
+    }
+
+    var privKey = try ed25519.newKeyFromSeed(keyBytes[0..ed25519.seedSize])
+    var sig = ed25519.sign(@privKey, message)
+    return sig
 }
 
 // verify verifies an Ed25519 signature.
+// The key must implement PublicKey and contain a valid Ed25519 public key.
+// Returns true if the signature is valid, or an error if the key/signature is malformed.
 pub fun verify(key PublicKey, message []byte, sig []byte) !bool {
-    return false
+    var keyBytes = key.bytes()
+    if len(keyBytes) != ed25519.publicKeySize {
+        return CryptoError.invalidKeyLength
+    }
+
+    if len(sig) != ed25519.signatureSize {
+        return CryptoError.invalidSignature
+    }
+
+    var pubKey = ed25519.PublicKey{ data: keyBytes }
+    return ed25519.verify(@pubKey, message, sig)
 }
 
 // randBytes returns n cryptographically secure random bytes
 // from the operating system's CSPRNG.
 pub fun randBytes(n int) ![]byte {
-    return alloc([]byte, 0)
+    if n < 0 {
+        return CryptoError.invalidParameter
+    }
+
+    return try rand.bytes(n)
 }
 
 // deriveKey derives a key from a secret using HKDF with BLAKE3.
-// Returns a 32-byte derived key.
+// Returns a 32-byte derived key suitable for use as a symmetric key.
 pub fun deriveKey(secret []byte, salt []byte, info []byte) []byte {
-    return alloc([]byte, 0)
+    var prk = hkdf.extract(blake3.new, secret, salt)
+    var key = hkdf.expand(blake3.new, prk, info, 32)
+    return key
 }
