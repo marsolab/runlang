@@ -11,12 +11,12 @@ pub Rand struct {
 
 let multiplier = 6364136223846793005
 let increment = 1442695040888963407
-let max_word = 9223372036854775807
-let float_scale = 9007199254740992.0
+let maxWord = 9223372036854775807
+let floatScale = 9007199254740992.0
 
 var global Rand = Rand{ s0: 1, s1: 0, s2: 0, s3: 0 }
-var global_seeded = false
-var auto_seed_counter = 1469598103934665603
+var globalSeeded = false
+var autoSeedCounter = 1469598103934665603
 
 fun mix_seed(seed int) int {
     var x = seed
@@ -30,19 +30,19 @@ fun mix_seed(seed int) int {
 }
 
 fun next_auto_seed() int {
-    auto_seed_counter = (auto_seed_counter * multiplier) + increment
-    if auto_seed_counter < 0 {
-        return -auto_seed_counter
+    autoSeedCounter = (autoSeedCounter * multiplier) + increment
+    if autoSeedCounter < 0 {
+        return -autoSeedCounter
     }
-    return auto_seed_counter
+    return autoSeedCounter
 }
 
 fun ensure_global_seeded() {
-    if global_seeded {
+    if globalSeeded {
         return
     }
     global.seed(next_auto_seed())
-    global_seeded = true
+    globalSeeded = true
 }
 
 // new creates a new Rand seeded with the given seed value.
@@ -64,7 +64,7 @@ pub fun (r &Rand) int() int {
     r.s2 = r.s1
     r.s1 = r.s0
     r.s0 = next
-    return next % max_word
+    return next % maxWord
 }
 
 // int_n returns a non-negative pseudo-random int in the half-open interval [0, n).
@@ -83,7 +83,7 @@ pub fun (r &Rand) intN(n int) int {
 
 // float64 returns a pseudo-random f64 in the half-open interval [0.0, 1.0).
 pub fun (r &Rand) float64() f64 {
-    return (r.int() % 9007199254740992) / float_scale
+    return (r.int() % 9007199254740992) / floatScale
 }
 
 // f64 is a backward-compatible alias for float64.

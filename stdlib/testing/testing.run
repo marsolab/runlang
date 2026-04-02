@@ -107,27 +107,27 @@ pub fun (t &T) run(name string, body fun(t &T)) {
 // expect asserts that got matches the given operator.
 // On failure, reports source location, got vs want, and operator description.
 pub fun (t &T) expect(got any, op Operator) {
-    if op.kind == .eq && got != op.want {
+    if op.kind == .eq and got != op.want {
         t.error("expect eq failed")
         return
     }
-    if op.kind == .ne && got == op.want {
+    if op.kind == .ne and got == op.want {
         t.error("expect ne failed")
         return
     }
-    if op.kind == .isTrue && !got {
+    if op.kind == .isTrue and got == false {
         t.error("expect isTrue failed")
         return
     }
-    if op.kind == .isFalse && got {
+    if op.kind == .isFalse and got == true {
         t.error("expect isFalse failed")
         return
     }
-    if op.kind == .isNil && got != null {
+    if op.kind == .isNil and got != null {
         t.error("expect isNil failed")
         return
     }
-    if op.kind == .notNil && got == null {
+    if op.kind == .notNil and got == null {
         t.error("expect notNil failed")
         return
     }
@@ -159,38 +159,6 @@ pub fun (t &T) assert_err(err any) {
     if err == null {
         t.fatal("assert_err failed: expected an error")
     }
-}
-
-// assertEqual is a camelCase alias for assert_eq.
-pub fun (t &T) assertEqual(got any, want any) {
-    t.assert_eq(got, want)
-}
-
-// assertNotEqual is a camelCase alias for assert_ne.
-pub fun (t &T) assertNotEqual(got any, want any) {
-    t.assert_ne(got, want)
-}
-
-// assert fails the test if cond is false.
-pub fun (t &T) assert(cond bool) {
-    if !cond {
-        t.fail()
-    }
-}
-
-// assert_eq fails the test if got != want.
-pub fun (t &T) assert_eq(got any, want any) {
-    t.expect(got, t.eq(want))
-}
-
-// assert_ne fails the test if got == want.
-pub fun (t &T) assert_ne(got any, want any) {
-    t.expect(got, t.ne(want))
-}
-
-// assert_err fails the test if the error union does not currently hold an error.
-pub fun (t &T) assert_err(value any) {
-    t.expect(value, t.isErr())
 }
 
 // assertEqual is a camelCase alias for assert_eq.
