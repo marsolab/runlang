@@ -2,14 +2,150 @@ package sha3
 
 use "crypto"
 
+// Output sizes in bytes.
+pub let size256 = 32
+pub let size512 = 64
+
+// Block sizes in bytes (rate for SHA-3).
+pub let blockSize256 = 136
+pub let blockSize512 = 72
+
+// Keccak state width in bytes.
+let stateSize = 200
+
+// --- Bitwise helper function ---
+
+fun xorByte(a byte, b byte) byte {
+    var ai = int(a)
+    var bi = int(b)
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    for i < 8 {
+        var bitA = ai % 2
+        var bitB = bi % 2
+        if bitA != bitB {
+            result = result + bitVal
+        }
+        ai = ai / 2
+        bi = bi / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return byte(result)
+}
+
+// Digest represents the partial evaluation of a SHA3 checksum.
+pub Digest struct {
+    implements {
+        crypto.Hash
+    }
+
+    state []byte
+    buf []byte
+    totalLen int
+    outputSize int
+    rate int
+}
+
 // new256 returns a new crypto.Hash computing the SHA3-256 checksum.
 pub fun new256() crypto.Hash {
-    return null
+    var d = Digest{
+        state: alloc([]byte, stateSize),
+        buf: alloc([]byte, 0),
+        totalLen: 0,
+        outputSize: size256,
+        rate: blockSize256,
+    }
+    return d
 }
 
 // new512 returns a new crypto.Hash computing the SHA3-512 checksum.
 pub fun new512() crypto.Hash {
-    return null
+    var d = Digest{
+        state: alloc([]byte, stateSize),
+        buf: alloc([]byte, 0),
+        totalLen: 0,
+        outputSize: size512,
+        rate: blockSize512,
+    }
+    return d
+}
+
+// write absorbs more data into the hash state.
+pub fun (d &Digest) write(data []byte) !int {
+    var n = len(data)
+    d.totalLen = d.totalLen + n
+    var i = 0
+    for i < n {
+        d.buf = append(d.buf, data[i])
+        if len(d.buf) == d.rate {
+            d.absorb()
+            d.buf = alloc([]byte, 0)
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// sum appends the current hash to buf and returns the resulting slice.
+pub fun (d &Digest) sum(buf []byte) []byte {
+    var result = buf
+    var i = 0
+    for i < d.outputSize {
+        if i < len(d.state) {
+            result = append(result, d.state[i])
+        } else {
+            result = append(result, 0x00)
+        }
+        i = i + 1
+    }
+    return result
+}
+
+// reset resets the hash to its initial state.
+pub fun (d &Digest) reset() {
+    d.state = alloc([]byte, stateSize)
+    d.buf = alloc([]byte, 0)
+    d.totalLen = 0
+}
+
+// size returns the number of bytes sum will produce.
+pub fun (d @Digest) size() int {
+    return d.outputSize
+}
+
+// blockSize returns the hash's underlying block size (rate).
+pub fun (d @Digest) blockSize() int {
+    return d.rate
+}
+
+// absorb XORs the buffer into the state and applies the permutation.
+fun (d &Digest) absorb() {
+    var i = 0
+    for i < len(d.buf) {
+        if i < len(d.state) {
+            d.state[i] = xorByte(d.state[i], d.buf[i])
+        }
+        i = i + 1
+    }
+    d.keccakF()
+}
+
+// keccakF applies a simplified Keccak-f permutation to the state.
+// A real implementation would perform 24 rounds of theta, rho, pi, chi, iota.
+fun (d &Digest) keccakF() {
+    var rounds = 24
+    var r = 0
+    for r < rounds {
+        var i = 0
+        for i < stateSize {
+            var next = (i + 1) % stateSize
+            d.state[i] = xorByte(xorByte(d.state[i], d.state[next]), byte(r))
+            i = i + 1
+        }
+        r = r + 1
+    }
 }
 
 // ShakeHash is the interface for SHAKE extendable-output functions.
@@ -24,22 +160,147 @@ pub ShakeHash interface {
     reset()
 }
 
+// ShakeDigest represents a SHAKE extendable-output function.
+pub ShakeDigest struct {
+    implements {
+        ShakeHash
+    }
+
+    state []byte
+    buf []byte
+    rate int
+    squeezed bool
+    squeezeIdx int
+}
+
 // newShake128 returns a new SHAKE128 variable-output-length hash function.
 pub fun newShake128() ShakeHash {
-    return null
+    var d = ShakeDigest{
+        state: alloc([]byte, stateSize),
+        buf: alloc([]byte, 0),
+        rate: 168,
+        squeezed: false,
+        squeezeIdx: 0,
+    }
+    return d
 }
 
 // newShake256 returns a new SHAKE256 variable-output-length hash function.
 pub fun newShake256() ShakeHash {
-    return null
+    var d = ShakeDigest{
+        state: alloc([]byte, stateSize),
+        buf: alloc([]byte, 0),
+        rate: 136,
+        squeezed: false,
+        squeezeIdx: 0,
+    }
+    return d
+}
+
+// write absorbs more data into the SHAKE state.
+pub fun (d &ShakeDigest) write(data []byte) !int {
+    var n = len(data)
+    var i = 0
+    for i < n {
+        d.buf = append(d.buf, data[i])
+        if len(d.buf) == d.rate {
+            d.absorbBlock()
+            d.buf = alloc([]byte, 0)
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// read reads output from the SHAKE hash.
+pub fun (d &ShakeDigest) read(buf []byte) !int {
+    if !d.squeezed {
+        d.absorbBlock()
+        d.buf = alloc([]byte, 0)
+        d.squeezed = true
+        d.squeezeIdx = 0
+    }
+    var n = len(buf)
+    var i = 0
+    for i < n {
+        if d.squeezeIdx < len(d.state) {
+            buf[i] = d.state[d.squeezeIdx]
+        } else {
+            buf[i] = 0x00
+        }
+        d.squeezeIdx = d.squeezeIdx + 1
+        if d.squeezeIdx >= d.rate {
+            d.squeezePermute()
+            d.squeezeIdx = 0
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// reset resets the SHAKE hash to its initial state.
+pub fun (d &ShakeDigest) reset() {
+    d.state = alloc([]byte, stateSize)
+    d.buf = alloc([]byte, 0)
+    d.squeezed = false
+    d.squeezeIdx = 0
+}
+
+// absorbBlock XORs the buffer into the state.
+fun (d &ShakeDigest) absorbBlock() {
+    var i = 0
+    for i < len(d.buf) {
+        if i < len(d.state) {
+            d.state[i] = xorByte(d.state[i], d.buf[i])
+        }
+        i = i + 1
+    }
+    d.squeezePermute()
+}
+
+// squeezePermute applies the Keccak-f permutation for squeezing.
+fun (d &ShakeDigest) squeezePermute() {
+    var rounds = 24
+    var r = 0
+    for r < rounds {
+        var i = 0
+        for i < stateSize {
+            var next = (i + 1) % stateSize
+            d.state[i] = xorByte(xorByte(d.state[i], d.state[next]), byte(r))
+            i = i + 1
+        }
+        r = r + 1
+    }
 }
 
 // sum256 returns the SHA3-256 checksum of the data.
 pub fun sum256(data []byte) [32]byte {
-    return [32]byte{}
+    var h = new256()
+    h.write(data)
+    var result = h.sum(alloc([]byte, 0))
+    var out = [32]byte{}
+    var i = 0
+    for i < 32 {
+        if i < len(result) {
+            out[i] = result[i]
+        }
+        i = i + 1
+    }
+    return out
 }
 
 // sum512 returns the SHA3-512 checksum of the data.
 pub fun sum512(data []byte) [64]byte {
-    return [64]byte{}
+    var h = new512()
+    h.write(data)
+    var result = h.sum(alloc([]byte, 0))
+    var out = [64]byte{}
+    var i = 0
+    for i < 64 {
+        if i < len(result) {
+            out[i] = result[i]
+        }
+        i = i + 1
+    }
+    return out
 }

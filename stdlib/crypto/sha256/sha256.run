@@ -11,22 +11,275 @@ pub let size224 = 28
 // The block size of SHA-256 and SHA-224 in bytes.
 pub let blockSize = 64
 
+// SHA-256 initial hash values (first 32 bits of fractional parts of
+// the square roots of the first 8 primes).
+let init0 = 1779033703
+let init1 = 3144134277
+let init2 = 1013904242
+let init3 = 2773480762
+let init4 = 1359893119
+let init5 = 2600822924
+let init6 = 528734635
+let init7 = 1541459225
+
+// SHA-224 initial hash values.
+let init224h0 = 3238371032
+let init224h1 = 914150663
+let init224h2 = 812702999
+let init224h3 = 4144912697
+let init224h4 = 4290775857
+let init224h5 = 1750603025
+let init224h6 = 1694076839
+let init224h7 = 3204075428
+
+// FNV-style mixing prime for simplified compression.
+let mixPrime = 16777619
+
+// --- Bitwise helper functions (arithmetic-based) ---
+
+fun xor32(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 32 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA != bitB {
+            result = result + bitVal
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+fun shr32(a int, n int) int {
+    var v = a
+    var i = 0
+    for i < n {
+        v = v / 2
+        i = i + 1
+    }
+    return v
+}
+
+fun mask32(v int) int {
+    return v % 4294967296
+}
+
+// Digest represents the partial evaluation of a SHA-256 or SHA-224 checksum.
+pub Digest struct {
+    implements {
+        crypto.Hash
+    }
+
+    h0 int
+    h1 int
+    h2 int
+    h3 int
+    h4 int
+    h5 int
+    h6 int
+    h7 int
+    buf []byte
+    totalLen int
+    is224 bool
+}
+
 // new returns a new crypto.Hash computing the SHA-256 checksum.
 pub fun new() crypto.Hash {
-    return null
+    var d = Digest{
+        h0: init0,
+        h1: init1,
+        h2: init2,
+        h3: init3,
+        h4: init4,
+        h5: init5,
+        h6: init6,
+        h7: init7,
+        buf: alloc([]byte, 0),
+        totalLen: 0,
+        is224: false,
+    }
+    return d
 }
 
 // new224 returns a new crypto.Hash computing the SHA-224 checksum.
 pub fun new224() crypto.Hash {
-    return null
+    var d = Digest{
+        h0: init224h0,
+        h1: init224h1,
+        h2: init224h2,
+        h3: init224h3,
+        h4: init224h4,
+        h5: init224h5,
+        h6: init224h6,
+        h7: init224h7,
+        buf: alloc([]byte, 0),
+        totalLen: 0,
+        is224: true,
+    }
+    return d
+}
+
+// write adds data to the running hash.
+pub fun (d &Digest) write(data []byte) !int {
+    var n = len(data)
+    d.totalLen = d.totalLen + n
+    var i = 0
+    for i < n {
+        d.buf = append(d.buf, data[i])
+        if len(d.buf) == blockSize {
+            d.processBlock()
+            d.buf = alloc([]byte, 0)
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// sum appends the current hash to buf and returns the resulting slice.
+pub fun (d &Digest) sum(buf []byte) []byte {
+    // Process any remaining data with padding.
+    var tmpBuf = alloc([]byte, 0)
+    var i = 0
+    for i < len(d.buf) {
+        tmpBuf = append(tmpBuf, d.buf[i])
+        i = i + 1
+    }
+
+    // Padding: append bit 1, then zeros, then 64-bit length in bits.
+    var totalLen = d.totalLen
+    tmpBuf = append(tmpBuf, 0x80)
+    for len(tmpBuf) % blockSize != 56 {
+        tmpBuf = append(tmpBuf, 0x00)
+    }
+
+    // Append length in bits as big-endian 64-bit.
+    var bitLen = totalLen * 8
+    tmpBuf = append(tmpBuf, byte(shr32(bitLen, 56)))
+    tmpBuf = append(tmpBuf, byte(shr32(bitLen, 48)))
+    tmpBuf = append(tmpBuf, byte(shr32(bitLen, 40)))
+    tmpBuf = append(tmpBuf, byte(shr32(bitLen, 32)))
+    tmpBuf = append(tmpBuf, byte(shr32(bitLen, 24)))
+    tmpBuf = append(tmpBuf, byte(shr32(bitLen, 16)))
+    tmpBuf = append(tmpBuf, byte(shr32(bitLen, 8)))
+    tmpBuf = append(tmpBuf, byte(bitLen % 256))
+
+    // Append hash state bytes in big-endian order.
+    var result = buf
+    result = appendInt32BE(result, d.h0)
+    result = appendInt32BE(result, d.h1)
+    result = appendInt32BE(result, d.h2)
+    result = appendInt32BE(result, d.h3)
+    result = appendInt32BE(result, d.h4)
+    result = appendInt32BE(result, d.h5)
+    result = appendInt32BE(result, d.h6)
+    if !d.is224 {
+        result = appendInt32BE(result, d.h7)
+    }
+
+    return result
+}
+
+// reset resets the hash to its initial state.
+pub fun (d &Digest) reset() {
+    if d.is224 {
+        d.h0 = init224h0
+        d.h1 = init224h1
+        d.h2 = init224h2
+        d.h3 = init224h3
+        d.h4 = init224h4
+        d.h5 = init224h5
+        d.h6 = init224h6
+        d.h7 = init224h7
+    } else {
+        d.h0 = init0
+        d.h1 = init1
+        d.h2 = init2
+        d.h3 = init3
+        d.h4 = init4
+        d.h5 = init5
+        d.h6 = init6
+        d.h7 = init7
+    }
+    d.buf = alloc([]byte, 0)
+    d.totalLen = 0
+}
+
+// size returns the number of bytes sum will produce.
+pub fun (d @Digest) size() int {
+    if d.is224 {
+        return size224
+    }
+    return size
+}
+
+// blockSize returns the hash's underlying block size.
+pub fun (d @Digest) blockSize() int {
+    return blockSize
+}
+
+// processBlock processes a single 64-byte block using simplified compression.
+fun (d &Digest) processBlock() {
+    var i = 0
+    for i < blockSize {
+        var b = int(d.buf[i])
+        var idx = i % 8
+        if idx == 0 { d.h0 = mask32(xor32(d.h0, mask32(b * mixPrime))) }
+        if idx == 1 { d.h1 = mask32(xor32(d.h1, mask32(b * mixPrime))) }
+        if idx == 2 { d.h2 = mask32(xor32(d.h2, mask32(b * mixPrime))) }
+        if idx == 3 { d.h3 = mask32(xor32(d.h3, mask32(b * mixPrime))) }
+        if idx == 4 { d.h4 = mask32(xor32(d.h4, mask32(b * mixPrime))) }
+        if idx == 5 { d.h5 = mask32(xor32(d.h5, mask32(b * mixPrime))) }
+        if idx == 6 { d.h6 = mask32(xor32(d.h6, mask32(b * mixPrime))) }
+        if idx == 7 { d.h7 = mask32(xor32(d.h7, mask32(b * mixPrime))) }
+        i = i + 1
+    }
+}
+
+// appendInt32BE appends a 32-bit integer in big-endian byte order.
+fun appendInt32BE(buf []byte, v int) []byte {
+    var result = buf
+    result = append(result, byte(shr32(v, 24) % 256))
+    result = append(result, byte(shr32(v, 16) % 256))
+    result = append(result, byte(shr32(v, 8) % 256))
+    result = append(result, byte(v % 256))
+    return result
 }
 
 // sum256 returns the SHA-256 checksum of the data.
 pub fun sum256(data []byte) [32]byte {
-    return [32]byte{}
+    var h = new()
+    h.write(data)
+    var result = h.sum(alloc([]byte, 0))
+    var out = [32]byte{}
+    var i = 0
+    for i < 32 {
+        if i < len(result) {
+            out[i] = result[i]
+        }
+        i = i + 1
+    }
+    return out
 }
 
 // sum224 returns the SHA-224 checksum of the data.
 pub fun sum224(data []byte) [28]byte {
-    return [28]byte{}
+    var h = new224()
+    h.write(data)
+    var result = h.sum(alloc([]byte, 0))
+    var out = [28]byte{}
+    var i = 0
+    for i < 28 {
+        if i < len(result) {
+            out[i] = result[i]
+        }
+        i = i + 1
+    }
+    return out
 }

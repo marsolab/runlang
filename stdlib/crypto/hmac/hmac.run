@@ -1,14 +1,136 @@
 package hmac
 
 use "crypto"
+use "crypto/subtle"
+
+// --- Bitwise helper function ---
+
+fun xorByte(a byte, b byte) byte {
+    var ai = int(a)
+    var bi = int(b)
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    for i < 8 {
+        var bitA = ai % 2
+        var bitB = bi % 2
+        if bitA != bitB {
+            result = result + bitVal
+        }
+        ai = ai / 2
+        bi = bi / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return byte(result)
+}
+
+// Digest represents an HMAC computation.
+pub Digest struct {
+    implements {
+        crypto.Hash
+    }
+
+    inner crypto.Hash
+    outer crypto.Hash
+    ipad []byte
+    opad []byte
+    hashSize int
+    hashBlockSize int
+}
 
 // new returns a crypto.Hash computing an HMAC with the given hash function
 // and key. The hash function must return a new Hash each time it is called.
 pub fun new(hashFn fun() crypto.Hash, key []byte) crypto.Hash {
-    return null
+    var h = hashFn()
+    var hSize = h.size()
+    var hBlockSize = h.blockSize()
+
+    // If the key is longer than the block size, hash it.
+    var actualKey = key
+    if len(key) > hBlockSize {
+        h.write(key)
+        actualKey = h.sum(alloc([]byte, 0))
+        h.reset()
+    }
+
+    // Pad key to block size.
+    var paddedKey = alloc([]byte, 0)
+    var i = 0
+    for i < len(actualKey) {
+        paddedKey = append(paddedKey, actualKey[i])
+        i = i + 1
+    }
+    for len(paddedKey) < hBlockSize {
+        paddedKey = append(paddedKey, 0x00)
+    }
+
+    // Compute inner and outer padding.
+    var ipadBuf = alloc([]byte, 0)
+    var opadBuf = alloc([]byte, 0)
+    i = 0
+    for i < hBlockSize {
+        ipadBuf = append(ipadBuf, xorByte(paddedKey[i], 0x36))
+        opadBuf = append(opadBuf, xorByte(paddedKey[i], 0x5c))
+        i = i + 1
+    }
+
+    // Initialize inner hash with ipad.
+    var innerHash = hashFn()
+    innerHash.write(ipadBuf)
+
+    // Initialize outer hash with opad.
+    var outerHash = hashFn()
+    outerHash.write(opadBuf)
+
+    var d = Digest{
+        inner: innerHash,
+        outer: outerHash,
+        ipad: ipadBuf,
+        opad: opadBuf,
+        hashSize: hSize,
+        hashBlockSize: hBlockSize,
+    }
+    return d
+}
+
+// write adds data to the HMAC computation.
+pub fun (d &Digest) write(data []byte) !int {
+    return d.inner.write(data)
+}
+
+// sum appends the current HMAC to buf and returns the resulting slice.
+// HMAC = H(opad || H(ipad || message))
+pub fun (d &Digest) sum(buf []byte) []byte {
+    // Finalize inner hash.
+    var innerSum = d.inner.sum(alloc([]byte, 0))
+
+    // Write inner hash result to outer hash.
+    d.outer.write(innerSum)
+
+    // Finalize outer hash and append to buf.
+    return d.outer.sum(buf)
+}
+
+// reset resets the HMAC to its initial state.
+pub fun (d &Digest) reset() {
+    d.inner.reset()
+    d.inner.write(d.ipad)
+    d.outer.reset()
+    d.outer.write(d.opad)
+}
+
+// size returns the number of bytes sum will produce.
+pub fun (d @Digest) size() int {
+    return d.hashSize
+}
+
+// blockSize returns the hash's underlying block size.
+pub fun (d @Digest) blockSize() int {
+    return d.hashBlockSize
 }
 
 // equal compares two MACs for equality without leaking timing information.
 pub fun equal(mac1 []byte, mac2 []byte) bool {
-    return false
+    return subtle.constantTimeCompare(mac1, mac2)
 }

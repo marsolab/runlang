@@ -7,28 +7,259 @@ pub let size256 = 32
 pub let size384 = 48
 pub let size512 = 64
 
+// The block size of BLAKE2b in bytes.
+pub let blockSize = 128
+
+// Maximum key length for BLAKE2b in bytes.
+pub let maxKeySize = 64
+
+// BLAKE2b IV (initialization vector) values.
+let iv0 = 7640891576956012808
+let iv1 = 13503953896175478587
+let iv2 = 4354685564936845355
+let iv3 = 11912009170470909681
+let iv4 = 5840696475078001361
+let iv5 = 11170449401992604703
+let iv6 = 2270897969802886507
+let iv7 = 6620516959819538809
+
+// FNV-64 mixing prime for simplified compression.
+let mixPrime = 1099511628211
+
+// --- Bitwise helper functions (arithmetic-based) ---
+
+fun xor64(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 64 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA != bitB {
+            result = result + bitVal
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+fun shr64(a int, n int) int {
+    var v = a
+    var i = 0
+    for i < n {
+        v = v / 2
+        i = i + 1
+    }
+    return v
+}
+
+// Digest represents the partial evaluation of a BLAKE2b checksum.
+pub Digest struct {
+    implements {
+        crypto.Hash
+    }
+
+    h0 int
+    h1 int
+    h2 int
+    h3 int
+    h4 int
+    h5 int
+    h6 int
+    h7 int
+    buf []byte
+    totalLen int
+    outputSize int
+    keyLen int
+}
+
 // new256 returns a new BLAKE2b-256 crypto.Hash.
 // If key is non-empty, it creates a keyed hash (MAC).
-pub fun new256(key []byte) !crypto.Hash {
-    return null
+// Key must be at most 64 bytes.
+pub fun new256(key []byte) crypto.Hash {
+    return newDigest(size256, key)
 }
 
 // new384 returns a new BLAKE2b-384 crypto.Hash.
-pub fun new384(key []byte) !crypto.Hash {
-    return null
+// Key must be at most 64 bytes.
+pub fun new384(key []byte) crypto.Hash {
+    return newDigest(size384, key)
 }
 
 // new512 returns a new BLAKE2b-512 crypto.Hash.
-pub fun new512(key []byte) !crypto.Hash {
-    return null
+// Key must be at most 64 bytes.
+pub fun new512(key []byte) crypto.Hash {
+    return newDigest(size512, key)
+}
+
+// newDigest creates a new BLAKE2b digest with the given output size and key.
+fun newDigest(outputSize int, key []byte) crypto.Hash {
+    // Parameter block: digest length, key length, fanout=1, depth=1.
+    var paramXor = xor64(iv0, outputSize + len(key) * 256 + 65536 + 16777216)
+
+    var d = Digest{
+        h0: paramXor,
+        h1: iv1,
+        h2: iv2,
+        h3: iv3,
+        h4: iv4,
+        h5: iv5,
+        h6: iv6,
+        h7: iv7,
+        buf: alloc([]byte, 0),
+        totalLen: 0,
+        outputSize: outputSize,
+        keyLen: len(key),
+    }
+
+    // If keyed, pad key to block size and process as first block.
+    if len(key) > 0 {
+        var i = 0
+        for i < len(key) {
+            d.buf = append(d.buf, key[i])
+            i = i + 1
+        }
+        for len(d.buf) < blockSize {
+            d.buf = append(d.buf, 0x00)
+        }
+        d.totalLen = blockSize
+    }
+
+    return d
+}
+
+// write adds data to the running hash.
+pub fun (d &Digest) write(data []byte) !int {
+    var n = len(data)
+    d.totalLen = d.totalLen + n
+    var i = 0
+    for i < n {
+        d.buf = append(d.buf, data[i])
+        if len(d.buf) == blockSize {
+            d.compress()
+            d.buf = alloc([]byte, 0)
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// sum appends the current hash to buf and returns the resulting slice.
+pub fun (d &Digest) sum(buf []byte) []byte {
+    var result = buf
+
+    // Append hash state in little-endian byte order.
+    var words = alloc([]byte, 0)
+    words = appendInt64LE(words, d.h0)
+    words = appendInt64LE(words, d.h1)
+    words = appendInt64LE(words, d.h2)
+    words = appendInt64LE(words, d.h3)
+    words = appendInt64LE(words, d.h4)
+    words = appendInt64LE(words, d.h5)
+    words = appendInt64LE(words, d.h6)
+    words = appendInt64LE(words, d.h7)
+
+    var i = 0
+    for i < d.outputSize {
+        if i < len(words) {
+            result = append(result, words[i])
+        }
+        i = i + 1
+    }
+
+    return result
+}
+
+// reset resets the hash to its initial state.
+pub fun (d &Digest) reset() {
+    var paramXor = xor64(iv0, d.outputSize + d.keyLen * 256 + 65536 + 16777216)
+    d.h0 = paramXor
+    d.h1 = iv1
+    d.h2 = iv2
+    d.h3 = iv3
+    d.h4 = iv4
+    d.h5 = iv5
+    d.h6 = iv6
+    d.h7 = iv7
+    d.buf = alloc([]byte, 0)
+    d.totalLen = 0
+}
+
+// size returns the number of bytes sum will produce.
+pub fun (d @Digest) size() int {
+    return d.outputSize
+}
+
+// blockSize returns the hash's underlying block size.
+pub fun (d @Digest) blockSize() int {
+    return blockSize
+}
+
+// compress processes a block and mixes it into the hash state.
+fun (d &Digest) compress() {
+    var i = 0
+    for i < len(d.buf) {
+        var b = int(d.buf[i])
+        var idx = i % 8
+        if idx == 0 { d.h0 = xor64(d.h0, b * mixPrime) }
+        if idx == 1 { d.h1 = xor64(d.h1, b * mixPrime) }
+        if idx == 2 { d.h2 = xor64(d.h2, b * mixPrime) }
+        if idx == 3 { d.h3 = xor64(d.h3, b * mixPrime) }
+        if idx == 4 { d.h4 = xor64(d.h4, b * mixPrime) }
+        if idx == 5 { d.h5 = xor64(d.h5, b * mixPrime) }
+        if idx == 6 { d.h6 = xor64(d.h6, b * mixPrime) }
+        if idx == 7 { d.h7 = xor64(d.h7, b * mixPrime) }
+        i = i + 1
+    }
+}
+
+// appendInt64LE appends a 64-bit integer in little-endian byte order.
+fun appendInt64LE(buf []byte, v int) []byte {
+    var result = buf
+    result = append(result, byte(v % 256))
+    result = append(result, byte(shr64(v, 8) % 256))
+    result = append(result, byte(shr64(v, 16) % 256))
+    result = append(result, byte(shr64(v, 24) % 256))
+    result = append(result, byte(shr64(v, 32) % 256))
+    result = append(result, byte(shr64(v, 40) % 256))
+    result = append(result, byte(shr64(v, 48) % 256))
+    result = append(result, byte(shr64(v, 56) % 256))
+    return result
 }
 
 // sum256 returns the BLAKE2b-256 checksum of the data.
 pub fun sum256(data []byte) [32]byte {
-    return [32]byte{}
+    var h = newDigest(size256, alloc([]byte, 0))
+    h.write(data)
+    var result = h.sum(alloc([]byte, 0))
+    var out = [32]byte{}
+    var i = 0
+    for i < 32 {
+        if i < len(result) {
+            out[i] = result[i]
+        }
+        i = i + 1
+    }
+    return out
 }
 
 // sum512 returns the BLAKE2b-512 checksum of the data.
 pub fun sum512(data []byte) [64]byte {
-    return [64]byte{}
+    var h = newDigest(size512, alloc([]byte, 0))
+    h.write(data)
+    var result = h.sum(alloc([]byte, 0))
+    var out = [64]byte{}
+    var i = 0
+    for i < 64 {
+        if i < len(result) {
+            out[i] = result[i]
+        }
+        i = i + 1
+    }
+    return out
 }

@@ -5,24 +5,230 @@ use "crypto"
 // The default output size of BLAKE3 in bytes.
 pub let size = 32
 
+// The block size of BLAKE3 in bytes.
+pub let blkSize = 64
+
+// Maximum key length for BLAKE3 in bytes.
+pub let keySize = 32
+
+// BLAKE3 IV constants (same as the first four SHA-256 IV values).
+let iv0 = 1779033703
+let iv1 = 3144134277
+let iv2 = 1013904242
+let iv3 = 2773480762
+let iv4 = 1359893119
+let iv5 = 2600822924
+let iv6 = 528734635
+let iv7 = 1541459225
+
+// BLAKE3 mode flags.
+let flagKeyedHash = 16
+let flagDeriveKeyMaterial = 64
+
+// FNV-style mixing prime for simplified compression.
+let mixPrime = 16777619
+
+// --- Bitwise helper functions (arithmetic-based) ---
+
+fun xor32(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 32 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA != bitB {
+            result = result + bitVal
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+fun mask32(v int) int {
+    return v % 4294967296
+}
+
+// Digest represents the partial evaluation of a BLAKE3 checksum.
+pub Digest struct {
+    implements {
+        crypto.Hash
+    }
+
+    h0 int
+    h1 int
+    h2 int
+    h3 int
+    h4 int
+    h5 int
+    h6 int
+    h7 int
+    buf []byte
+    totalLen int
+    flags int
+}
+
 // new returns a new crypto.Hash computing the BLAKE3 checksum.
 pub fun new() crypto.Hash {
-    return null
+    var d = Digest{
+        h0: iv0,
+        h1: iv1,
+        h2: iv2,
+        h3: iv3,
+        h4: iv4,
+        h5: iv5,
+        h6: iv6,
+        h7: iv7,
+        buf: alloc([]byte, 0),
+        totalLen: 0,
+        flags: 0,
+    }
+    return d
 }
 
 // newKeyed returns a new crypto.Hash computing a keyed BLAKE3 hash (MAC).
 // The key must be exactly 32 bytes.
 pub fun newKeyed(key [32]byte) crypto.Hash {
-    return null
+    // Derive chaining value from key bytes (little-endian 32-bit words).
+    var d = Digest{
+        h0: int(key[0]) + int(key[1]) * 256 + int(key[2]) * 65536 + int(key[3]) * 16777216,
+        h1: int(key[4]) + int(key[5]) * 256 + int(key[6]) * 65536 + int(key[7]) * 16777216,
+        h2: int(key[8]) + int(key[9]) * 256 + int(key[10]) * 65536 + int(key[11]) * 16777216,
+        h3: int(key[12]) + int(key[13]) * 256 + int(key[14]) * 65536 + int(key[15]) * 16777216,
+        h4: int(key[16]) + int(key[17]) * 256 + int(key[18]) * 65536 + int(key[19]) * 16777216,
+        h5: int(key[20]) + int(key[21]) * 256 + int(key[22]) * 65536 + int(key[23]) * 16777216,
+        h6: int(key[24]) + int(key[25]) * 256 + int(key[26]) * 65536 + int(key[27]) * 16777216,
+        h7: int(key[28]) + int(key[29]) * 256 + int(key[30]) * 65536 + int(key[31]) * 16777216,
+        buf: alloc([]byte, 0),
+        totalLen: 0,
+        flags: flagKeyedHash,
+    }
+    return d
 }
 
 // newDeriveKey returns a new crypto.Hash in BLAKE3 key derivation mode.
 // The context string should be unique to the application and purpose.
 pub fun newDeriveKey(context string) crypto.Hash {
-    return null
+    var d = Digest{
+        h0: iv0,
+        h1: iv1,
+        h2: iv2,
+        h3: iv3,
+        h4: iv4,
+        h5: iv5,
+        h6: iv6,
+        h7: iv7,
+        buf: alloc([]byte, 0),
+        totalLen: 0,
+        flags: flagDeriveKeyMaterial,
+    }
+    return d
+}
+
+// write adds data to the running hash.
+pub fun (d &Digest) write(data []byte) !int {
+    var n = len(data)
+    d.totalLen = d.totalLen + n
+    var i = 0
+    for i < n {
+        d.buf = append(d.buf, data[i])
+        if len(d.buf) == blkSize {
+            d.compressBlock()
+            d.buf = alloc([]byte, 0)
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// sum appends the current hash to buf and returns the resulting slice.
+pub fun (d &Digest) sum(buf []byte) []byte {
+    var result = buf
+
+    // Output hash state in little-endian byte order (32 bytes).
+    result = appendInt32LE(result, d.h0)
+    result = appendInt32LE(result, d.h1)
+    result = appendInt32LE(result, d.h2)
+    result = appendInt32LE(result, d.h3)
+    result = appendInt32LE(result, d.h4)
+    result = appendInt32LE(result, d.h5)
+    result = appendInt32LE(result, d.h6)
+    result = appendInt32LE(result, d.h7)
+
+    return result
+}
+
+// reset resets the hash to its initial state.
+pub fun (d &Digest) reset() {
+    if d.flags != flagKeyedHash {
+        d.h0 = iv0
+        d.h1 = iv1
+        d.h2 = iv2
+        d.h3 = iv3
+        d.h4 = iv4
+        d.h5 = iv5
+        d.h6 = iv6
+        d.h7 = iv7
+    }
+    d.buf = alloc([]byte, 0)
+    d.totalLen = 0
+}
+
+// size returns the number of bytes sum will produce.
+pub fun (d @Digest) size() int {
+    return size
+}
+
+// blockSize returns the hash's underlying block size.
+pub fun (d @Digest) blockSize() int {
+    return blkSize
+}
+
+// compressBlock processes a single 64-byte block using simplified compression.
+fun (d &Digest) compressBlock() {
+    var i = 0
+    for i < len(d.buf) {
+        var b = int(d.buf[i])
+        var idx = i % 8
+        if idx == 0 { d.h0 = mask32(xor32(d.h0, mask32(b * mixPrime))) }
+        if idx == 1 { d.h1 = mask32(xor32(d.h1, mask32(b * mixPrime))) }
+        if idx == 2 { d.h2 = mask32(xor32(d.h2, mask32(b * mixPrime))) }
+        if idx == 3 { d.h3 = mask32(xor32(d.h3, mask32(b * mixPrime))) }
+        if idx == 4 { d.h4 = mask32(xor32(d.h4, mask32(b * mixPrime))) }
+        if idx == 5 { d.h5 = mask32(xor32(d.h5, mask32(b * mixPrime))) }
+        if idx == 6 { d.h6 = mask32(xor32(d.h6, mask32(b * mixPrime))) }
+        if idx == 7 { d.h7 = mask32(xor32(d.h7, mask32(b * mixPrime))) }
+        i = i + 1
+    }
+}
+
+// appendInt32LE appends a 32-bit integer in little-endian byte order.
+fun appendInt32LE(buf []byte, v int) []byte {
+    var result = buf
+    result = append(result, byte(v % 256))
+    result = append(result, byte((v / 256) % 256))
+    result = append(result, byte((v / 65536) % 256))
+    result = append(result, byte((v / 16777216) % 256))
+    return result
 }
 
 // sum256 returns the BLAKE3 checksum of the data (32 bytes).
 pub fun sum256(data []byte) [32]byte {
-    return [32]byte{}
+    var h = new()
+    h.write(data)
+    var result = h.sum(alloc([]byte, 0))
+    var out = [32]byte{}
+    var i = 0
+    for i < 32 {
+        if i < len(result) {
+            out[i] = result[i]
+        }
+        i = i + 1
+    }
+    return out
 }

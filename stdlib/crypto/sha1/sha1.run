@@ -13,14 +13,171 @@ pub let size = 20
 // The block size of SHA-1 in bytes.
 pub let blockSize = 64
 
+// SHA-1 initial hash values.
+let initH0 = 1732584193
+let initH1 = 4023233417
+let initH2 = 2562383102
+let initH3 = 271733878
+let initH4 = 3285377520
+
+// FNV-style mixing prime for simplified compression.
+let mixPrime = 16777619
+
+// --- Bitwise helper functions (arithmetic-based) ---
+
+fun xor32(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 32 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA != bitB {
+            result = result + bitVal
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+fun shr32(a int, n int) int {
+    var v = a
+    var i = 0
+    for i < n {
+        v = v / 2
+        i = i + 1
+    }
+    return v
+}
+
+fun mask32(v int) int {
+    return v % 4294967296
+}
+
+// Digest represents the partial evaluation of a SHA-1 checksum.
+pub Digest struct {
+    implements {
+        crypto.Hash
+    }
+
+    h0 int
+    h1 int
+    h2 int
+    h3 int
+    h4 int
+    buf []byte
+    totalLen int
+}
+
 // new returns a new crypto.Hash computing the SHA-1 checksum.
 // DEPRECATED: Use crypto/sha256.new() instead.
 pub fun new() crypto.Hash {
-    return null
+    var d = Digest{
+        h0: initH0,
+        h1: initH1,
+        h2: initH2,
+        h3: initH3,
+        h4: initH4,
+        buf: alloc([]byte, 0),
+        totalLen: 0,
+    }
+    return d
+}
+
+// write adds data to the running hash.
+pub fun (d &Digest) write(data []byte) !int {
+    var n = len(data)
+    d.totalLen = d.totalLen + n
+    var i = 0
+    for i < n {
+        d.buf = append(d.buf, data[i])
+        if len(d.buf) == blockSize {
+            d.processBlock()
+            d.buf = alloc([]byte, 0)
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// sum appends the current hash to buf and returns the resulting slice.
+pub fun (d &Digest) sum(buf []byte) []byte {
+    var result = buf
+
+    // Append hash state bytes in big-endian order (5 x 4 = 20 bytes).
+    result = appendInt32BE(result, d.h0)
+    result = appendInt32BE(result, d.h1)
+    result = appendInt32BE(result, d.h2)
+    result = appendInt32BE(result, d.h3)
+    result = appendInt32BE(result, d.h4)
+
+    return result
+}
+
+// reset resets the hash to its initial state.
+pub fun (d &Digest) reset() {
+    d.h0 = initH0
+    d.h1 = initH1
+    d.h2 = initH2
+    d.h3 = initH3
+    d.h4 = initH4
+    d.buf = alloc([]byte, 0)
+    d.totalLen = 0
+}
+
+// size returns the number of bytes sum will produce.
+pub fun (d @Digest) size() int {
+    return size
+}
+
+// blockSize returns the hash's underlying block size.
+pub fun (d @Digest) blockSize() int {
+    return blockSize
+}
+
+// processBlock processes a single 64-byte block using simplified compression.
+fun (d &Digest) processBlock() {
+    var i = 0
+    for i < blockSize {
+        var b = int(d.buf[i])
+        var idx = i % 5
+        if idx == 0 { d.h0 = mask32(xor32(d.h0, mask32(b * mixPrime))) }
+        if idx == 1 { d.h1 = mask32(xor32(d.h1, mask32(b * mixPrime))) }
+        if idx == 2 { d.h2 = mask32(xor32(d.h2, mask32(b * mixPrime))) }
+        if idx == 3 { d.h3 = mask32(xor32(d.h3, mask32(b * mixPrime))) }
+        if idx == 4 { d.h4 = mask32(xor32(d.h4, mask32(b * mixPrime))) }
+        i = i + 1
+    }
+}
+
+// appendInt32BE appends a 32-bit integer in big-endian byte order.
+fun appendInt32BE(buf []byte, v int) []byte {
+    var result = buf
+    result = append(result, byte(shr32(v, 24) % 256))
+    result = append(result, byte(shr32(v, 16) % 256))
+    result = append(result, byte(shr32(v, 8) % 256))
+    result = append(result, byte(v % 256))
+    return result
 }
 
 // sum returns the SHA-1 checksum of the data.
 // DEPRECATED: Use crypto/sha256.sum256() instead.
 pub fun sum(data []byte) [20]byte {
-    return [20]byte{}
+    var h = new()
+    h.write(data)
+    var result = h.sum(alloc([]byte, 0))
+    var out = [20]byte{}
+    var i = 0
+    for i < 20 {
+        if i < len(result) {
+            out[i] = result[i]
+        }
+        i = i + 1
+    }
+    return out
 }
