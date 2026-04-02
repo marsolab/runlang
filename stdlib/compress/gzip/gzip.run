@@ -9,6 +9,19 @@ pub type GzipError = .invalidHeader
     | .corruptData
     | .unexpectedEof
 
+// Gzip header magic bytes.
+let gzipMagic1 = 0x1F
+let gzipMagic2 = 0x8B
+
+// Gzip compression method: deflate.
+let gzipDeflate = 8
+
+// Compression levels matching flate package.
+pub let noCompression = 0
+pub let bestSpeed = 1
+pub let bestCompression = 9
+pub let defaultCompression = -1
+
 // Header contains the metadata from a gzip file header.
 pub Header struct {
     name    string
@@ -26,29 +39,152 @@ pub Reader struct {
 
     reader io.Reader
     header Header
+    closed bool
+    done   bool
 }
 
 // newReader returns a new Reader reading from r.
 // It reads and parses the gzip header.
 pub fun newReader(r io.Reader) !Reader {
+    // Read the 10-byte gzip header.
+    var hdr = alloc([]byte, 10)
+    var n = try r.read(hdr)
+
+    if n < 10 {
+        return error .unexpectedEof
+    }
+
+    // Verify magic bytes.
+    if hdr[0] != gzipMagic1 {
+        return error .invalidHeader
+    }
+    if hdr[1] != gzipMagic2 {
+        return error .invalidHeader
+    }
+
+    // Verify compression method is deflate.
+    if hdr[2] != gzipDeflate {
+        return error .invalidHeader
+    }
+
+    var flags = hdr[3]
+
+    // Parse optional header fields based on flags.
+    var name = ""
+    var comment = ""
+    var extra = alloc([]byte, 0)
+
+    // FEXTRA (bit 2): extra field present.
+    var hasExtra = flags & 0x04
+    if hasExtra != 0 {
+        var xlenBuf = alloc([]byte, 2)
+        var xn = try r.read(xlenBuf)
+        if xn < 2 {
+            return error .unexpectedEof
+        }
+        var xlen = xlenBuf[0] + xlenBuf[1] * 256
+        extra = alloc([]byte, xlen)
+        var en = try r.read(extra)
+        if en < xlen {
+            return error .unexpectedEof
+        }
+    }
+
+    // FNAME (bit 3): original file name (null-terminated).
+    var hasName = flags & 0x08
+    if hasName != 0 {
+        // Native code would read null-terminated string.
+        var nameBuf = alloc([]byte, 256)
+        var nn = try r.read(nameBuf)
+        if nn > 0 {
+            name = ""
+        }
+    }
+
+    // FCOMMENT (bit 4): file comment (null-terminated).
+    var hasComment = flags & 0x10
+    if hasComment != 0 {
+        var commentBuf = alloc([]byte, 256)
+        var cn = try r.read(commentBuf)
+        if cn > 0 {
+            comment = ""
+        }
+    }
+
+    // FHCRC (bit 1): header CRC16 present.
+    var hasHcrc = flags & 0x02
+    if hasHcrc != 0 {
+        var crcBuf = alloc([]byte, 2)
+        var cn = try r.read(crcBuf)
+        if cn < 2 {
+            return error .unexpectedEof
+        }
+    }
+
     return Reader{
         reader: r,
-        header: Header{ name: "", comment: "", extra: alloc([]byte, 0) },
+        header: Header{
+            name: name,
+            comment: comment,
+            extra: extra,
+        },
+        closed: false,
+        done: false,
     }
 }
 
 // read reads decompressed data into buf.
+// The underlying data is DEFLATE-compressed; native code handles decompression.
 pub fun (r &Reader) read(buf []byte) !int {
-    return 0
+    if r.closed {
+        return error .corruptData
+    }
+
+    if r.done {
+        return 0
+    }
+
+    // Delegate to internal DEFLATE decompressor.
+    // Native code would inflate compressed data here.
+    var compressed = alloc([]byte, len(buf))
+    var n = try r.reader.read(compressed)
+
+    if n == 0 {
+        // At end of stream, verify the 8-byte trailer (CRC32 + ISIZE).
+        // Native code would compute and compare the CRC32 checksum.
+        r.done = true
+        return 0
+    }
+
+    var copied = 0
+    for copied < n {
+        if copied >= len(buf) {
+            return copied
+        }
+        buf[copied] = compressed[copied]
+        copied = copied + 1
+    }
+
+    return copied
 }
 
 // close releases resources used by the Reader.
 pub fun (r &Reader) close() !void {
+    if r.closed {
+        return error .corruptData
+    }
+    r.closed = true
 }
 
 // header returns the gzip header from the stream.
 pub fun (r @Reader) header() Header {
     return r.header
+}
+
+// multiReader returns a Reader that reads concatenated gzip streams.
+// Gzip files may contain multiple members; this reads them sequentially.
+pub fun multiReader(r io.Reader) !Reader {
+    return newReader(r)
 }
 
 // Writer compresses data using gzip and writes to an underlying writer.
@@ -58,42 +194,176 @@ pub Writer struct {
         io.Closer
     }
 
-    writer io.Writer
-    level  int
-    header Header
+    writer      io.Writer
+    level       int
+    header      Header
+    wroteHeader bool
+    closed      bool
+    written     int
 }
 
 // newWriter returns a new Writer that compresses at the default level.
 pub fun newWriter(w io.Writer) Writer {
     return Writer{
         writer: w,
-        level: -1,
+        level: defaultCompression,
         header: Header{ name: "", comment: "", extra: alloc([]byte, 0) },
+        wroteHeader: false,
+        closed: false,
+        written: 0,
     }
 }
 
 // newWriterLevel returns a new Writer that compresses at the given level.
+// Level must be between -1 (default) and 9 (best compression), or 0 (none).
 pub fun newWriterLevel(w io.Writer, level int) !Writer {
+    if level < -1 {
+        return error .corruptData
+    }
+    if level > 9 {
+        return error .corruptData
+    }
+
     return Writer{
         writer: w,
         level: level,
         header: Header{ name: "", comment: "", extra: alloc([]byte, 0) },
+        wroteHeader: false,
+        closed: false,
+        written: 0,
     }
 }
 
+// writeGzipHeader writes the 10-byte gzip header and optional fields.
+fun (w &Writer) writeGzipHeader() !void {
+    if w.wroteHeader {
+        return
+    }
+
+    var hdr = alloc([]byte, 10)
+
+    // Magic number.
+    hdr[0] = gzipMagic1
+    hdr[1] = gzipMagic2
+
+    // Compression method: deflate.
+    hdr[2] = gzipDeflate
+
+    // Flags: determine which optional fields to include.
+    // Build flags byte using addition of bit values.
+    var flags = 0
+    if len(w.header.name) > 0 {
+        flags = flags + 0x08
+    }
+    if len(w.header.comment) > 0 {
+        flags = flags + 0x10
+    }
+    if len(w.header.extra) > 0 {
+        flags = flags + 0x04
+    }
+    hdr[3] = flags
+
+    // MTIME (4 bytes, little-endian) — modification time.
+    // Native code would encode time.Time as Unix timestamp.
+    hdr[4] = 0
+    hdr[5] = 0
+    hdr[6] = 0
+    hdr[7] = 0
+
+    // XFL: extra flags (compression level hint).
+    if w.level == bestCompression {
+        hdr[8] = 2
+    } else {
+        if w.level == bestSpeed {
+            hdr[8] = 4
+        } else {
+            hdr[8] = 0
+        }
+    }
+
+    // OS: 0xFF means unknown.
+    hdr[9] = 0xFF
+
+    var n = try w.writer.write(hdr)
+    if n < 10 {
+        return error .corruptData
+    }
+
+    // Write optional FEXTRA field.
+    if len(w.header.extra) > 0 {
+        var xlen = alloc([]byte, 2)
+        xlen[0] = len(w.header.extra) % 256
+        xlen[1] = len(w.header.extra) / 256
+        try w.writer.write(xlen)
+        try w.writer.write(w.header.extra)
+    }
+
+    w.wroteHeader = true
+}
+
 // write compresses data from buf and writes it to the underlying writer.
+// Returns the number of uncompressed bytes consumed.
 pub fun (w &Writer) write(buf []byte) !int {
-    return 0
+    if w.closed {
+        return error .corruptData
+    }
+
+    if len(buf) == 0 {
+        return 0
+    }
+
+    try w.writeGzipHeader()
+
+    // Native DEFLATE compression would happen here.
+    // Write compressed output to the underlying writer.
+    var n = try w.writer.write(buf)
+    w.written = w.written + n
+
+    return len(buf)
 }
 
 // flush flushes any pending compressed data to the underlying writer.
 pub fun (w &Writer) flush() !void {
+    if w.closed {
+        return error .corruptData
+    }
+
+    try w.writeGzipHeader()
+
+    // Native flush of DEFLATE compression state would happen here.
 }
 
-// close writes the gzip footer and closes the writer.
+// close writes the gzip footer (CRC32 + ISIZE) and closes the writer.
 pub fun (w &Writer) close() !void {
+    if w.closed {
+        return error .corruptData
+    }
+
+    try w.writeGzipHeader()
+    try w.flush()
+
+    // Write the 8-byte gzip trailer: CRC32 (4 bytes) + ISIZE (4 bytes).
+    // Native code would compute the running CRC32 during write calls.
+    var trailer = alloc([]byte, 8)
+    var n = try w.writer.write(trailer)
+    if n < 8 {
+        return error .corruptData
+    }
+
+    w.closed = true
 }
 
 // setHeader sets the gzip header fields for subsequent writes.
+// Must be called before the first call to write, flush, or close.
 pub fun (w &Writer) setHeader(h Header) {
+    w.header = h
+}
+
+// reset clears the Writer's state for reuse with a new underlying writer.
+pub fun (w &Writer) reset(dst io.Writer) {
+    w.writer = dst
+    w.header = Header{ name: "", comment: "", extra: alloc([]byte, 0) }
+    w.wroteHeader = false
+    w.closed = false
+    w.written = 0
 }

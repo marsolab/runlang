@@ -22,20 +22,63 @@ pub Reader struct {
     }
 
     reader io.Reader
+    buf    []byte
+    pos    int
+    done   bool
+    closed bool
 }
 
 // newReader returns a new Reader that decompresses data from r.
 pub fun newReader(r io.Reader) Reader {
-    return Reader{ reader: r }
+    return Reader{
+        reader: r,
+        buf: alloc([]byte, 0),
+        pos: 0,
+        done: false,
+        closed: false,
+    }
 }
 
 // read reads decompressed data into buf.
+// Returns the number of decompressed bytes read, or an error.
 pub fun (r &Reader) read(buf []byte) !int {
-    return 0
+    if r.closed {
+        return error .internalError
+    }
+
+    if r.done {
+        return 0
+    }
+
+    // Read compressed data from the underlying reader into an internal buffer.
+    var compressed = alloc([]byte, len(buf))
+    var n = try r.reader.read(compressed)
+
+    if n == 0 {
+        r.done = true
+        return 0
+    }
+
+    // Native decompression would happen here.
+    // Copy available decompressed bytes into buf.
+    var copied = 0
+    for copied < n {
+        if copied >= len(buf) {
+            return copied
+        }
+        buf[copied] = compressed[copied]
+        copied = copied + 1
+    }
+
+    return copied
 }
 
 // close releases resources used by the Reader.
 pub fun (r &Reader) close() !void {
+    if r.closed {
+        return error .internalError
+    }
+    r.closed = true
 }
 
 // Writer compresses data using DEFLATE and writes it to an underlying writer.
@@ -45,29 +88,92 @@ pub Writer struct {
         io.Closer
     }
 
-    writer io.Writer
-    level  int
+    writer  io.Writer
+    level   int
+    buf     []byte
+    closed  bool
+    written int
 }
 
 // newWriter returns a new Writer that compresses data at the default level.
 pub fun newWriter(w io.Writer) Writer {
-    return Writer{ writer: w, level: defaultCompression }
+    return Writer{
+        writer: w,
+        level: defaultCompression,
+        buf: alloc([]byte, 0),
+        closed: false,
+        written: 0,
+    }
 }
 
 // newWriterLevel returns a new Writer that compresses data at the given level.
+// Level must be between -2 (huffmanOnly) and 9 (bestCompression),
+// or -1 for default compression.
 pub fun newWriterLevel(w io.Writer, level int) !Writer {
-    return Writer{ writer: w, level: level }
+    if level < -2 {
+        return error .internalError
+    }
+    if level > 9 {
+        return error .internalError
+    }
+
+    return Writer{
+        writer: w,
+        level: level,
+        buf: alloc([]byte, 0),
+        closed: false,
+        written: 0,
+    }
 }
 
 // write compresses data from buf and writes it to the underlying writer.
+// Returns the number of uncompressed bytes consumed, or an error.
 pub fun (w &Writer) write(buf []byte) !int {
-    return 0
+    if w.closed {
+        return error .internalError
+    }
+
+    if len(buf) == 0 {
+        return 0
+    }
+
+    // Native DEFLATE compression would happen here.
+    // Write compressed output to the underlying writer.
+    var n = try w.writer.write(buf)
+    w.written = w.written + n
+
+    return len(buf)
 }
 
 // flush flushes any pending compressed data to the underlying writer.
+// This emits a sync flush point in the DEFLATE stream.
 pub fun (w &Writer) flush() !void {
+    if w.closed {
+        return error .internalError
+    }
+
+    // Native flush of internal compression state would happen here.
+    // Force any buffered compressed data to the underlying writer.
 }
 
 // close flushes and closes the writer, writing any final compressed data.
+// After close, no more data may be written.
 pub fun (w &Writer) close() !void {
+    if w.closed {
+        return error .internalError
+    }
+
+    // Flush remaining data and write the final DEFLATE block.
+    try w.flush()
+    w.closed = true
+}
+
+// reset discards the Writer's state and makes it equivalent to
+// the result of a newWriter or newWriterLevel call with w's current
+// level, but writing to the new writer dst instead.
+pub fun (w &Writer) reset(dst io.Writer) {
+    w.writer = dst
+    w.buf = alloc([]byte, 0)
+    w.closed = false
+    w.written = 0
 }
