@@ -1,0 +1,6 @@
+// compile-error: unnecessary semicolon
+package main
+
+pub fun main() {
+    let x = 1;;
+}

@@ -1,0 +1,7 @@
+// compile-error: expected expression, found 'return'
+package main
+
+return 42
+
+pub fun main() {
+}

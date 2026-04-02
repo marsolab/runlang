@@ -1,0 +1,8 @@
+// compile-error: unterminated string literal
+package main
+
+use "fmt"
+
+pub fun main() {
+    fmt.println("hello world
+}

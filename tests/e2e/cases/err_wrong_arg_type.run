@@ -1,0 +1,10 @@
+// compile-error: argument 2 type mismatch
+package main
+
+fun add(a int, b int) int {
+    return a + b
+}
+
+pub fun main() {
+    let x = add(1, "two")
+}

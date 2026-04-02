@@ -115,14 +115,29 @@ pub const Parser = struct {
             .kw_import => self.parseImportDecl(),
             .kw_var => self.parseVarDecl(),
             .kw_let => self.parseLetDecl(),
-            .identifier => switch (self.peekTagAt(1)) {
-                .kw_struct => self.parseStructDecl(),
-                .kw_interface => self.parseNamedInterfaceDecl(),
-                else => {
-                    try self.addError(.expected_expression, self.currentLoc(), null);
-                    self.advance();
-                    return null_node;
-                },
+            .identifier => blk: {
+                const name = self.tokens[self.pos].slice(self.source);
+                // Check for keyword confusion from other languages
+                if (std.mem.eql(u8, name, "func") or
+                    std.mem.eql(u8, name, "function") or
+                    std.mem.eql(u8, name, "def"))
+                {
+                    try self.addError(.keyword_suggestion, self.currentLoc(), .kw_fun);
+                    // Skip to next newline to avoid cascade errors
+                    while (!self.isAtEnd() and self.peekTag() != .newline) {
+                        self.advance();
+                    }
+                    break :blk null_node;
+                }
+                break :blk switch (self.peekTagAt(1)) {
+                    .kw_struct => self.parseStructDecl(),
+                    .kw_interface => self.parseNamedInterfaceDecl(),
+                    else => {
+                        try self.addError(.expected_expression, self.currentLoc(), null);
+                        self.advance();
+                        return null_node;
+                    },
+                };
             },
             else => {
                 try self.addError(.expected_expression, self.currentLoc(), null);
@@ -146,13 +161,26 @@ pub const Parser = struct {
             },
             .kw_var => try self.parseVarDecl(),
             .kw_let => try self.parseLetDecl(),
-            .identifier => switch (self.peekTagAt(1)) {
-                .kw_struct => try self.parseStructDecl(),
-                .kw_interface => try self.parseNamedInterfaceDecl(),
-                else => blk: {
-                    try self.addError(.expected_expression, self.currentLoc(), null);
-                    break :blk null_node;
-                },
+            .identifier => blk2: {
+                const pub_name = self.tokens[self.pos].slice(self.source);
+                if (std.mem.eql(u8, pub_name, "func") or
+                    std.mem.eql(u8, pub_name, "function") or
+                    std.mem.eql(u8, pub_name, "def"))
+                {
+                    try self.addError(.keyword_suggestion, self.currentLoc(), .kw_fun);
+                    while (!self.isAtEnd() and self.peekTag() != .newline) {
+                        self.advance();
+                    }
+                    break :blk2 null_node;
+                }
+                break :blk2 switch (self.peekTagAt(1)) {
+                    .kw_struct => try self.parseStructDecl(),
+                    .kw_interface => try self.parseNamedInterfaceDecl(),
+                    else => blk3: {
+                        try self.addError(.expected_expression, self.currentLoc(), null);
+                        break :blk3 null_node;
+                    },
+                };
             },
             else => blk: {
                 try self.addError(.expected_expression, self.currentLoc(), null);
@@ -812,6 +840,18 @@ pub const Parser = struct {
     // --- Statements ---
 
     fn parseStmt(self: *Parser) Error!NodeIndex {
+        // Check for common keyword mistakes at statement level
+        if (self.peekTag() == .identifier) {
+            const stmt_name = self.tokens[self.pos].slice(self.source);
+            if (std.mem.eql(u8, stmt_name, "const")) {
+                try self.addError(.keyword_suggestion, self.currentLoc(), .kw_let);
+                // Skip to newline to avoid cascading errors
+                while (!self.isAtEnd() and self.peekTag() != .newline) {
+                    self.advance();
+                }
+                return null_node;
+            }
+        }
         return switch (self.peekTag()) {
             .kw_return => self.parseReturn(),
             .kw_defer => self.parseDefer(),
@@ -1162,9 +1202,20 @@ pub const Parser = struct {
         while (self.peekTag() != .r_brace and !self.isAtEnd()) {
             self.skipNewlines();
             if (self.peekTag() == .r_brace) break;
+            // Skip stray semicolons with a helpful error
+            if (self.peekTag() == .semicolon) {
+                try self.addError(.unnecessary_semicolon, self.currentLoc(), null);
+                self.advance();
+                continue;
+            }
             const stmt = try self.parseStmt();
             if (stmt != null_node) {
                 try stmts.append(self.tree.allocator, stmt);
+            }
+            // Also skip semicolons after statements
+            if (self.peekTag() == .semicolon) {
+                try self.addError(.unnecessary_semicolon, self.currentLoc(), null);
+                self.advance();
             }
             self.skipNewlines();
         }
@@ -2446,10 +2497,12 @@ pub const Parser = struct {
     }
 
     fn addError(self: *Parser, tag: Ast.ErrorTag, loc: Token.Loc, expected: ?Tag) !void {
+        const found: ?Tag = if (self.pos < self.tokens.len) self.tokens[self.pos].tag else .eof;
         try self.tree.errors.append(self.tree.allocator, .{
             .tag = tag,
             .loc = loc,
             .expected = expected,
+            .found = found,
         });
     }
 };

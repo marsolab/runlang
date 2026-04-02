@@ -1,0 +1,6 @@
+// compile-error: ordering comparison
+package main
+
+pub fun main() {
+    let x = "hello" > "world"
+}

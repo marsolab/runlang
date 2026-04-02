@@ -113,20 +113,81 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     if (parser.tree.errors.items.len > 0) {
         const use_color = !options.no_color;
         for (parser.tree.errors.items) |err| {
-            const message = switch (err.tag) {
-                .expected_token => "expected token",
-                .expected_expression => "expected expression",
-                .expected_type => "expected type",
-                .expected_identifier => "expected identifier",
+            const found_name = if (err.found) |f| f.displayName() else "unknown";
+            const message: []const u8 = switch (err.tag) {
+                .expected_token => if (err.expected) |exp|
+                    std.fmt.allocPrint(allocator, "expected {s}, found {s}", .{ exp.displayName(), found_name }) catch "expected token"
+                else
+                    "expected token",
+                .expected_expression => blk: {
+                    // Check if the found token is invalid due to unterminated literal
+                    if (err.found != null and err.found.? == .invalid and err.loc.start < source.len) {
+                        if (source[err.loc.start] == '"')
+                            break :blk @as([]const u8, "unterminated string literal");
+                        if (source[err.loc.start] == '\'')
+                            break :blk @as([]const u8, "unterminated character literal");
+                    }
+                    break :blk std.fmt.allocPrint(allocator, "expected expression, found {s}", .{found_name}) catch "expected expression";
+                },
+                .expected_type => std.fmt.allocPrint(allocator, "expected type annotation, found {s}", .{found_name}) catch "expected type",
+                .expected_identifier => std.fmt.allocPrint(allocator, "expected identifier, found {s}", .{found_name}) catch "expected identifier",
                 .expected_package_decl => "expected package declaration",
                 .expected_main_entrypoint => "expected main entrypoint",
-                .expected_block => "expected block",
-                .expected_string_literal => "expected string literal",
-                .invalid_token => "invalid token",
-                .invalid_alloc_type => "invalid alloc type",
+                .expected_block => std.fmt.allocPrint(allocator, "expected block '{{', found {s}", .{found_name}) catch "expected block",
+                .expected_string_literal => std.fmt.allocPrint(allocator, "expected string literal, found {s}", .{found_name}) catch "expected string literal",
+                .invalid_token => blk: {
+                    // Detect specific invalid token cases from source
+                    if (err.loc.start < source.len) {
+                        if (source[err.loc.start] == '"')
+                            break :blk "unterminated string literal";
+                        if (source[err.loc.start] == '\'')
+                            break :blk "unterminated character literal";
+                    }
+                    break :blk "invalid token";
+                },
+                .invalid_alloc_type => "invalid alloc type: alloc() requires a slice type like '[]T'",
                 .expected_asm_register => "expected register name in assembly input binding",
                 .expected_arrow_right => "expected '->' in assembly input binding",
                 .unexpected_eof => "unexpected end of file",
+                .keyword_suggestion => {
+                    // Get what the user wrote from the source
+                    const wrong_kw = source[err.loc.start..@min(err.loc.end, @as(u32, @intCast(source.len)))];
+                    const right_kw = if (err.expected) |exp| exp.displayName() else "'fun'";
+                    const msg = std.fmt.allocPrint(allocator, "unknown keyword '{s}'", .{wrong_kw}) catch "unknown keyword";
+                    const context = if (err.expected) |exp| switch (exp) {
+                        .kw_let => "immutable variables",
+                        .kw_var => "mutable variables",
+                        else => "functions",
+                    } else "functions";
+                    const help = std.fmt.allocPrint(allocator, "Run uses {s} to declare {s}", .{ right_kw, context }) catch "Run uses 'fun' to declare functions";
+                    const help_ann = [_]diag_mod.Annotation{
+                        .{ .kind = .help, .byte_offset = 0, .end_offset = 0, .message = help },
+                    };
+                    const d = diag_mod.Diagnostic{
+                        .severity = .@"error",
+                        .byte_offset = err.loc.start,
+                        .end_offset = err.loc.end,
+                        .message = msg,
+                        .annotations = &help_ann,
+                    };
+                    diag_mod.renderOneDiagnostic(d, source, options.input_path, stderr, use_color) catch {};
+                    continue;
+                },
+                .unnecessary_semicolon => {
+                    // Render as error (not warning) since it indicates language confusion
+                    const help_ann = [_]diag_mod.Annotation{
+                        .{ .kind = .help, .byte_offset = 0, .end_offset = 0, .message = "Run uses newlines as statement separators, not semicolons; remove the ';'" },
+                    };
+                    const d = diag_mod.Diagnostic{
+                        .severity = .@"error",
+                        .byte_offset = err.loc.start,
+                        .end_offset = err.loc.end,
+                        .message = "unnecessary semicolon",
+                        .annotations = &help_ann,
+                    };
+                    diag_mod.renderOneDiagnostic(d, source, options.input_path, stderr, use_color) catch {};
+                    continue;
+                },
             };
             const d = diag_mod.Diagnostic{
                 .severity = .@"error",
@@ -136,10 +197,11 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
             };
             diag_mod.renderOneDiagnostic(d, source, options.input_path, stderr, use_color) catch {};
         }
+        writeErrorSummary(stderr, parser.tree.errors.items.len, use_color);
         return CompileError.ParseFailed;
     }
 
-    if (!try validateFileConventions(allocator, &parser.tree, tokens.items, source, stderr)) {
+    if (!try validateFileConventions(allocator, &parser.tree, tokens.items, source, stderr, options.input_path, !options.no_color)) {
         return CompileError.ConventionFailed;
     }
 
@@ -150,24 +212,61 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     defer naming_violations.deinit(allocator);
 
     if (naming_violations.items.len > 0) {
+        const use_color = !options.no_color;
         for (naming_violations.items) |violation| {
             const rule = switch (violation.tag) {
                 .type_must_be_upper_camel => "type names must start with an uppercase letter and use CamelCase",
                 .variable_must_be_lower_camel => "variable names must start with a lowercase letter and use camelCase",
                 .file_must_be_lower_snake => "file names must start with a lowercase letter and use snake_case",
             };
+            const message = std.fmt.allocPrint(allocator, "naming violation: {s}: '{s}'", .{ rule, violation.name }) catch {
+                stderr.print("error: naming violation: {s}: '{s}'\n", .{ rule, violation.name }) catch {};
+                continue;
+            };
+            defer allocator.free(message);
+
             if (violation.loc.start == 0 and violation.loc.end == 0) {
+                // File-level violation (no source location)
                 stderr.print("error: naming violation: {s}: '{s}' ({s})\n", .{
                     rule,
                     violation.name,
                     options.input_path,
                 }) catch {};
             } else {
-                stderr.print("error: naming violation at offset {d}: {s}: '{s}'\n", .{
-                    violation.loc.start,
-                    rule,
-                    violation.name,
-                }) catch {};
+                // Build help annotation if we can suggest a fix
+                const suggestion = naming.suggestFix(allocator, violation.name, violation.tag);
+                defer if (suggestion) |s| allocator.free(s);
+
+                var help_annotation: [1]diag_mod.Annotation = undefined;
+                var annotation_slice: []const diag_mod.Annotation = &.{};
+
+                if (suggestion) |suggested_name| {
+                    const convention = switch (violation.tag) {
+                        .type_must_be_upper_camel => "UpperCamelCase",
+                        .variable_must_be_lower_camel => "lowerCamelCase",
+                        .file_must_be_lower_snake => "lower_snake_case",
+                    };
+                    if (std.fmt.allocPrint(allocator, "rename to '{s}' ({s})", .{ suggested_name, convention })) |help_msg| {
+                        help_annotation[0] = .{ .kind = .help, .byte_offset = 0, .end_offset = 0, .message = help_msg };
+                        annotation_slice = &help_annotation;
+                    } else |_| {}
+                }
+                defer if (annotation_slice.len > 0) allocator.free(annotation_slice[0].message);
+
+                const short_label = switch (violation.tag) {
+                    .type_must_be_upper_camel => "not UpperCamelCase",
+                    .variable_must_be_lower_camel => "not lowerCamelCase",
+                    .file_must_be_lower_snake => "not lower_snake_case",
+                };
+                const d = diag_mod.Diagnostic{
+                    .severity = .@"error",
+                    .byte_offset = violation.loc.start,
+                    .end_offset = violation.loc.end,
+                    .message = message,
+                    .label = short_label,
+                    .annotations = annotation_slice,
+                };
+                diag_mod.renderOneDiagnostic(d, source, options.input_path, stderr, use_color) catch {};
             }
         }
         return CompileError.NamingFailed;
@@ -181,6 +280,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
 
     if (resolve_result.diagnostics.hasErrors()) {
         resolve_result.diagnostics.renderRich(source, options.input_path, stderr, !options.no_color) catch {};
+        writeErrorSummary(stderr, countErrors(&resolve_result.diagnostics), !options.no_color);
         return CompileError.ParseFailed;
     }
 
@@ -192,6 +292,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
 
     if (tc_result.diagnostics.hasErrors()) {
         tc_result.diagnostics.renderRich(source, options.input_path, stderr, !options.no_color) catch {};
+        writeErrorSummary(stderr, countErrors(&tc_result.diagnostics), !options.no_color);
         return CompileError.ParseFailed;
     }
 
@@ -203,6 +304,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
 
     if (own_result.diagnostics.hasErrors()) {
         own_result.diagnostics.renderRich(source, options.input_path, stderr, !options.no_color) catch {};
+        writeErrorSummary(stderr, countErrors(&own_result.diagnostics), !options.no_color);
         return CompileError.ParseFailed;
     }
 
@@ -235,6 +337,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
 
     if (fold_result.diagnostics.hasErrors()) {
         fold_result.diagnostics.renderRich(source, options.input_path, stderr, !options.no_color) catch {};
+        writeErrorSummary(stderr, countErrors(&fold_result.diagnostics), !options.no_color);
         return CompileError.ParseFailed;
     }
 
@@ -245,13 +348,17 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
         };
         defer dce_result.deinit(allocator);
 
+        const use_color_dce = !options.no_color;
+        const warn_color = if (use_color_dce) diag_mod.Color.yellow else "";
+        const bold_dce = if (use_color_dce) diag_mod.Color.bold else "";
+        const reset_dce = if (use_color_dce) diag_mod.Color.reset else "";
         for (dce_result.warnings.items) |w| {
             switch (w.kind) {
-                .unused_function => stderr.print("warning: unused function '{s}'\n", .{w.name}) catch {},
+                .unused_function => stderr.print("{s}warning{s}: {s}unused function '{s}'{s}\n", .{ warn_color, reset_dce, bold_dce, w.name, reset_dce }) catch {},
                 .unused_variable => if (w.context.len > 0)
-                    stderr.print("warning: unused variable '{s}' in function '{s}'\n", .{ w.name, w.context }) catch {}
+                    stderr.print("{s}warning{s}: {s}unused variable '{s}' in function '{s}'{s}\n", .{ warn_color, reset_dce, bold_dce, w.name, w.context, reset_dce }) catch {}
                 else
-                    stderr.print("warning: unused variable '{s}'\n", .{w.name}) catch {},
+                    stderr.print("{s}warning{s}: {s}unused variable '{s}'{s}\n", .{ warn_color, reset_dce, bold_dce, w.name, reset_dce }) catch {},
             }
         }
     }
@@ -384,6 +491,8 @@ fn validateFileConventions(
     tokens: []const Token,
     source: []const u8,
     stderr: anytype,
+    file_path: []const u8,
+    use_color: bool,
 ) !bool {
     _ = allocator;
 
@@ -402,7 +511,6 @@ fn validateFileConventions(
                 package_name = tokens[decl.main_token].slice(source);
             },
             .inline_decl => {
-                // inline always comes first; unwrap to check inner (pub_decl or fn_decl)
                 const inline_inner_idx = decl.data.lhs;
                 if (inline_inner_idx == 0) continue;
                 const inline_inner = tree.nodes.items[inline_inner_idx];
@@ -415,7 +523,15 @@ fn validateFileConventions(
                         if (fn_tok + 1 < tokens.len and tokens[fn_tok + 1].tag == .identifier) {
                             const fn_name = tokens[fn_tok + 1].slice(source);
                             if (std.mem.eql(u8, fn_name, "main")) {
-                                stderr.writeAll("error: fun main cannot be inline\n") catch {};
+                                const tok = tokens[fn_tok + 1];
+                                const d = diag_mod.Diagnostic{
+                                    .severity = .@"error",
+                                    .byte_offset = tok.loc.start,
+                                    .end_offset = tok.loc.end,
+                                    .message = "fun main cannot be inline",
+                                    .label = "declared inline here",
+                                };
+                                diag_mod.renderOneDiagnostic(d, source, file_path, stderr, use_color) catch {};
                                 return false;
                             }
                         }
@@ -434,21 +550,40 @@ fn validateFileConventions(
                             const params_start = inner.data.lhs;
                             const extra = tree.extra_data.items;
                             const param_count = findParamCount(params_start, extra);
+                            const main_tok = tokens[fn_tok + 1];
 
                             if (param_count != 0) {
-                                stderr.writeAll("error: fun main must take no parameters\n") catch {};
+                                const d = diag_mod.Diagnostic{
+                                    .severity = .@"error",
+                                    .byte_offset = main_tok.loc.start,
+                                    .end_offset = main_tok.loc.end,
+                                    .message = "fun main must take no parameters",
+                                };
+                                diag_mod.renderOneDiagnostic(d, source, file_path, stderr, use_color) catch {};
                                 return false;
                             }
 
                             const receiver = extra[params_start + param_count + 1];
                             if (receiver != 0) {
-                                stderr.writeAll("error: fun main must not have a receiver\n") catch {};
+                                const d = diag_mod.Diagnostic{
+                                    .severity = .@"error",
+                                    .byte_offset = main_tok.loc.start,
+                                    .end_offset = main_tok.loc.end,
+                                    .message = "fun main must not have a receiver",
+                                };
+                                diag_mod.renderOneDiagnostic(d, source, file_path, stderr, use_color) catch {};
                                 return false;
                             }
 
                             const ret_type = extra[params_start + param_count + 2];
                             if (ret_type != 0) {
-                                stderr.writeAll("error: fun main must not have a return type\n") catch {};
+                                const d = diag_mod.Diagnostic{
+                                    .severity = .@"error",
+                                    .byte_offset = main_tok.loc.start,
+                                    .end_offset = main_tok.loc.end,
+                                    .message = "fun main must not have a return type",
+                                };
+                                diag_mod.renderOneDiagnostic(d, source, file_path, stderr, use_color) catch {};
                                 return false;
                             }
 
@@ -462,16 +597,55 @@ fn validateFileConventions(
     }
 
     if (package_name == null) {
-        stderr.writeAll("error: missing package declaration; every .run file must begin with `package <name>`\n") catch {};
+        const help_ann = [_]diag_mod.Annotation{
+            .{ .kind = .help, .byte_offset = 0, .end_offset = 0, .message = "add 'package <name>' as the first line of the file" },
+        };
+        const d = diag_mod.Diagnostic{
+            .severity = .@"error",
+            .byte_offset = 0,
+            .end_offset = 0,
+            .message = "missing package declaration",
+            .annotations = &help_ann,
+        };
+        diag_mod.renderOneDiagnostic(d, source, file_path, stderr, use_color) catch {};
         return false;
     }
 
     if (std.mem.eql(u8, package_name.?, "main") and !has_pub_main) {
-        stderr.writeAll("error: package main must contain `pub fun main`\n") catch {};
+        const help_ann = [_]diag_mod.Annotation{
+            .{ .kind = .help, .byte_offset = 0, .end_offset = 0, .message = "add 'pub fun main() { }' to the file" },
+        };
+        const d = diag_mod.Diagnostic{
+            .severity = .@"error",
+            .byte_offset = 0,
+            .end_offset = 0,
+            .message = "package main must contain `pub fun main`",
+            .annotations = &help_ann,
+        };
+        diag_mod.renderOneDiagnostic(d, source, file_path, stderr, use_color) catch {};
         return false;
     }
 
     return true;
+}
+
+fn countErrors(diags: *const diag_mod.DiagnosticList) usize {
+    var count: usize = 0;
+    for (diags.diagnostics.items) |d| {
+        if (d.severity == .@"error") count += 1;
+    }
+    return count;
+}
+
+fn writeErrorSummary(stderr: anytype, count: usize, use_color: bool) void {
+    const red = if (use_color) diag_mod.Color.red else "";
+    const bold = if (use_color) diag_mod.Color.bold else "";
+    const reset = if (use_color) diag_mod.Color.reset else "";
+    if (count == 1) {
+        stderr.print("{s}error{s}: {s}aborting due to 1 previous error{s}\n", .{ red, reset, bold, reset }) catch {};
+    } else {
+        stderr.print("{s}error{s}: {s}aborting due to {d} previous errors{s}\n", .{ red, reset, bold, count, reset }) catch {};
+    }
 }
 
 fn findParamCount(start: u32, extra: []const u32) u32 {

@@ -1,0 +1,11 @@
+// compile-error: duplicate definition of 'helper'
+package main
+
+fun helper() {
+}
+
+fun helper() {
+}
+
+pub fun main() {
+}

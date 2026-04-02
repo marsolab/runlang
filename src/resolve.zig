@@ -11,7 +11,8 @@ const symbol_mod = @import("symbol.zig");
 const Symbol = symbol_mod.Symbol;
 const SymbolId = symbol_mod.SymbolId;
 const SymbolTable = symbol_mod.SymbolTable;
-const DiagnosticList = @import("diagnostics.zig").DiagnosticList;
+const diag_mod = @import("diagnostics.zig");
+const DiagnosticList = diag_mod.DiagnosticList;
 
 /// Result of name resolution.
 pub const ResolveResult = struct {
@@ -278,7 +279,36 @@ pub const Resolver = struct {
         _ = self.symbols.define(self.allocator, name, sym) catch |err| switch (err) {
             error.DuplicateSymbol => {
                 const loc = self.tokenLoc(err_tok);
-                try self.diagnostics.addErrorFmt(loc.start, loc.end, "duplicate definition of '{s}'", .{name});
+                const msg = try std.fmt.allocPrint(self.allocator, "duplicate definition of '{s}'", .{name});
+                try self.diagnostics.allocated_messages.append(self.allocator, msg);
+
+                // Try to find the original definition for a "first defined here" note
+                if (self.symbols.lookup(name)) |orig_id| {
+                    const orig_sym = self.symbols.getSymbol(orig_id);
+                    const orig_node = orig_sym.decl_node;
+                    if (orig_node != 0 and orig_node < self.tree.nodes.items.len) {
+                        const orig_main_tok = self.tree.nodes.items[orig_node].main_token;
+                        const orig_loc = self.tokenLoc(orig_main_tok);
+                        var ann_buf = try self.allocator.alloc(diag_mod.Annotation, 1);
+                        try self.diagnostics.allocated_annotations.append(self.allocator, ann_buf);
+                        ann_buf[0] = .{ .kind = .note, .byte_offset = orig_loc.start, .end_offset = orig_loc.end, .message = "first defined here" };
+                        try self.diagnostics.diagnostics.append(self.allocator, .{
+                            .severity = .@"error",
+                            .byte_offset = loc.start,
+                            .end_offset = loc.end,
+                            .message = msg,
+                            .label = "redefined here",
+                            .annotations = ann_buf,
+                        });
+                        return;
+                    }
+                }
+                try self.diagnostics.diagnostics.append(self.allocator, .{
+                    .severity = .@"error",
+                    .byte_offset = loc.start,
+                    .end_offset = loc.end,
+                    .message = msg,
+                });
                 return;
             },
             else => |e| return @as(ResolveError, e),
@@ -747,6 +777,32 @@ pub const Resolver = struct {
             self.resolution_map.items[node] = sym_id;
         } else {
             const loc = self.tokenLoc(name_tok);
+            // Try to find a close match for "did you mean?" suggestion
+            const visible = self.symbols.visibleNames(self.allocator) catch null;
+            defer if (visible) |v| self.allocator.free(v);
+
+            if (visible) |names| {
+                if (diag_mod.findClosestMatch(name, names, 2)) |suggestion| {
+                    const help_msg = std.fmt.allocPrint(self.allocator, "did you mean '{s}'?", .{suggestion}) catch null;
+                    if (help_msg) |hmsg| {
+                        try self.diagnostics.allocated_messages.append(self.allocator, hmsg);
+                        var ann_buf = try self.allocator.alloc(diag_mod.Annotation, 1);
+                        try self.diagnostics.allocated_annotations.append(self.allocator, ann_buf);
+                        ann_buf[0] = .{ .kind = .help, .byte_offset = 0, .end_offset = 0, .message = hmsg };
+                        const msg = try std.fmt.allocPrint(self.allocator, "undefined reference to '{s}'", .{name});
+                        try self.diagnostics.allocated_messages.append(self.allocator, msg);
+                        try self.diagnostics.diagnostics.append(self.allocator, .{
+                            .severity = .@"error",
+                            .byte_offset = loc.start,
+                            .end_offset = loc.end,
+                            .message = msg,
+                            .label = "not found in this scope",
+                            .annotations = ann_buf,
+                        });
+                        return;
+                    }
+                }
+            }
             try self.diagnostics.addErrorFmt(loc.start, loc.end, "undefined reference to '{s}'", .{name});
         }
     }
@@ -848,7 +904,32 @@ pub const Resolver = struct {
                 const sym = self.symbols.getSymbol(sym_id);
                 if (!sym.is_mutable and sym.kind == .variable) {
                     const loc = self.tokenLoc(self.nodeMainToken(data.lhs));
-                    try self.diagnostics.addErrorFmt(loc.start, loc.end, "cannot assign to immutable variable '{s}'", .{sym.name});
+                    const msg = try std.fmt.allocPrint(self.allocator, "cannot assign to immutable variable '{s}'", .{sym.name});
+                    try self.diagnostics.allocated_messages.append(self.allocator, msg);
+
+                    // Find the original declaration for context
+                    const decl_node = sym.decl_node;
+                    var ann_count: usize = 0;
+                    var ann_buf = try self.allocator.alloc(diag_mod.Annotation, 2);
+                    try self.diagnostics.allocated_annotations.append(self.allocator, ann_buf);
+
+                    if (decl_node != 0 and decl_node < self.tree.nodes.items.len) {
+                        const decl_main_tok = self.tree.nodes.items[decl_node].main_token;
+                        const decl_loc = self.tokenLoc(decl_main_tok);
+                        ann_buf[ann_count] = .{ .kind = .note, .byte_offset = decl_loc.start, .end_offset = decl_loc.end, .message = "defined as immutable here" };
+                        ann_count += 1;
+                    }
+                    ann_buf[ann_count] = .{ .kind = .help, .byte_offset = 0, .end_offset = 0, .message = "consider using 'var' instead of 'let' if you need to reassign" };
+                    ann_count += 1;
+
+                    try self.diagnostics.diagnostics.append(self.allocator, .{
+                        .severity = .@"error",
+                        .byte_offset = loc.start,
+                        .end_offset = loc.end,
+                        .message = msg,
+                        .label = "cannot assign here",
+                        .annotations = ann_buf[0..ann_count],
+                    });
                 }
             }
         }

@@ -1,4 +1,4 @@
-// compile-error: expected
+// compile-error: expected '}'
 package main
 
 pub fun main() {

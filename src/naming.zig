@@ -139,6 +139,68 @@ fn isLowerSnake(name: []const u8) bool {
     return true;
 }
 
+/// Suggest a corrected name for a naming violation.
+/// Returns null if no reasonable suggestion can be made.
+pub fn suggestFix(allocator: std.mem.Allocator, name: []const u8, tag: ViolationTag) ?[]const u8 {
+    switch (tag) {
+        .variable_must_be_lower_camel => {
+            // Try converting from UpperCamel → lowerCamel
+            if (name.len > 0 and std.ascii.isUpper(name[0])) {
+                const result = allocator.alloc(u8, name.len) catch return null;
+                @memcpy(result, name);
+                result[0] = std.ascii.toLower(name[0]);
+                return result;
+            }
+            // Try converting from snake_case → lowerCamel
+            return snakeToCamel(allocator, name, false);
+        },
+        .type_must_be_upper_camel => {
+            // Try converting from lowerCamel → UpperCamel
+            if (name.len > 0 and std.ascii.isLower(name[0])) {
+                const result = allocator.alloc(u8, name.len) catch return null;
+                @memcpy(result, name);
+                result[0] = std.ascii.toUpper(name[0]);
+                return result;
+            }
+            // Try converting from snake_case → UpperCamel
+            return snakeToCamel(allocator, name, true);
+        },
+        .file_must_be_lower_snake => return null,
+    }
+}
+
+fn snakeToCamel(allocator: std.mem.Allocator, name: []const u8, upper_first: bool) ?[]const u8 {
+    // Check if it contains underscores
+    var has_underscore = false;
+    for (name) |c| {
+        if (c == '_') {
+            has_underscore = true;
+            break;
+        }
+    }
+    if (!has_underscore) return null;
+
+    var buf: [256]u8 = undefined;
+    var len: usize = 0;
+    var capitalize_next = upper_first;
+    for (name) |c| {
+        if (c == '_') {
+            capitalize_next = true;
+            continue;
+        }
+        if (len >= buf.len) return null;
+        buf[len] = if (capitalize_next) std.ascii.toUpper(c) else c;
+        capitalize_next = false;
+        len += 1;
+    }
+    if (len == 0) return null;
+    // Ensure first char matches expected case
+    if (!upper_first and len > 0) {
+        buf[0] = std.ascii.toLower(buf[0]);
+    }
+    return allocator.dupe(u8, buf[0..len]) catch null;
+}
+
 test "naming helpers" {
     try std.testing.expect(isUpperCamel("MyType"));
     try std.testing.expect(!isUpperCamel("myType"));
