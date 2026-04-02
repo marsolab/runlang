@@ -1,0 +1,29 @@
+package rand
+
+use "testing"
+
+test "same seed yields deterministic sequence" (t &testing.T) {
+    var r1 = new(123)
+    var r2 = new(123)
+
+    t.assert(r1.int() == r2.int())
+    t.assert(r1.int() == r2.int())
+    t.assert(r1.int_n(1000) == r2.int_n(1000))
+    t.assert(r1.float64() == r2.float64())
+}
+
+test "int_n handles non-positive bounds" (t &testing.T) {
+    var r = new(9)
+    t.assert(r.int_n(0) == 0)
+    t.assert(r.int_n(-3) == 0)
+}
+
+test "global convenience APIs are callable" (t &testing.T) {
+    var n = int_n(10)
+    t.assert(n >= 0)
+    t.assert(n < 10)
+
+    var f = float64()
+    t.assert(f >= 0.0)
+    t.assert(f < 1.0)
+}
