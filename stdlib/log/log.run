@@ -1,6 +1,7 @@
 package log
 
 use "io"
+use "os"
 use "time"
 
 // Level represents the severity of a log message.
@@ -8,6 +9,27 @@ pub type Level = .debug
     | .info
     | .warn
     | .error
+
+// levelOrder returns a numeric ordering for log levels.
+// debug=0, info=1, warn=2, error=3.
+fun levelOrder(l Level) int {
+    switch l {
+        .debug :: { return 0 },
+        .info :: { return 1 },
+        .warn :: { return 2 },
+        .error :: { return 3 },
+    }
+}
+
+// levelString returns the uppercase name of a log level.
+fun levelString(l Level) string {
+    switch l {
+        .debug :: { return "DEBUG" },
+        .info :: { return "INFO" },
+        .warn :: { return "WARN" },
+        .error :: { return "ERROR" },
+    }
+}
 
 // Handler is the interface for log output destinations.
 pub type Handler interface {
@@ -38,28 +60,112 @@ pub fun new(handler Handler) Logger {
 
 // debug logs a message at debug level.
 pub fun (l @Logger) debug(msg string, attrs ...Attr) {
+    if levelOrder(.debug) < levelOrder(l.level) {
+        return
+    }
+    if !l.handler.enabled(.debug) {
+        return
+    }
+    var combined = alloc([]Attr, 0)
+    var i = 0
+    for i < len(l.attrs) {
+        combined = append(combined, l.attrs[i])
+        i = i + 1
+    }
+    var j = 0
+    for j < len(attrs) {
+        combined = append(combined, attrs[j])
+        j = j + 1
+    }
+    l.handler.handle(.debug, msg, combined)
 }
 
 // info logs a message at info level.
 pub fun (l @Logger) info(msg string, attrs ...Attr) {
+    if levelOrder(.info) < levelOrder(l.level) {
+        return
+    }
+    if !l.handler.enabled(.info) {
+        return
+    }
+    var combined = alloc([]Attr, 0)
+    var i = 0
+    for i < len(l.attrs) {
+        combined = append(combined, l.attrs[i])
+        i = i + 1
+    }
+    var j = 0
+    for j < len(attrs) {
+        combined = append(combined, attrs[j])
+        j = j + 1
+    }
+    l.handler.handle(.info, msg, combined)
 }
 
 // warn logs a message at warn level.
 pub fun (l @Logger) warn(msg string, attrs ...Attr) {
+    if levelOrder(.warn) < levelOrder(l.level) {
+        return
+    }
+    if !l.handler.enabled(.warn) {
+        return
+    }
+    var combined = alloc([]Attr, 0)
+    var i = 0
+    for i < len(l.attrs) {
+        combined = append(combined, l.attrs[i])
+        i = i + 1
+    }
+    var j = 0
+    for j < len(attrs) {
+        combined = append(combined, attrs[j])
+        j = j + 1
+    }
+    l.handler.handle(.warn, msg, combined)
 }
 
 // error logs a message at error level.
 pub fun (l @Logger) error(msg string, attrs ...Attr) {
+    if levelOrder(.error) < levelOrder(l.level) {
+        return
+    }
+    if !l.handler.enabled(.error) {
+        return
+    }
+    var combined = alloc([]Attr, 0)
+    var i = 0
+    for i < len(l.attrs) {
+        combined = append(combined, l.attrs[i])
+        i = i + 1
+    }
+    var j = 0
+    for j < len(attrs) {
+        combined = append(combined, attrs[j])
+        j = j + 1
+    }
+    l.handler.handle(.error, msg, combined)
 }
 
 // with returns a new Logger that includes the given attributes
 // in every log record.
 pub fun (l @Logger) with(attrs ...Attr) Logger {
-    return Logger{ handler: l.handler, level: l.level, attrs: alloc([]Attr, 0) }
+    var merged = alloc([]Attr, 0)
+    var i = 0
+    for i < len(l.attrs) {
+        merged = append(merged, l.attrs[i])
+        i = i + 1
+    }
+    var j = 0
+    for j < len(attrs) {
+        merged = append(merged, attrs[j])
+        j = j + 1
+    }
+    return Logger{ handler: l.handler, level: l.level, attrs: merged }
 }
 
 // setLevel sets the minimum log level for this logger.
 pub fun (l &Logger) setLevel(level Level) {
+    l.level = level
 }
 
 // TextHandler writes log records as human-readable text lines.
@@ -78,12 +184,25 @@ pub fun newTextHandler(w io.Writer) TextHandler {
 }
 
 // handle writes the log record as a text line.
+// Format: "LEVEL msg key=value key=value\n"
 pub fun (h @TextHandler) handle(level Level, msg string, attrs []Attr) !void {
+    try io.writeString(h.writer, levelString(level))
+    try io.writeString(h.writer, " ")
+    try io.writeString(h.writer, msg)
+    var i = 0
+    for i < len(attrs) {
+        try io.writeString(h.writer, " ")
+        try io.writeString(h.writer, attrs[i].key)
+        try io.writeString(h.writer, "=")
+        try io.writeString(h.writer, attrs[i].value)
+        i = i + 1
+    }
+    try io.writeString(h.writer, "\n")
 }
 
 // enabled reports whether this handler handles records at the given level.
 pub fun (h @TextHandler) enabled(level Level) bool {
-    return false
+    return levelOrder(level) >= levelOrder(h.level)
 }
 
 // JsonHandler writes log records as JSON objects, one per line.
@@ -102,32 +221,54 @@ pub fun newJsonHandler(w io.Writer) JsonHandler {
 }
 
 // handle writes the log record as a JSON object.
+// Format: {"level":"LEVEL","msg":"message","key":"value",...}\n
 pub fun (h @JsonHandler) handle(level Level, msg string, attrs []Attr) !void {
+    try io.writeString(h.writer, "{\"level\":\"")
+    try io.writeString(h.writer, levelString(level))
+    try io.writeString(h.writer, "\",\"msg\":\"")
+    try io.writeString(h.writer, msg)
+    try io.writeString(h.writer, "\"")
+    var i = 0
+    for i < len(attrs) {
+        try io.writeString(h.writer, ",\"")
+        try io.writeString(h.writer, attrs[i].key)
+        try io.writeString(h.writer, "\":\"")
+        try io.writeString(h.writer, attrs[i].value)
+        try io.writeString(h.writer, "\"")
+        i = i + 1
+    }
+    try io.writeString(h.writer, "}\n")
 }
 
 // enabled reports whether this handler handles records at the given level.
 pub fun (h @JsonHandler) enabled(level Level) bool {
-    return false
+    return levelOrder(level) >= levelOrder(h.level)
 }
 
-// Package-level convenience functions using a default logger.
+// Package-level default logger using a TextHandler on stderr.
+var defaultLogger = new(newTextHandler(os.stderr))
+
+// setDefault sets the default logger.
+pub fun setDefault(logger Logger) {
+    defaultLogger = logger
+}
 
 // debug logs a message at debug level using the default logger.
 pub fun debug(msg string, attrs ...Attr) {
+    defaultLogger.debug(msg, attrs)
 }
 
 // info logs a message at info level using the default logger.
 pub fun info(msg string, attrs ...Attr) {
+    defaultLogger.info(msg, attrs)
 }
 
 // warn logs a message at warn level using the default logger.
 pub fun warn(msg string, attrs ...Attr) {
+    defaultLogger.warn(msg, attrs)
 }
 
 // error logs a message at error level using the default logger.
 pub fun error(msg string, attrs ...Attr) {
-}
-
-// setDefault sets the default logger.
-pub fun setDefault(logger Logger) {
+    defaultLogger.error(msg, attrs)
 }
