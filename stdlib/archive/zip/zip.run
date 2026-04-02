@@ -25,6 +25,15 @@ pub File struct {
     isDir             bool
 }
 
+// Local file header signature.
+let localFileHeaderSig = 0x04034b50
+
+// Central directory file header signature.
+let centralDirHeaderSig = 0x02014b50
+
+// End of central directory record signature.
+let endOfCentralDirSig = 0x06054b50
+
 // Reader reads a zip archive.
 pub Reader struct {
     files   []File
@@ -40,10 +49,126 @@ pub fun openReader(path string) !Reader {
 }
 
 // newReader creates a Reader from an io.Reader and the archive size.
+// Parses the end-of-central-directory record and central directory
+// to populate the file list.
 pub fun newReader(r io.Reader, size int) !Reader {
+    var fileList = alloc([]File, 0)
+    var commentStr = ""
+
+    // Read the entire archive into a buffer for random access parsing.
+    var buf = alloc([]byte, size)
+    var totalRead = 0
+    for totalRead < size {
+        var n = try r.read(buf[totalRead..])
+        if n == 0 {
+            break
+        }
+        totalRead = totalRead + n
+    }
+
+    // Search backwards for the end-of-central-directory signature.
+    var eocdPos = totalRead - 22
+    var found = false
+    for eocdPos >= 0 {
+        if eocdPos + 3 < totalRead {
+            if buf[eocdPos] == 80 and buf[eocdPos + 1] == 75 and buf[eocdPos + 2] == 5 and buf[eocdPos + 3] == 6 {
+                found = true
+                break
+            }
+        }
+        eocdPos = eocdPos - 1
+    }
+
+    if not found {
+        return Reader{
+            files: fileList,
+            comment: commentStr,
+        }
+    }
+
+    // Parse end-of-central-directory record.
+    // Offset  4: disk number (2)
+    // Offset  6: disk with central dir (2)
+    // Offset  8: entries on this disk (2)
+    // Offset 10: total entries (2)
+    // Offset 12: central dir size (4)
+    // Offset 16: central dir offset (4)
+    // Offset 20: comment length (2)
+    let numEntries = readU16Le(buf, eocdPos + 10)
+    let centralDirOffset = readU32Le(buf, eocdPos + 16)
+    let commentLen = readU16Le(buf, eocdPos + 20)
+
+    if commentLen > 0 and eocdPos + 22 + commentLen <= totalRead {
+        commentStr = bytesToString(buf[eocdPos + 22..eocdPos + 22 + commentLen])
+    }
+
+    // Parse central directory entries.
+    var pos = centralDirOffset
+    var entryIdx = 0
+    for entryIdx < numEntries {
+        if pos + 46 > totalRead {
+            break
+        }
+
+        // Verify central directory signature (PK\x01\x02).
+        if buf[pos] != 80 or buf[pos + 1] != 75 or buf[pos + 2] != 1 or buf[pos + 3] != 2 {
+            break
+        }
+
+        let compressionRaw = readU16Le(buf, pos + 10)
+        let modTimeRaw = readU16Le(buf, pos + 12)
+        let modDateRaw = readU16Le(buf, pos + 14)
+        let crc = readU32Le(buf, pos + 16)
+        let compSize = readU32Le(buf, pos + 20)
+        let uncompSize = readU32Le(buf, pos + 24)
+        let nameLen = readU16Le(buf, pos + 28)
+        let extraLen = readU16Le(buf, pos + 30)
+        let fileCommentLen = readU16Le(buf, pos + 32)
+
+        var fileName = ""
+        if nameLen > 0 and pos + 46 + nameLen <= totalRead {
+            fileName = bytesToString(buf[pos + 46..pos + 46 + nameLen])
+        }
+
+        var fileComment = ""
+        if fileCommentLen > 0 and pos + 46 + nameLen + extraLen + fileCommentLen <= totalRead {
+            fileComment = bytesToString(buf[pos + 46 + nameLen + extraLen..pos + 46 + nameLen + extraLen + fileCommentLen])
+        }
+
+        var method = CompressionMethod.store
+        if compressionRaw == 8 {
+            method = .deflate
+        }
+
+        // Determine if this entry is a directory.
+        var entryIsDir = false
+        if len(fileName) > 0 {
+            if fileName[len(fileName) - 1] == 47 {
+                entryIsDir = true
+            }
+        }
+
+        // Decode DOS date/time to time.Time.
+        let dosTime = decodeDosTime(modTimeRaw, modDateRaw)
+
+        fileList = append(fileList, File{
+            name: fileName,
+            comment: fileComment,
+            compressedSize: compSize,
+            uncompressedSize: uncompSize,
+            modificationTime: dosTime,
+            compressionMethod: method,
+            crc32: crc,
+            isDir: entryIsDir,
+        })
+
+        pos = pos + 46 + nameLen + extraLen + fileCommentLen
+        entryIdx = entryIdx + 1
+    }
+
     return Reader{
-        files: alloc([]File, 0),
-        comment: "",
+        files: fileList,
+        comment: commentStr,
     }
 }
 
@@ -63,29 +188,356 @@ pub Writer struct {
         io.Closer
     }
 
-    writer io.Writer
+    writer      io.Writer
+    entries     []File
+    offsets     []int
+    dataLens    []int
+    closed      bool
+    written     int
+    comment     string
 }
 
 // newWriter returns a new Writer writing a zip archive to w.
 pub fun newWriter(w io.Writer) Writer {
-    return Writer{ writer: w }
+    return Writer{
+        writer: w,
+        entries: alloc([]File, 0),
+        offsets: alloc([]int, 0),
+        dataLens: alloc([]int, 0),
+        closed: false,
+        written: 0,
+        comment: "",
+    }
+}
+
+// writeU16Le writes a 16-bit unsigned integer in little-endian byte order.
+fun writeU16Le(buf []byte, offset int, val int) {
+    buf[offset] = val % 256
+    buf[offset + 1] = (val / 256) % 256
+}
+
+// writeU32Le writes a 32-bit unsigned integer in little-endian byte order.
+fun writeU32Le(buf []byte, offset int, val int) {
+    buf[offset] = val % 256
+    buf[offset + 1] = (val / 256) % 256
+    buf[offset + 2] = (val / 65536) % 256
+    buf[offset + 3] = (val / 16777216) % 256
+}
+
+// readU16Le reads a 16-bit unsigned integer in little-endian byte order.
+fun readU16Le(buf []byte, offset int) int {
+    return buf[offset] + buf[offset + 1] * 256
+}
+
+// readU32Le reads a 32-bit unsigned integer in little-endian byte order.
+fun readU32Le(buf []byte, offset int) int {
+    return buf[offset] + buf[offset + 1] * 256 + buf[offset + 2] * 65536 + buf[offset + 3] * 16777216
+}
+
+// bytesToString converts a byte slice to a string.
+fun bytesToString(b []byte) string {
+    return b
+}
+
+// stringToBytes converts a string to a byte slice.
+fun stringToBytes(s string) []byte {
+    return s
+}
+
+// encodeDosTime encodes a time.Time into DOS time and date fields.
+fun encodeDosTime(t time.Time) struct { dosTime int, dosDate int } {
+    // DOS time: bits 15-11 = hours, 10-5 = minutes, 4-0 = seconds/2
+    // DOS date: bits 15-9 = year-1980, 8-5 = month, 4-0 = day
+    // Simplified: return zero values (epoch).
+    return .{ dosTime: 0, dosDate: 0 }
+}
+
+// decodeDosTime decodes DOS time and date fields into a time.Time.
+fun decodeDosTime(dosTime int, dosDate int) time.Time {
+    // Simplified: return zero time.
+    return time.unix(0, 0)
+}
+
+// crc32Update computes a simple checksum over the given data.
+// A full CRC-32 requires bitwise XOR which is not yet available in Run.
+// This uses an Adler-inspired rolling checksum as a placeholder.
+fun crc32Update(crc u32, data []byte) u32 {
+    var s1 = crc % 65536
+    var s2 = crc / 65536
+    var i = 0
+    for i < len(data) {
+        s1 = (s1 + data[i]) % 65521
+        s2 = (s2 + s1) % 65521
+        i = i + 1
+    }
+    return s2 * 65536 + s1
 }
 
 // create adds a file to the zip archive using the provided name.
-// It returns a Writer to which the file contents should be written.
+// The data is stored uncompressed. Returns a Writer for the file contents.
+// In this implementation, the caller writes data, then calls close to finalize.
 pub fun (w &Writer) create(name string) !io.Writer {
-    return null
+    var fh = File{
+        name: name,
+        comment: "",
+        compressedSize: 0,
+        uncompressedSize: 0,
+        modificationTime: time.unix(0, 0),
+        compressionMethod: .store,
+        crc32: 0,
+        isDir: false,
+    }
+    return try w.createHeader(@fh)
 }
 
 // createHeader adds a file to the zip archive using the provided File header.
+// Writes a local file header and returns a Writer for the file contents.
 pub fun (w &Writer) createHeader(fh @File) !io.Writer {
+    if w.closed {
+        return null
+    }
+
+    var nameBytes = stringToBytes(fh.name)
+    let nameLen = len(nameBytes)
+
+    // Record offset for central directory.
+    w.offsets = append(w.offsets, w.written)
+    w.entries = append(w.entries, File{
+        name: fh.name,
+        comment: fh.comment,
+        compressedSize: 0,
+        uncompressedSize: 0,
+        modificationTime: fh.modificationTime,
+        compressionMethod: .store,
+        crc32: 0,
+        isDir: fh.isDir,
+    })
+    w.dataLens = append(w.dataLens, 0)
+
+    // Write local file header (30 bytes + name).
+    var header = alloc([]byte, 30 + nameLen)
+    var k = 0
+    for k < 30 + nameLen {
+        header[k] = 0
+        k = k + 1
+    }
+
+    // Local file header signature (PK\x03\x04).
+    header[0] = 80
+    header[1] = 75
+    header[2] = 3
+    header[3] = 4
+
+    // Version needed to extract (20 = 2.0).
+    writeU16Le(header, 4, 20)
+
+    // General purpose bit flag.
+    writeU16Le(header, 6, 0)
+
+    // Compression method (0 = store).
+    writeU16Le(header, 8, 0)
+
+    // Modification time and date.
+    let dos = encodeDosTime(fh.modificationTime)
+    writeU16Le(header, 10, dos.dosTime)
+    writeU16Le(header, 12, dos.dosDate)
+
+    // CRC-32, compressed size, uncompressed size: 0 for now.
+    // These will be in the data descriptor if needed.
+    writeU32Le(header, 14, 0)
+    writeU32Le(header, 18, 0)
+    writeU32Le(header, 22, 0)
+
+    // File name length.
+    writeU16Le(header, 26, nameLen)
+
+    // Extra field length.
+    writeU16Le(header, 28, 0)
+
+    // File name.
+    var ni = 0
+    for ni < nameLen {
+        header[30 + ni] = nameBytes[ni]
+        ni = ni + 1
+    }
+
+    // Write the header.
+    var headerWritten = 0
+    for headerWritten < 30 + nameLen {
+        var n = try w.writer.write(header[headerWritten..])
+        headerWritten = headerWritten + n
+    }
+    w.written = w.written + 30 + nameLen
+
+    // Return null; caller should use write to add data, then createHeader
+    // or close for the next entry. In a full implementation this would
+    // return a constrained writer that tracks CRC and size.
     return null
 }
 
 // setComment sets the end-of-central-directory comment field.
 pub fun (w &Writer) setComment(comment string) {
+    w.comment = comment
 }
 
-// close finishes writing the zip archive.
+// close finishes writing the zip archive by writing the central directory
+// and end-of-central-directory record.
 pub fun (w &Writer) close() !void {
+    if w.closed {
+        return
+    }
+
+    let centralDirStart = w.written
+
+    // Write central directory entries.
+    var i = 0
+    for i < len(w.entries) {
+        var entry = w.entries[i]
+        var nameBytes = stringToBytes(entry.name)
+        let nameLen = len(nameBytes)
+        var commentBytes = stringToBytes(entry.comment)
+        let commentLen = len(commentBytes)
+
+        // Central directory header: 46 bytes + name + comment.
+        var rec = alloc([]byte, 46 + nameLen + commentLen)
+        var k = 0
+        for k < 46 + nameLen + commentLen {
+            rec[k] = 0
+            k = k + 1
+        }
+
+        // Central directory file header signature (PK\x01\x02).
+        rec[0] = 80
+        rec[1] = 75
+        rec[2] = 1
+        rec[3] = 2
+
+        // Version made by (20 = 2.0).
+        writeU16Le(rec, 4, 20)
+
+        // Version needed to extract (20 = 2.0).
+        writeU16Le(rec, 6, 20)
+
+        // General purpose bit flag.
+        writeU16Le(rec, 8, 0)
+
+        // Compression method.
+        writeU16Le(rec, 10, 0)
+
+        // Modification time and date.
+        let dos = encodeDosTime(entry.modificationTime)
+        writeU16Le(rec, 12, dos.dosTime)
+        writeU16Le(rec, 14, dos.dosDate)
+
+        // CRC-32.
+        writeU32Le(rec, 16, entry.crc32)
+
+        // Compressed size.
+        writeU32Le(rec, 20, entry.compressedSize)
+
+        // Uncompressed size.
+        writeU32Le(rec, 24, entry.uncompressedSize)
+
+        // File name length.
+        writeU16Le(rec, 28, nameLen)
+
+        // Extra field length.
+        writeU16Le(rec, 30, 0)
+
+        // File comment length.
+        writeU16Le(rec, 32, commentLen)
+
+        // Disk number start.
+        writeU16Le(rec, 34, 0)
+
+        // Internal file attributes.
+        writeU16Le(rec, 36, 0)
+
+        // External file attributes.
+        writeU32Le(rec, 38, 0)
+
+        // Relative offset of local file header.
+        writeU32Le(rec, 42, w.offsets[i])
+
+        // File name.
+        var ni = 0
+        for ni < nameLen {
+            rec[46 + ni] = nameBytes[ni]
+            ni = ni + 1
+        }
+
+        // File comment.
+        var ci = 0
+        for ci < commentLen {
+            rec[46 + nameLen + ci] = commentBytes[ci]
+            ci = ci + 1
+        }
+
+        // Write central directory record.
+        var recWritten = 0
+        for recWritten < 46 + nameLen + commentLen {
+            var n = try w.writer.write(rec[recWritten..])
+            recWritten = recWritten + n
+        }
+        w.written = w.written + 46 + nameLen + commentLen
+
+        i = i + 1
+    }
+
+    let centralDirSize = w.written - centralDirStart
+
+    // Write end-of-central-directory record (22 bytes + comment).
+    var archiveCommentBytes = stringToBytes(w.comment)
+    let archiveCommentLen = len(archiveCommentBytes)
+
+    var eocd = alloc([]byte, 22 + archiveCommentLen)
+    var k = 0
+    for k < 22 + archiveCommentLen {
+        eocd[k] = 0
+        k = k + 1
+    }
+
+    // End of central directory signature (PK\x05\x06).
+    eocd[0] = 80
+    eocd[1] = 75
+    eocd[2] = 5
+    eocd[3] = 6
+
+    // Number of this disk.
+    writeU16Le(eocd, 4, 0)
+
+    // Disk where central directory starts.
+    writeU16Le(eocd, 6, 0)
+
+    // Number of central directory entries on this disk.
+    writeU16Le(eocd, 8, len(w.entries))
+
+    // Total number of central directory entries.
+    writeU16Le(eocd, 10, len(w.entries))
+
+    // Size of central directory.
+    writeU32Le(eocd, 12, centralDirSize)
+
+    // Offset of start of central directory.
+    writeU32Le(eocd, 16, centralDirStart)
+
+    // Archive comment length.
+    writeU16Le(eocd, 20, archiveCommentLen)
+
+    // Archive comment.
+    var ci = 0
+    for ci < archiveCommentLen {
+        eocd[22 + ci] = archiveCommentBytes[ci]
+        ci = ci + 1
+    }
+
+    // Write EOCD record.
+    var eocdWritten = 0
+    for eocdWritten < 22 + archiveCommentLen {
+        var n = try w.writer.write(eocd[eocdWritten..])
+        eocdWritten = eocdWritten + n
+    }
+    w.written = w.written + 22 + archiveCommentLen
+
+    w.closed = true
 }

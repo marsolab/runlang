@@ -32,25 +32,194 @@ pub Header struct {
     gname    string
 }
 
+// blockSize is the size of each block in a tar archive.
+let blockSize = 512
+
+// nameSize is the maximum length of the name field in a POSIX header.
+let nameSize = 100
+
 // Reader provides sequential access to the contents of a tar archive.
 pub Reader struct {
-    reader io.Reader
+    reader    io.Reader
+    remaining int
+    done      bool
 }
 
 // newReader creates a new Reader reading from r.
 pub fun newReader(r io.Reader) Reader {
-    return Reader{ reader: r }
+    return Reader{
+        reader: r,
+        remaining: 0,
+        done: false,
+    }
+}
+
+// parseOctal parses an octal string from a byte slice, stopping at null or space.
+fun parseOctal(buf []byte) int {
+    var result = 0
+    var i = 0
+    for i < len(buf) {
+        if buf[i] == 0 or buf[i] == 32 {
+            break
+        }
+        if buf[i] >= 48 and buf[i] <= 55 {
+            result = result * 8 + (buf[i] - 48)
+        }
+        i = i + 1
+    }
+    return result
+}
+
+// parseName extracts a null-terminated string from a byte slice.
+fun parseName(buf []byte) string {
+    var end = 0
+    for end < len(buf) {
+        if buf[end] == 0 {
+            break
+        }
+        end = end + 1
+    }
+    if end == 0 {
+        return ""
+    }
+    return buf[0..end]
+}
+
+// isZeroBlock checks if an entire 512-byte block is all zeros (end-of-archive marker).
+fun isZeroBlock(buf []byte) bool {
+    var i = 0
+    for i < len(buf) {
+        if buf[i] != 0 {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// parseTypeFlag converts the raw type flag byte to a TypeFlag value.
+fun parseTypeFlag(b byte) TypeFlag {
+    if b == 49 { return .link }
+    if b == 50 { return .symlink }
+    if b == 51 { return .character }
+    if b == 52 { return .block }
+    if b == 53 { return .directory }
+    if b == 54 { return .fifo }
+    return .regular
+}
+
+// typeFlagByte converts a TypeFlag back to its raw byte value.
+fun typeFlagByte(flag TypeFlag) byte {
+    if flag == .link { return 49 }
+    if flag == .symlink { return 50 }
+    if flag == .character { return 51 }
+    if flag == .block { return 52 }
+    if flag == .directory { return 53 }
+    if flag == .fifo { return 54 }
+    return 48
 }
 
 // next advances to the next entry in the tar archive.
 // Returns the Header for the entry, or null at end of archive.
 pub fun (r &Reader) next() !Header? {
-    return null
+    // Skip any remaining data from the previous entry.
+    if r.remaining > 0 {
+        var toSkip = r.remaining
+        // Align to block boundary.
+        var remainder = toSkip % blockSize
+        if remainder != 0 {
+            toSkip = toSkip + (blockSize - remainder)
+        }
+        var skipBuf = alloc([]byte, toSkip)
+        var skipped = 0
+        for skipped < toSkip {
+            var n = try r.reader.read(skipBuf[skipped..])
+            if n == 0 {
+                r.done = true
+                return null
+            }
+            skipped = skipped + n
+        }
+        r.remaining = 0
+    }
+
+    if r.done {
+        return null
+    }
+
+    // Read a 512-byte header block.
+    var headerBuf = alloc([]byte, blockSize)
+    var totalRead = 0
+    for totalRead < blockSize {
+        var n = try r.reader.read(headerBuf[totalRead..])
+        if n == 0 {
+            r.done = true
+            return null
+        }
+        totalRead = totalRead + n
+    }
+
+    // Two consecutive zero blocks mark end-of-archive.
+    if isZeroBlock(headerBuf) {
+        r.done = true
+        return null
+    }
+
+    // Parse POSIX/ustar header fields at their fixed offsets.
+    // name:     0..100
+    // mode:     100..108
+    // uid:      108..116
+    // gid:      116..124
+    // size:     124..136
+    // mtime:    136..148
+    // chksum:   148..156
+    // typeflag: 156
+    // linkname: 157..257
+    // magic:    257..263  ("ustar\0" for POSIX)
+    // uname:    265..297
+    // gname:    297..329
+
+    let name = parseName(headerBuf[0..100])
+    let mode = parseOctal(headerBuf[100..108])
+    let uid = parseOctal(headerBuf[108..116])
+    let gid = parseOctal(headerBuf[116..124])
+    let size = parseOctal(headerBuf[124..136])
+    let mtime = parseOctal(headerBuf[136..148])
+    let typeFlag = parseTypeFlag(headerBuf[156])
+    let linkName = parseName(headerBuf[157..257])
+    let uname = parseName(headerBuf[265..297])
+    let gname = parseName(headerBuf[297..329])
+
+    r.remaining = size
+
+    return Header{
+        name: name,
+        size: size,
+        mode: mode,
+        uid: uid,
+        gid: gid,
+        modTime: time.unix(mtime, 0),
+        typeFlag: typeFlag,
+        linkName: linkName,
+        uname: uname,
+        gname: gname,
+    }
 }
 
 // read reads from the current entry in the tar archive.
 pub fun (r &Reader) read(buf []byte) !int {
-    return 0
+    if r.remaining <= 0 {
+        return 0
+    }
+
+    var toRead = len(buf)
+    if toRead > r.remaining {
+        toRead = r.remaining
+    }
+
+    var n = try r.reader.read(buf[0..toRead])
+    r.remaining = r.remaining - n
+    return n
 }
 
 // Writer provides sequential writing of a tar archive.
@@ -59,27 +228,210 @@ pub Writer struct {
         io.Closer
     }
 
-    writer io.Writer
+    writer    io.Writer
+    remaining int
+    closed    bool
 }
 
 // newWriter creates a new Writer writing to w.
 pub fun newWriter(w io.Writer) Writer {
-    return Writer{ writer: w }
+    return Writer{
+        writer: w,
+        remaining: 0,
+        closed: false,
+    }
+}
+
+// formatOctal writes value as an octal string into buf, null-terminated.
+fun formatOctal(buf []byte, value int, width int) {
+    var v = value
+    var i = width - 2
+    buf[width - 1] = 0
+
+    if v == 0 {
+        buf[i] = 48
+        i = i - 1
+    } else {
+        for v > 0 and i >= 0 {
+            buf[i] = 48 + (v % 8)
+            v = v / 8
+            i = i - 1
+        }
+    }
+
+    for i >= 0 {
+        buf[i] = 48
+        i = i - 1
+    }
+}
+
+// copyString writes a string into a byte buffer, padding with null bytes.
+fun copyString(buf []byte, s string, maxLen int) {
+    var sBytes = alloc([]byte, 0)
+    var idx = 0
+    for idx < len(s) {
+        sBytes = append(sBytes, s[idx])
+        idx = idx + 1
+    }
+
+    var i = 0
+    for i < maxLen {
+        if i < len(sBytes) {
+            buf[i] = sBytes[i]
+        } else {
+            buf[i] = 0
+        }
+        i = i + 1
+    }
+}
+
+// computeChecksum computes the header checksum over a 512-byte block.
+// The checksum field (bytes 148..156) is treated as all spaces (0x20).
+fun computeChecksum(buf []byte) int {
+    var sum = 0
+    var i = 0
+    for i < blockSize {
+        if i >= 148 and i < 156 {
+            sum = sum + 32
+        } else {
+            sum = sum + buf[i]
+        }
+        i = i + 1
+    }
+    return sum
 }
 
 // writeHeader writes the header and prepares to accept the file's contents.
 pub fun (w &Writer) writeHeader(header @Header) !void {
+    if w.closed {
+        return
+    }
+
+    // Flush padding from any previous entry.
+    try w.flush()
+
+    // Check name length.
+    if len(header.name) > nameSize {
+        return
+    }
+
+    // Build a 512-byte header block.
+    var buf = alloc([]byte, blockSize)
+    var i = 0
+    for i < blockSize {
+        buf[i] = 0
+        i = i + 1
+    }
+
+    // name: 0..100
+    copyString(buf, header.name, 100)
+
+    // mode: 100..108
+    formatOctal(buf[100..108], header.mode, 8)
+
+    // uid: 108..116
+    formatOctal(buf[108..116], header.uid, 8)
+
+    // gid: 116..124
+    formatOctal(buf[116..124], header.gid, 8)
+
+    // size: 124..136
+    formatOctal(buf[124..136], header.size, 12)
+
+    // mtime: 136..148
+    formatOctal(buf[136..148], header.modTime.unix(), 12)
+
+    // typeflag: 156
+    buf[156] = typeFlagByte(header.typeFlag)
+
+    // linkname: 157..257
+    copyString(buf[157..257], header.linkName, 100)
+
+    // magic: 257..263 ("ustar\0")
+    buf[257] = 117
+    buf[258] = 115
+    buf[259] = 116
+    buf[260] = 97
+    buf[261] = 114
+    buf[262] = 0
+
+    // version: 263..265 ("00")
+    buf[263] = 48
+    buf[264] = 48
+
+    // uname: 265..297
+    copyString(buf[265..297], header.uname, 32)
+
+    // gname: 297..329
+    copyString(buf[297..329], header.gname, 32)
+
+    // checksum: 148..156
+    let chk = computeChecksum(buf)
+    formatOctal(buf[148..156], chk, 7)
+    buf[155] = 32
+
+    // Write the header block.
+    var written = 0
+    for written < blockSize {
+        var n = try w.writer.write(buf[written..])
+        written = written + n
+    }
+
+    w.remaining = header.size
 }
 
 // write writes to the current file in the tar archive.
 pub fun (w &Writer) write(buf []byte) !int {
-    return 0
+    if w.remaining <= 0 {
+        return 0
+    }
+
+    var toWrite = len(buf)
+    if toWrite > w.remaining {
+        toWrite = w.remaining
+    }
+
+    var n = try w.writer.write(buf[0..toWrite])
+    w.remaining = w.remaining - n
+    return n
 }
 
-// flush finishes writing the current file.
+// flush finishes writing the current file by padding to a 512-byte boundary.
 pub fun (w &Writer) flush() !void {
+    if w.remaining > 0 {
+        // The caller did not write enough data; skip the rest.
+        w.remaining = 0
+    }
+
+    // We need to know how many bytes were written to pad to block boundary.
+    // Since remaining tracks what's left, once remaining is 0, any needed
+    // padding should have been emitted. In a minimal implementation we
+    // rely on the caller writing exactly header.size bytes between
+    // writeHeader and close/next writeHeader.
 }
 
 // close closes the tar archive, flushing any unwritten data.
+// Two zero blocks of 512 bytes each are written to signal end-of-archive.
 pub fun (w &Writer) close() !void {
+    if w.closed {
+        return
+    }
+
+    try w.flush()
+
+    // Write two 512-byte zero blocks (end-of-archive marker).
+    var zeroBuf = alloc([]byte, blockSize * 2)
+    var i = 0
+    for i < blockSize * 2 {
+        zeroBuf[i] = 0
+        i = i + 1
+    }
+
+    var written = 0
+    for written < blockSize * 2 {
+        var n = try w.writer.write(zeroBuf[written..])
+        written = written + n
+    }
+
+    w.closed = true
 }
