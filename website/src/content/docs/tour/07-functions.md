@@ -6,6 +6,10 @@ sidebar:
 
 Functions are declared with the `fun` keyword. Parameters use `name: type` syntax, and the return type follows the parameter list.
 
+:::note[Coming from other languages?]
+Run uses `fun`, not `func` (Go), `function` (JavaScript), or `def` (Python). The compiler will suggest the correct keyword if you use one of these by mistake.
+:::
+
 ```go
 package main
 

@@ -22,4 +22,8 @@ pub fun main() {
 }
 ```
 
-The compiler enforces immutability — any attempt to reassign a `let` variable is a compile-time error. Use `let` when a value should never change, and `var` when it needs to be updated.
+The compiler enforces immutability — any attempt to reassign a `let` variable is a compile-time error. The error message points to the original declaration and suggests using `var` if reassignment is needed. Use `let` when a value should never change, and `var` when it needs to be updated.
+
+:::note[Coming from other languages?]
+If you're used to `const` from JavaScript or C++, Run uses `let` for immutable bindings. The compiler will suggest this if you accidentally type `const`.
+:::
