@@ -1,21 +1,27 @@
 package metrics
 
+use "fmt"
 use "io"
-use "time"
 use "sync"
 
 // Set is a collection of metrics. Safe for concurrent use.
 pub Set struct {
-    mu       sync.Mutex
-    counters map[string]Counter
-    gauges   map[string]Gauge
+    mu            sync.Mutex
+    counters      map[string]Counter
+    floatCounters map[string]FloatCounter
+    gauges        map[string]Gauge
+    histograms    map[string]Histogram
+    summaries     map[string]Summary
 }
 
 // newSet creates a new empty metric Set.
 pub fun newSet() Set {
     return Set{
         counters: alloc(map[string]Counter),
+        floatCounters: alloc(map[string]FloatCounter),
         gauges: alloc(map[string]Gauge),
+        histograms: alloc(map[string]Histogram),
+        summaries: alloc(map[string]Summary),
     }
 }
 
@@ -27,20 +33,36 @@ pub Counter struct {
 
 // newCounter creates or returns an existing Counter with the given name.
 pub fun (s &Set) newCounter(name string) &Counter {
-    return null
+    s.mu.lock()
+    var existing = s.counters[name]
+    if existing != null {
+        s.mu.unlock()
+        return existing
+    }
+    var c = Counter{ name: name, value: 0 }
+    s.counters[name] = c
+    s.mu.unlock()
+    return s.counters[name]
 }
 
 // inc increments the counter by 1.
 pub fun (c &Counter) inc() {
+    c.value = c.value + 1
 }
 
-// add adds n to the counter. Panics if n is negative.
+// add adds n to the counter.
 pub fun (c &Counter) add(n u64) {
+    c.value = c.value + n
 }
 
 // get returns the current value.
 pub fun (c @Counter) get() u64 {
-    return 0
+    return c.value
+}
+
+// reset resets the counter to zero.
+pub fun (c &Counter) reset() {
+    c.value = 0
 }
 
 // FloatCounter is a monotonically increasing float counter.
@@ -51,20 +73,36 @@ pub FloatCounter struct {
 
 // newFloatCounter creates or returns an existing FloatCounter.
 pub fun (s &Set) newFloatCounter(name string) &FloatCounter {
-    return null
+    s.mu.lock()
+    var existing = s.floatCounters[name]
+    if existing != null {
+        s.mu.unlock()
+        return existing
+    }
+    var c = FloatCounter{ name: name, value: 0.0 }
+    s.floatCounters[name] = c
+    s.mu.unlock()
+    return s.floatCounters[name]
 }
 
 // inc increments the counter by 1.0.
 pub fun (c &FloatCounter) inc() {
+    c.value = c.value + 1.0
 }
 
 // add adds n to the counter.
 pub fun (c &FloatCounter) add(n f64) {
+    c.value = c.value + n
 }
 
 // get returns the current value.
 pub fun (c @FloatCounter) get() f64 {
-    return 0.0
+    return c.value
+}
+
+// reset resets the float counter to zero.
+pub fun (c &FloatCounter) reset() {
+    c.value = 0.0
 }
 
 // Gauge is a float64 value that can go up and down.
@@ -75,53 +113,308 @@ pub Gauge struct {
 
 // newGauge creates or returns an existing Gauge.
 pub fun (s &Set) newGauge(name string, callback fun() f64) &Gauge {
-    return null
+    s.mu.lock()
+    var existing = s.gauges[name]
+    if existing != null {
+        s.mu.unlock()
+        return existing
+    }
+    var g = Gauge{ name: name, value: 0.0 }
+    s.gauges[name] = g
+    s.mu.unlock()
+    return s.gauges[name]
 }
 
 // set sets the gauge to the given value.
 pub fun (g &Gauge) set(v f64) {
+    g.value = v
+}
+
+// inc increments the gauge by 1.0.
+pub fun (g &Gauge) inc() {
+    g.value = g.value + 1.0
+}
+
+// dec decrements the gauge by 1.0.
+pub fun (g &Gauge) dec() {
+    g.value = g.value - 1.0
+}
+
+// add adds v to the gauge (v may be negative).
+pub fun (g &Gauge) add(v f64) {
+    g.value = g.value + v
+}
+
+// sub subtracts v from the gauge.
+pub fun (g &Gauge) sub(v f64) {
+    g.value = g.value - v
 }
 
 // get returns the current value.
 pub fun (g @Gauge) get() f64 {
-    return 0.0
+    return g.value
 }
 
 // Histogram tracks the distribution of observed values using
 // VictoriaMetrics vmrange log-bucketing.
 pub Histogram struct {
-    name   string
-    sum    f64
-    count  u64
+    name    string
+    sum     f64
+    count   u64
+    min     f64
+    max     f64
+    buckets []HistogramBucket
+}
+
+// HistogramBucket represents a single histogram bucket.
+pub HistogramBucket struct {
+    upperBound f64
+    count      u64
+}
+
+// defaultBuckets returns the default Prometheus-style histogram bucket boundaries.
+fun defaultBuckets() []f64 {
+    var b = alloc([]f64, 0)
+    b = append(b, 0.005)
+    b = append(b, 0.01)
+    b = append(b, 0.025)
+    b = append(b, 0.05)
+    b = append(b, 0.1)
+    b = append(b, 0.25)
+    b = append(b, 0.5)
+    b = append(b, 1.0)
+    b = append(b, 2.5)
+    b = append(b, 5.0)
+    b = append(b, 10.0)
+    return b
+}
+
+// initBuckets initializes histogram buckets from the default boundaries.
+fun initBuckets() []HistogramBucket {
+    var bounds = defaultBuckets()
+    var buckets = alloc([]HistogramBucket, 0)
+    var i = 0
+    for i < len(bounds) {
+        var bucket = HistogramBucket{ upperBound: bounds[i], count: 0 }
+        buckets = append(buckets, bucket)
+        i = i + 1
+    }
+    return buckets
 }
 
 // newHistogram creates or returns an existing Histogram.
 pub fun (s &Set) newHistogram(name string) &Histogram {
-    return null
+    s.mu.lock()
+    var existing = s.histograms[name]
+    if existing != null {
+        s.mu.unlock()
+        return existing
+    }
+    var h = Histogram{
+        name: name,
+        sum: 0.0,
+        count: 0,
+        min: 0.0,
+        max: 0.0,
+        buckets: initBuckets(),
+    }
+    s.histograms[name] = h
+    s.mu.unlock()
+    return s.histograms[name]
 }
 
 // observe adds a single observation to the histogram.
 pub fun (h &Histogram) observe(v f64) {
+    h.sum = h.sum + v
+    h.count = h.count + 1
+
+    // Update min/max.
+    if h.count == 1 {
+        h.min = v
+        h.max = v
+    } else {
+        if v < h.min {
+            h.min = v
+        }
+        if v > h.max {
+            h.max = v
+        }
+    }
+
+    // Increment matching bucket counters.
+    var i = 0
+    for i < len(h.buckets) {
+        if v <= h.buckets[i].upperBound {
+            h.buckets[i].count = h.buckets[i].count + 1
+        }
+        i = i + 1
+    }
+}
+
+// getSum returns the sum of all observed values.
+pub fun (h @Histogram) getSum() f64 {
+    return h.sum
+}
+
+// getCount returns the number of observations.
+pub fun (h @Histogram) getCount() u64 {
+    return h.count
+}
+
+// getMin returns the minimum observed value.
+pub fun (h @Histogram) getMin() f64 {
+    return h.min
+}
+
+// getMax returns the maximum observed value.
+pub fun (h @Histogram) getMax() f64 {
+    return h.max
 }
 
 // Summary is like Histogram but computes quantiles over a sliding window.
 pub Summary struct {
-    name  string
-    sum   f64
-    count u64
+    name       string
+    sum        f64
+    count      u64
+    values     []f64
+    maxSamples int
 }
 
 // newSummary creates or returns an existing Summary.
 pub fun (s &Set) newSummary(name string) &Summary {
-    return null
+    s.mu.lock()
+    var existing = s.summaries[name]
+    if existing != null {
+        s.mu.unlock()
+        return existing
+    }
+    var sm = Summary{
+        name: name,
+        sum: 0.0,
+        count: 0,
+        values: alloc([]f64, 0),
+        maxSamples: 1000,
+    }
+    s.summaries[name] = sm
+    s.mu.unlock()
+    return s.summaries[name]
 }
 
 // observe adds a single observation to the summary.
 pub fun (sm &Summary) observe(v f64) {
+    sm.sum = sm.sum + v
+    sm.count = sm.count + 1
+
+    // Keep a sliding window of recent samples.
+    if len(sm.values) < sm.maxSamples {
+        sm.values = append(sm.values, v)
+    } else {
+        // Overwrite the oldest sample in a circular fashion.
+        var idx = sm.count % sm.maxSamples
+        sm.values[idx] = v
+    }
+}
+
+// getSum returns the sum of all observed values.
+pub fun (sm @Summary) getSum() f64 {
+    return sm.sum
+}
+
+// getCount returns the number of observations.
+pub fun (sm @Summary) getCount() u64 {
+    return sm.count
+}
+
+// quantile computes an approximate quantile (0.0 to 1.0) from retained samples.
+// Uses a simple sort-based approach on the sliding window.
+pub fun (sm @Summary) quantile(q f64) f64 {
+    if len(sm.values) == 0 {
+        return 0.0
+    }
+
+    // Copy and sort the values (simple insertion sort).
+    var n = len(sm.values)
+    var sorted = alloc([]f64, n)
+    var i = 0
+    for i < n {
+        sorted[i] = sm.values[i]
+        i = i + 1
+    }
+
+    // Insertion sort.
+    var j = 1
+    for j < n {
+        var key = sorted[j]
+        var k = j - 1
+        for k >= 0 {
+            if sorted[k] <= key {
+                break
+            }
+            sorted[k + 1] = sorted[k]
+            k = k - 1
+        }
+        sorted[k + 1] = key
+        j = j + 1
+    }
+
+    // Compute the index for the requested quantile.
+    var rank = q * (n - 1)
+    if rank < 0 {
+        rank = 0
+    }
+    if rank >= n {
+        rank = n - 1
+    }
+    return sorted[rank]
 }
 
 // writePrometheus writes all registered metrics in Prometheus exposition format.
 pub fun (s &Set) writePrometheus(w io.Writer) !void {
+    s.mu.lock()
+
+    // Write counters.
+    for name, c in s.counters {
+        try io.writeString(w, fmt.sprintf("# TYPE %s counter\n", name))
+        try io.writeString(w, fmt.sprintf("%s %d\n", name, c.get()))
+    }
+
+    // Write float counters.
+    for name, c in s.floatCounters {
+        try io.writeString(w, fmt.sprintf("# TYPE %s counter\n", name))
+        try io.writeString(w, fmt.sprintf("%s %f\n", name, c.get()))
+    }
+
+    // Write gauges.
+    for name, g in s.gauges {
+        try io.writeString(w, fmt.sprintf("# TYPE %s gauge\n", name))
+        try io.writeString(w, fmt.sprintf("%s %f\n", name, g.get()))
+    }
+
+    // Write histograms.
+    for name, h in s.histograms {
+        try io.writeString(w, fmt.sprintf("# TYPE %s histogram\n", name))
+        var i = 0
+        for i < len(h.buckets) {
+            var b = h.buckets[i]
+            try io.writeString(w, fmt.sprintf("%s_bucket{le=\"%f\"} %d\n", name, b.upperBound, b.count))
+            i = i + 1
+        }
+        try io.writeString(w, fmt.sprintf("%s_bucket{le=\"+Inf\"} %d\n", name, h.count))
+        try io.writeString(w, fmt.sprintf("%s_sum %f\n", name, h.sum))
+        try io.writeString(w, fmt.sprintf("%s_count %d\n", name, h.count))
+    }
+
+    // Write summaries.
+    for name, sm in s.summaries {
+        try io.writeString(w, fmt.sprintf("# TYPE %s summary\n", name))
+        try io.writeString(w, fmt.sprintf("%s{quantile=\"0.5\"} %f\n", name, sm.quantile(0.5)))
+        try io.writeString(w, fmt.sprintf("%s{quantile=\"0.9\"} %f\n", name, sm.quantile(0.9)))
+        try io.writeString(w, fmt.sprintf("%s{quantile=\"0.99\"} %f\n", name, sm.quantile(0.99)))
+        try io.writeString(w, fmt.sprintf("%s_sum %f\n", name, sm.sum))
+        try io.writeString(w, fmt.sprintf("%s_count %d\n", name, sm.count))
+    }
+
+    s.mu.unlock()
 }
 
 // Default set used by package-level functions.
@@ -129,6 +422,32 @@ pub fun (s &Set) writePrometheus(w io.Writer) !void {
 // defaultSet is the default metric set.
 pub var defaultSet = newSet()
 
+// newCounter creates or returns a Counter in the default set.
+pub fun newCounter(name string) &Counter {
+    return defaultSet.newCounter(name)
+}
+
+// newFloatCounter creates or returns a FloatCounter in the default set.
+pub fun newFloatCounter(name string) &FloatCounter {
+    return defaultSet.newFloatCounter(name)
+}
+
+// newGauge creates or returns a Gauge in the default set with no callback.
+pub fun newGauge(name string) &Gauge {
+    return defaultSet.newGauge(name, null)
+}
+
+// newHistogram creates or returns a Histogram in the default set.
+pub fun newHistogram(name string) &Histogram {
+    return defaultSet.newHistogram(name)
+}
+
+// newSummary creates or returns a Summary in the default set.
+pub fun newSummary(name string) &Summary {
+    return defaultSet.newSummary(name)
+}
+
 // writePrometheus writes the default set's metrics in Prometheus format.
 pub fun writePrometheus(w io.Writer) !void {
+    try defaultSet.writePrometheus(w)
 }
