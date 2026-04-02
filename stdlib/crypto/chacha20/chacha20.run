@@ -1,33 +1,521 @@
 package chacha20
 
+use "crypto"
+
 // Key and nonce sizes in bytes.
 pub let keySize = 32
 pub let nonceSize = 12
 pub let nonceSizeX = 24
 
+// Internal block size in 32-bit words.
+let stateWords = 16
+
 // Cipher implements ChaCha20/XChaCha20 encryption.
 pub Cipher struct {
-    key   []byte
-    nonce []byte
+    key     []byte
+    nonce   []byte
+    counter u32
+    buf     []byte
+    bufUsed int
 }
 
 // newUnauthenticated returns a ChaCha20 stream cipher.
 // Note: This cipher does not provide authentication. For authenticated
 // encryption, use crypto/chacha20poly1305 instead.
 pub fun newUnauthenticated(key []byte, nonce []byte) !Cipher {
-    return Cipher{ key: alloc([]byte, 0), nonce: alloc([]byte, 0) }
+    if len(key) != keySize {
+        return crypto.CryptoError.invalidKeyLength
+    }
+    if len(nonce) != nonceSize {
+        return crypto.CryptoError.invalidParameter
+    }
+
+    var keyCopy = alloc([]byte, 0)
+    var i = 0
+    for i < keySize {
+        keyCopy = append(keyCopy, key[i])
+        i = i + 1
+    }
+
+    var nonceCopy = alloc([]byte, 0)
+    i = 0
+    for i < nonceSize {
+        nonceCopy = append(nonceCopy, nonce[i])
+        i = i + 1
+    }
+
+    return Cipher{
+        key:     keyCopy,
+        nonce:   nonceCopy,
+        counter: 0,
+        buf:     alloc([]byte, 64),
+        bufUsed: 64,
+    }
 }
 
 // newXUnauthenticated returns an XChaCha20 stream cipher with a 24-byte nonce.
+// Internally, XChaCha20 uses HChaCha20 to derive a subkey from the first 16
+// bytes of the nonce, then uses the remaining 8 bytes as a standard nonce.
 pub fun newXUnauthenticated(key []byte, nonce []byte) !Cipher {
-    return Cipher{ key: alloc([]byte, 0), nonce: alloc([]byte, 0) }
+    if len(key) != keySize {
+        return crypto.CryptoError.invalidKeyLength
+    }
+    if len(nonce) != nonceSizeX {
+        return crypto.CryptoError.invalidParameter
+    }
+
+    // Derive subkey using HChaCha20 with first 16 bytes of nonce.
+    var subkey = hChaCha20(key, nonce[0..16])
+
+    // Build 12-byte nonce: 4 zero bytes + last 8 bytes of original nonce.
+    var derivedNonce = alloc([]byte, 0)
+    derivedNonce = append(derivedNonce, 0)
+    derivedNonce = append(derivedNonce, 0)
+    derivedNonce = append(derivedNonce, 0)
+    derivedNonce = append(derivedNonce, 0)
+    var i = 16
+    for i < 24 {
+        derivedNonce = append(derivedNonce, nonce[i])
+        i = i + 1
+    }
+
+    return Cipher{
+        key:     subkey,
+        nonce:   derivedNonce,
+        counter: 0,
+        buf:     alloc([]byte, 64),
+        bufUsed: 64,
+    }
 }
 
 // xorKeyStream XORs each byte in src with a byte from the ChaCha20 key stream,
 // writing the result into dst.
 pub fun (c &Cipher) xorKeyStream(dst []byte, src []byte) {
+    var i = 0
+    for i < len(src) {
+        if c.bufUsed >= 64 {
+            // Generate next 64-byte keystream block.
+            chachaBlock(c.buf, c.key, c.nonce, c.counter)
+            c.counter = c.counter + 1
+            c.bufUsed = 0
+        }
+
+        dst[i] = xorByte(src[i], c.buf[c.bufUsed])
+        c.bufUsed = c.bufUsed + 1
+        i = i + 1
+    }
 }
 
 // setCounter sets the block counter for the cipher.
 pub fun (c &Cipher) setCounter(counter u32) {
+    c.counter = counter
+    c.bufUsed = 64
+}
+
+// --- Internal ChaCha20 functions ---
+
+// chachaBlock generates one 64-byte keystream block.
+fun chachaBlock(out []byte, key []byte, nonce []byte, counter u32) {
+    // Initialize state: "expand 32-byte k" constants + key + counter + nonce.
+    var s0  = 1634760805
+    var s1  = 857760878
+    var s2  = 2036477234
+    var s3  = 1797285236
+    var s4  = loadU32LE(key, 0)
+    var s5  = loadU32LE(key, 4)
+    var s6  = loadU32LE(key, 8)
+    var s7  = loadU32LE(key, 12)
+    var s8  = loadU32LE(key, 16)
+    var s9  = loadU32LE(key, 20)
+    var s10 = loadU32LE(key, 24)
+    var s11 = loadU32LE(key, 28)
+    var s12 = counter
+    var s13 = loadU32LE(nonce, 0)
+    var s14 = loadU32LE(nonce, 4)
+    var s15 = loadU32LE(nonce, 8)
+
+    // Save initial state.
+    let i0  = s0
+    let i1  = s1
+    let i2  = s2
+    let i3  = s3
+    let i4  = s4
+    let i5  = s5
+    let i6  = s6
+    let i7  = s7
+    let i8  = s8
+    let i9  = s9
+    let i10 = s10
+    let i11 = s11
+    let i12 = s12
+    let i13 = s13
+    let i14 = s14
+    let i15 = s15
+
+    // 20 rounds (10 double rounds).
+    var round = 0
+    for round < 10 {
+        // Column rounds.
+        s0  = mask32(s0 + s4)
+        s12 = rotl32(xor32(s12, s0), 16)
+        s8  = mask32(s8 + s12)
+        s4  = rotl32(xor32(s4, s8), 12)
+        s0  = mask32(s0 + s4)
+        s12 = rotl32(xor32(s12, s0), 8)
+        s8  = mask32(s8 + s12)
+        s4  = rotl32(xor32(s4, s8), 7)
+
+        s1  = mask32(s1 + s5)
+        s13 = rotl32(xor32(s13, s1), 16)
+        s9  = mask32(s9 + s13)
+        s5  = rotl32(xor32(s5, s9), 12)
+        s1  = mask32(s1 + s5)
+        s13 = rotl32(xor32(s13, s1), 8)
+        s9  = mask32(s9 + s13)
+        s5  = rotl32(xor32(s5, s9), 7)
+
+        s2  = mask32(s2 + s6)
+        s14 = rotl32(xor32(s14, s2), 16)
+        s10 = mask32(s10 + s14)
+        s6  = rotl32(xor32(s6, s10), 12)
+        s2  = mask32(s2 + s6)
+        s14 = rotl32(xor32(s14, s2), 8)
+        s10 = mask32(s10 + s14)
+        s6  = rotl32(xor32(s6, s10), 7)
+
+        s3  = mask32(s3 + s7)
+        s15 = rotl32(xor32(s15, s3), 16)
+        s11 = mask32(s11 + s15)
+        s7  = rotl32(xor32(s7, s11), 12)
+        s3  = mask32(s3 + s7)
+        s15 = rotl32(xor32(s15, s3), 8)
+        s11 = mask32(s11 + s15)
+        s7  = rotl32(xor32(s7, s11), 7)
+
+        // Diagonal rounds.
+        s0  = mask32(s0 + s5)
+        s15 = rotl32(xor32(s15, s0), 16)
+        s10 = mask32(s10 + s15)
+        s5  = rotl32(xor32(s5, s10), 12)
+        s0  = mask32(s0 + s5)
+        s15 = rotl32(xor32(s15, s0), 8)
+        s10 = mask32(s10 + s15)
+        s5  = rotl32(xor32(s5, s10), 7)
+
+        s1  = mask32(s1 + s6)
+        s12 = rotl32(xor32(s12, s1), 16)
+        s11 = mask32(s11 + s12)
+        s6  = rotl32(xor32(s6, s11), 12)
+        s1  = mask32(s1 + s6)
+        s12 = rotl32(xor32(s12, s1), 8)
+        s11 = mask32(s11 + s12)
+        s6  = rotl32(xor32(s6, s11), 7)
+
+        s2  = mask32(s2 + s7)
+        s13 = rotl32(xor32(s13, s2), 16)
+        s8  = mask32(s8 + s13)
+        s7  = rotl32(xor32(s7, s8), 12)
+        s2  = mask32(s2 + s7)
+        s13 = rotl32(xor32(s13, s2), 8)
+        s8  = mask32(s8 + s13)
+        s7  = rotl32(xor32(s7, s8), 7)
+
+        s3  = mask32(s3 + s4)
+        s14 = rotl32(xor32(s14, s3), 16)
+        s9  = mask32(s9 + s14)
+        s4  = rotl32(xor32(s4, s9), 12)
+        s3  = mask32(s3 + s4)
+        s14 = rotl32(xor32(s14, s3), 8)
+        s9  = mask32(s9 + s14)
+        s4  = rotl32(xor32(s4, s9), 7)
+
+        round = round + 1
+    }
+
+    // Add initial state back.
+    s0  = mask32(s0 + i0)
+    s1  = mask32(s1 + i1)
+    s2  = mask32(s2 + i2)
+    s3  = mask32(s3 + i3)
+    s4  = mask32(s4 + i4)
+    s5  = mask32(s5 + i5)
+    s6  = mask32(s6 + i6)
+    s7  = mask32(s7 + i7)
+    s8  = mask32(s8 + i8)
+    s9  = mask32(s9 + i9)
+    s10 = mask32(s10 + i10)
+    s11 = mask32(s11 + i11)
+    s12 = mask32(s12 + i12)
+    s13 = mask32(s13 + i13)
+    s14 = mask32(s14 + i14)
+    s15 = mask32(s15 + i15)
+
+    // Serialize state to output (little-endian).
+    storeU32LE(out, 0, s0)
+    storeU32LE(out, 4, s1)
+    storeU32LE(out, 8, s2)
+    storeU32LE(out, 12, s3)
+    storeU32LE(out, 16, s4)
+    storeU32LE(out, 20, s5)
+    storeU32LE(out, 24, s6)
+    storeU32LE(out, 28, s7)
+    storeU32LE(out, 32, s8)
+    storeU32LE(out, 36, s9)
+    storeU32LE(out, 40, s10)
+    storeU32LE(out, 44, s11)
+    storeU32LE(out, 48, s12)
+    storeU32LE(out, 52, s13)
+    storeU32LE(out, 56, s14)
+    storeU32LE(out, 60, s15)
+}
+
+// hChaCha20 derives a 32-byte subkey for XChaCha20.
+fun hChaCha20(key []byte, nonce []byte) []byte {
+    // Initialize state: constants + key + nonce (16 bytes).
+    var s0  = 1634760805
+    var s1  = 857760878
+    var s2  = 2036477234
+    var s3  = 1797285236
+    var s4  = loadU32LE(key, 0)
+    var s5  = loadU32LE(key, 4)
+    var s6  = loadU32LE(key, 8)
+    var s7  = loadU32LE(key, 12)
+    var s8  = loadU32LE(key, 16)
+    var s9  = loadU32LE(key, 20)
+    var s10 = loadU32LE(key, 24)
+    var s11 = loadU32LE(key, 28)
+    var s12 = loadU32LE(nonce, 0)
+    var s13 = loadU32LE(nonce, 4)
+    var s14 = loadU32LE(nonce, 8)
+    var s15 = loadU32LE(nonce, 12)
+
+    // 20 rounds (10 double rounds), same as ChaCha20 but no final add.
+    var round = 0
+    for round < 10 {
+        // Column rounds.
+        s0  = mask32(s0 + s4)
+        s12 = rotl32(xor32(s12, s0), 16)
+        s8  = mask32(s8 + s12)
+        s4  = rotl32(xor32(s4, s8), 12)
+        s0  = mask32(s0 + s4)
+        s12 = rotl32(xor32(s12, s0), 8)
+        s8  = mask32(s8 + s12)
+        s4  = rotl32(xor32(s4, s8), 7)
+
+        s1  = mask32(s1 + s5)
+        s13 = rotl32(xor32(s13, s1), 16)
+        s9  = mask32(s9 + s13)
+        s5  = rotl32(xor32(s5, s9), 12)
+        s1  = mask32(s1 + s5)
+        s13 = rotl32(xor32(s13, s1), 8)
+        s9  = mask32(s9 + s13)
+        s5  = rotl32(xor32(s5, s9), 7)
+
+        s2  = mask32(s2 + s6)
+        s14 = rotl32(xor32(s14, s2), 16)
+        s10 = mask32(s10 + s14)
+        s6  = rotl32(xor32(s6, s10), 12)
+        s2  = mask32(s2 + s6)
+        s14 = rotl32(xor32(s14, s2), 8)
+        s10 = mask32(s10 + s14)
+        s6  = rotl32(xor32(s6, s10), 7)
+
+        s3  = mask32(s3 + s7)
+        s15 = rotl32(xor32(s15, s3), 16)
+        s11 = mask32(s11 + s15)
+        s7  = rotl32(xor32(s7, s11), 12)
+        s3  = mask32(s3 + s7)
+        s15 = rotl32(xor32(s15, s3), 8)
+        s11 = mask32(s11 + s15)
+        s7  = rotl32(xor32(s7, s11), 7)
+
+        // Diagonal rounds.
+        s0  = mask32(s0 + s5)
+        s15 = rotl32(xor32(s15, s0), 16)
+        s10 = mask32(s10 + s15)
+        s5  = rotl32(xor32(s5, s10), 12)
+        s0  = mask32(s0 + s5)
+        s15 = rotl32(xor32(s15, s0), 8)
+        s10 = mask32(s10 + s15)
+        s5  = rotl32(xor32(s5, s10), 7)
+
+        s1  = mask32(s1 + s6)
+        s12 = rotl32(xor32(s12, s1), 16)
+        s11 = mask32(s11 + s12)
+        s6  = rotl32(xor32(s6, s11), 12)
+        s1  = mask32(s1 + s6)
+        s12 = rotl32(xor32(s12, s1), 8)
+        s11 = mask32(s11 + s12)
+        s6  = rotl32(xor32(s6, s11), 7)
+
+        s2  = mask32(s2 + s7)
+        s13 = rotl32(xor32(s13, s2), 16)
+        s8  = mask32(s8 + s13)
+        s7  = rotl32(xor32(s7, s8), 12)
+        s2  = mask32(s2 + s7)
+        s13 = rotl32(xor32(s13, s2), 8)
+        s8  = mask32(s8 + s13)
+        s7  = rotl32(xor32(s7, s8), 7)
+
+        s3  = mask32(s3 + s4)
+        s14 = rotl32(xor32(s14, s3), 16)
+        s9  = mask32(s9 + s14)
+        s4  = rotl32(xor32(s4, s9), 12)
+        s3  = mask32(s3 + s4)
+        s14 = rotl32(xor32(s14, s3), 8)
+        s9  = mask32(s9 + s14)
+        s4  = rotl32(xor32(s4, s9), 7)
+
+        round = round + 1
+    }
+
+    // HChaCha20 output: first and last 4 words of state (no final add).
+    var subkey = alloc([]byte, 32)
+    storeU32LE(subkey, 0, s0)
+    storeU32LE(subkey, 4, s1)
+    storeU32LE(subkey, 8, s2)
+    storeU32LE(subkey, 12, s3)
+    storeU32LE(subkey, 16, s12)
+    storeU32LE(subkey, 20, s13)
+    storeU32LE(subkey, 24, s14)
+    storeU32LE(subkey, 28, s15)
+
+    return subkey
+}
+
+// --- Bitwise helper functions (arithmetic-based) ---
+
+// mask32 masks a value to 32 bits.
+fun mask32(v int) int {
+    return v % 4294967296
+}
+
+// rotl32 rotates a 32-bit value left by n bits.
+fun rotl32(v u32, n int) u32 {
+    return mask32(or32(shl32(v, n), shr32(v, 32 - n)))
+}
+
+// xor32 returns the bitwise XOR of a and b for 32-bit values.
+fun xor32(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 32 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA != bitB {
+            result = result + bitVal
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+// or32 returns the bitwise OR of a and b for 32-bit values.
+fun or32(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 32 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA == 1 or bitB == 1 {
+            result = result + bitVal
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+// and32 returns the bitwise AND of a and b for 32-bit values.
+fun and32(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 32 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA == 1 {
+            if bitB == 1 {
+                result = result + bitVal
+            }
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+// shl32 returns a << n for 32-bit values.
+fun shl32(a int, n int) int {
+    var v = a
+    var i = 0
+    for i < n {
+        v = v * 2
+        i = i + 1
+    }
+    return v
+}
+
+// shr32 returns a >> n for 32-bit values.
+fun shr32(a int, n int) int {
+    var v = a
+    var i = 0
+    for i < n {
+        v = v / 2
+        i = i + 1
+    }
+    return v
+}
+
+// xorByte returns the bitwise XOR of two byte values.
+fun xorByte(a byte, b byte) byte {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 8 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA != bitB {
+            result = result + bitVal
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+// loadU32LE loads a little-endian u32 from buf at offset.
+fun loadU32LE(buf []byte, offset int) u32 {
+    let b0 = buf[offset]
+    let b1 = shl32(buf[offset + 1], 8)
+    let b2 = shl32(buf[offset + 2], 16)
+    let b3 = shl32(buf[offset + 3], 24)
+    return or32(or32(b0, b1), or32(b2, b3))
+}
+
+// storeU32LE stores a u32 as little-endian bytes into buf at offset.
+fun storeU32LE(buf []byte, offset int, val u32) {
+    buf[offset]     = and32(val, 255)
+    buf[offset + 1] = and32(shr32(val, 8), 255)
+    buf[offset + 2] = and32(shr32(val, 16), 255)
+    buf[offset + 3] = and32(shr32(val, 24), 255)
 }
