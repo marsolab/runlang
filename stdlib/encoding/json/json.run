@@ -2,6 +2,10 @@ package json
 
 use "io"
 
+// Helper functions for type conversions.
+fun toBytes(s string) []byte { return s }
+fun toString(b []byte) string { return b }
+
 // Value represents a JSON value.
 pub type Value = .null
     | .bool(bool)
@@ -19,109 +23,1139 @@ pub type JsonError = .syntaxError
     | .unknownField
     | .overflow
 
-// marshal encodes a value as JSON bytes.
-pub fun marshal(v any) ![]byte {
-    return alloc([]byte, 0)
-}
-
-// marshalIndent encodes a value as indented JSON bytes.
-pub fun marshalIndent(v any, prefix string, indent string) ![]byte {
-    return alloc([]byte, 0)
-}
-
-// unmarshal decodes JSON bytes into a value.
-pub fun unmarshal(data []byte, v &any) !void {
-}
-
-// marshalString encodes a value as a JSON string.
-pub fun marshalString(v any) !string {
-    return ""
-}
-
-// parse parses JSON bytes into a dynamic Value tree.
-pub fun parse(data []byte) !Value {
-    return .null
-}
-
-// parseString parses a JSON string into a dynamic Value tree.
-pub fun parseString(s string) !Value {
-    return .null
-}
+// --------------------------------------------------------------------------
+// Value accessor methods
+// --------------------------------------------------------------------------
 
 // get retrieves a nested value by key path from a Value.
 pub fun (v Value) get(key string) Value? {
-    return null
+    switch v {
+        .object(m) :: { return m[key] },
+        _ :: { return null },
+    }
 }
 
 // getIndex retrieves an element by index from an array Value.
 pub fun (v Value) getIndex(i int) Value? {
-    return null
+    switch v {
+        .array(arr) :: {
+            if i < 0 {
+                return null
+            }
+            if i >= len(arr) {
+                return null
+            }
+            return .some(arr[i])
+        },
+        _ :: { return null },
+    }
 }
 
 // asString returns the string if the Value is a string, or null.
 pub fun (v Value) asString() string? {
-    return null
+    switch v {
+        .string(s) :: { return .some(s) },
+        _ :: { return null },
+    }
 }
 
 // asInt returns the int if the Value is an int, or null.
 pub fun (v Value) asInt() int? {
-    return null
+    switch v {
+        .int(n) :: { return .some(n) },
+        _ :: { return null },
+    }
 }
 
 // asFloat returns the float if the Value is a float, or null.
 pub fun (v Value) asFloat() f64? {
-    return null
+    switch v {
+        .float(f) :: { return .some(f) },
+        _ :: { return null },
+    }
 }
 
 // asBool returns the bool if the Value is a bool, or null.
 pub fun (v Value) asBool() bool? {
-    return null
+    switch v {
+        .bool(b) :: { return .some(b) },
+        _ :: { return null },
+    }
 }
 
 // asArray returns the array if the Value is an array, or null.
 pub fun (v Value) asArray() []Value? {
-    return null
+    switch v {
+        .array(arr) :: { return .some(arr) },
+        _ :: { return null },
+    }
 }
 
 // asObject returns the object if the Value is an object, or null.
 pub fun (v Value) asObject() map[string]Value? {
-    return null
+    switch v {
+        .object(m) :: { return .some(m) },
+        _ :: { return null },
+    }
 }
+
+// --------------------------------------------------------------------------
+// Type checking methods
+// --------------------------------------------------------------------------
 
 // isNull reports whether the Value is null.
 pub fun (v @Value) isNull() bool {
-    return false
+    switch v {
+        .null :: { return true },
+        _ :: { return false },
+    }
 }
 
 // isBool reports whether the Value is a boolean.
 pub fun (v @Value) isBool() bool {
-    return false
+    switch v {
+        .bool(_) :: { return true },
+        _ :: { return false },
+    }
 }
 
 // isInt reports whether the Value is an integer.
 pub fun (v @Value) isInt() bool {
-    return false
+    switch v {
+        .int(_) :: { return true },
+        _ :: { return false },
+    }
 }
 
 // isFloat reports whether the Value is a float.
 pub fun (v @Value) isFloat() bool {
-    return false
+    switch v {
+        .float(_) :: { return true },
+        _ :: { return false },
+    }
 }
 
 // isString reports whether the Value is a string.
 pub fun (v @Value) isString() bool {
-    return false
+    switch v {
+        .string(_) :: { return true },
+        _ :: { return false },
+    }
 }
 
 // isArray reports whether the Value is an array.
 pub fun (v @Value) isArray() bool {
-    return false
+    switch v {
+        .array(_) :: { return true },
+        _ :: { return false },
+    }
 }
 
 // isObject reports whether the Value is an object.
 pub fun (v @Value) isObject() bool {
-    return false
+    switch v {
+        .object(_) :: { return true },
+        _ :: { return false },
+    }
 }
+
+// --------------------------------------------------------------------------
+// Internal: string builder helper
+// --------------------------------------------------------------------------
+
+type Builder struct {
+    buf []byte
+}
+
+fun (b &Builder) writeString(s string) {
+    var data = toBytes(s)
+    var i = 0
+    for i < len(data) {
+        b.buf = append(b.buf, data[i])
+        i = i + 1
+    }
+}
+
+fun (b &Builder) writeByte(c byte) {
+    b.buf = append(b.buf, c)
+}
+
+fun (b @Builder) string() string {
+    return toString(b.buf)
+}
+
+fun (b @Builder) bytes() []byte {
+    return b.buf
+}
+
+fun newBuilder() Builder {
+    return Builder{ buf: alloc([]byte, 0) }
+}
+
+// --------------------------------------------------------------------------
+// Marshal: Value tree -> JSON
+// --------------------------------------------------------------------------
+
+// marshal encodes a value as JSON bytes.
+pub fun marshal(v any) ![]byte {
+    var b = newBuilder()
+    writeJsonValue(&b, v, "", "", 0)
+    return b.bytes()
+}
+
+// marshalIndent encodes a value as indented JSON bytes.
+pub fun marshalIndent(v any, prefix string, indent string) ![]byte {
+    var b = newBuilder()
+    writeJsonValue(&b, v, prefix, indent, 0)
+    return b.bytes()
+}
+
+// marshalString encodes a value as a JSON string.
+pub fun marshalString(v any) !string {
+    var b = newBuilder()
+    writeJsonValue(&b, v, "", "", 0)
+    return b.string()
+}
+
+fun writeJsonValue(b &Builder, v Value, prefix string, indent string, depth int) {
+    var pretty = len(indent) > 0
+    switch v {
+        .null :: {
+            b.writeString("null")
+        },
+        .bool(val) :: {
+            if val {
+                b.writeString("true")
+            } else {
+                b.writeString("false")
+            }
+        },
+        .int(n) :: {
+            writeInt(b, n)
+        },
+        .float(f) :: {
+            writeFloat(b, f)
+        },
+        .string(s) :: {
+            writeJsonString(b, s)
+        },
+        .array(arr) :: {
+            if len(arr) == 0 {
+                b.writeString("[]")
+            } else {
+                b.writeByte(91) // '['
+                var i = 0
+                for i < len(arr) {
+                    if i > 0 {
+                        b.writeByte(44) // ','
+                    }
+                    if pretty {
+                        b.writeByte(10) // '\n'
+                        writeIndent(b, prefix, indent, depth + 1)
+                    }
+                    writeJsonValue(b, arr[i], prefix, indent, depth + 1)
+                    i = i + 1
+                }
+                if pretty {
+                    b.writeByte(10) // '\n'
+                    writeIndent(b, prefix, indent, depth)
+                }
+                b.writeByte(93) // ']'
+            }
+        },
+        .object(m) :: {
+            var keys = mapKeys(m)
+            if len(keys) == 0 {
+                b.writeString("{}")
+            } else {
+                b.writeByte(123) // '{'
+                var i = 0
+                for i < len(keys) {
+                    if i > 0 {
+                        b.writeByte(44) // ','
+                    }
+                    if pretty {
+                        b.writeByte(10) // '\n'
+                        writeIndent(b, prefix, indent, depth + 1)
+                    }
+                    writeJsonString(b, keys[i])
+                    b.writeByte(58) // ':'
+                    if pretty {
+                        b.writeByte(32) // ' '
+                    }
+                    var val = m[keys[i]]
+                    switch val {
+                        .some(inner) :: {
+                            writeJsonValue(b, inner, prefix, indent, depth + 1)
+                        },
+                        null :: {
+                            b.writeString("null")
+                        },
+                    }
+                    i = i + 1
+                }
+                if pretty {
+                    b.writeByte(10) // '\n'
+                    writeIndent(b, prefix, indent, depth)
+                }
+                b.writeByte(125) // '}'
+            }
+        },
+    }
+}
+
+fun writeIndent(b &Builder, prefix string, indent string, depth int) {
+    b.writeString(prefix)
+    var i = 0
+    for i < depth {
+        b.writeString(indent)
+        i = i + 1
+    }
+}
+
+fun writeJsonString(b &Builder, s string) {
+    b.writeByte(34) // '"'
+    var data = toBytes(s)
+    var i = 0
+    for i < len(data) {
+        var c = data[i]
+        if c == 34 { // '"'
+            b.writeByte(92) // '\'
+            b.writeByte(34)
+        } else {
+            if c == 92 { // '\'
+                b.writeByte(92)
+                b.writeByte(92)
+            } else {
+                if c == 10 { // '\n'
+                    b.writeByte(92)
+                    b.writeByte(110) // 'n'
+                } else {
+                    if c == 13 { // '\r'
+                        b.writeByte(92)
+                        b.writeByte(114) // 'r'
+                    } else {
+                        if c == 9 { // '\t'
+                            b.writeByte(92)
+                            b.writeByte(116) // 't'
+                        } else {
+                            if c < 32 {
+                                // Control character: write \u00XX.
+                                b.writeByte(92)
+                                b.writeByte(117) // 'u'
+                                b.writeByte(48) // '0'
+                                b.writeByte(48) // '0'
+                                b.writeByte(hexDigit(c / 16))
+                                b.writeByte(hexDigit(c % 16))
+                            } else {
+                                b.writeByte(c)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    b.writeByte(34) // '"'
+}
+
+fun hexDigit(n byte) byte {
+    if n < 10 {
+        return 48 + n // '0' + n
+    }
+    return 97 + n - 10 // 'a' + n - 10
+}
+
+fun writeInt(b &Builder, n int) {
+    if n < 0 {
+        b.writeByte(45) // '-'
+        writeInt(b, 0 - n)
+        return
+    }
+    if n == 0 {
+        b.writeByte(48) // '0'
+        return
+    }
+    // Write digits in reverse, then reverse them.
+    var digits = alloc([]byte, 0)
+    var val = n
+    for val > 0 {
+        var d = val % 10
+        digits = append(digits, 48 + d)
+        val = val / 10
+    }
+    // Reverse and write.
+    var i = len(digits) - 1
+    for i >= 0 {
+        b.writeByte(digits[i])
+        i = i - 1
+    }
+}
+
+fun writeFloat(b &Builder, f f64) {
+    // Simple float formatting: sign + integer part + decimal part.
+    if f < 0.0 {
+        b.writeByte(45) // '-'
+        writeFloat(b, 0.0 - f)
+        return
+    }
+    // Separate integer and fractional parts manually.
+    // Multiply by 1000000 to get 6 decimal places, then format.
+    var scaled = f * 1000000.0
+    // Round: add 0.5 before truncation.
+    scaled = scaled + 0.5
+    // We need integer division without a cast.
+    // Use repeated subtraction approach for the integer part.
+    var whole = 0
+    var rem = f
+    for rem >= 1.0 {
+        whole = whole + 1
+        rem = rem - 1.0
+    }
+    writeInt(b, whole)
+    b.writeByte(46) // '.'
+    // For the fractional part, multiply and extract digits.
+    var frac = f - f64FromInt(whole)
+    var di = 0
+    for di < 6 {
+        frac = frac * 10.0
+        var digit = intFromFloat(frac)
+        b.writeByte(48 + digit)
+        frac = frac - f64FromInt(digit)
+        di = di + 1
+    }
+}
+
+// intFromFloat extracts the integer part of a float via repeated subtraction.
+fun intFromFloat(f f64) int {
+    if f < 0.0 {
+        return 0 - intFromFloat(0.0 - f)
+    }
+    var n = 0
+    var rem = f
+    for rem >= 1.0 {
+        n = n + 1
+        rem = rem - 1.0
+    }
+    return n
+}
+
+// f64FromInt converts an int to f64 via repeated addition.
+fun f64FromInt(n int) f64 {
+    if n < 0 {
+        return 0.0 - f64FromInt(0 - n)
+    }
+    var result = 0.0
+    var i = 0
+    for i < n {
+        result = result + 1.0
+        i = i + 1
+    }
+    return result
+}
+
+fun mapKeys(m map[string]Value) []string {
+    var keys = alloc([]string, 0)
+    for k, _ in m {
+        keys = append(keys, k)
+    }
+    return keys
+}
+
+// --------------------------------------------------------------------------
+// Parse: JSON string/bytes -> Value tree
+// --------------------------------------------------------------------------
+
+// Parser holds internal state for JSON parsing.
+type Parser struct {
+    data []byte
+    pos  int
+}
+
+// parse parses JSON bytes into a dynamic Value tree.
+pub fun parse(data []byte) !Value {
+    var p = Parser{ data: data, pos: 0 }
+    var result = p.parseValue()
+    switch result {
+        .err(e) :: { return .err(e) },
+        .ok(v) :: {
+            p.skipWhitespace()
+            return .ok(v)
+        },
+    }
+}
+
+// parseString parses a JSON string into a dynamic Value tree.
+pub fun parseString(s string) !Value {
+    return parse(toBytes(s))
+}
+
+fun (p &Parser) skipWhitespace() {
+    for p.pos < len(p.data) {
+        var c = p.data[p.pos]
+        if c == 32 {
+            p.pos = p.pos + 1
+        } else {
+            if c == 9 {
+                p.pos = p.pos + 1
+            } else {
+                if c == 10 {
+                    p.pos = p.pos + 1
+                } else {
+                    if c == 13 {
+                        p.pos = p.pos + 1
+                    } else {
+                        return
+                    }
+                }
+            }
+        }
+    }
+}
+
+fun (p &Parser) peek() byte {
+    if p.pos >= len(p.data) {
+        return 0
+    }
+    return p.data[p.pos]
+}
+
+fun (p &Parser) advance() byte {
+    var c = p.data[p.pos]
+    p.pos = p.pos + 1
+    return c
+}
+
+fun (p &Parser) parseValue() !Value {
+    p.skipWhitespace()
+    if p.pos >= len(p.data) {
+        return .err(JsonError.unexpectedEof)
+    }
+    var c = p.peek()
+    if c == 123 { // '{'
+        return p.parseObject()
+    }
+    if c == 91 { // '['
+        return p.parseArray()
+    }
+    if c == 34 { // '"'
+        return p.parseStringValue()
+    }
+    if c == 116 { // 't'
+        return p.parseTrue()
+    }
+    if c == 102 { // 'f'
+        return p.parseFalse()
+    }
+    if c == 110 { // 'n'
+        return p.parseNull()
+    }
+    if c == 45 { // '-'
+        return p.parseNumber()
+    }
+    if c >= 48 {
+        if c <= 57 { // '0'-'9'
+            return p.parseNumber()
+        }
+    }
+    return .err(JsonError.invalidCharacter)
+}
+
+fun (p &Parser) parseNull() !Value {
+    // Expect "null".
+    if p.pos + 4 > len(p.data) {
+        return .err(JsonError.unexpectedEof)
+    }
+    if p.data[p.pos] != 110 {
+        return .err(JsonError.syntaxError)
+    }
+    if p.data[p.pos + 1] != 117 {
+        return .err(JsonError.syntaxError)
+    }
+    if p.data[p.pos + 2] != 108 {
+        return .err(JsonError.syntaxError)
+    }
+    if p.data[p.pos + 3] != 108 {
+        return .err(JsonError.syntaxError)
+    }
+    p.pos = p.pos + 4
+    return .ok(Value.null)
+}
+
+fun (p &Parser) parseTrue() !Value {
+    // Expect "true".
+    if p.pos + 4 > len(p.data) {
+        return .err(JsonError.unexpectedEof)
+    }
+    if p.data[p.pos] != 116 {
+        return .err(JsonError.syntaxError)
+    }
+    if p.data[p.pos + 1] != 114 {
+        return .err(JsonError.syntaxError)
+    }
+    if p.data[p.pos + 2] != 117 {
+        return .err(JsonError.syntaxError)
+    }
+    if p.data[p.pos + 3] != 101 {
+        return .err(JsonError.syntaxError)
+    }
+    p.pos = p.pos + 4
+    return .ok(Value.bool(true))
+}
+
+fun (p &Parser) parseFalse() !Value {
+    // Expect "false".
+    if p.pos + 5 > len(p.data) {
+        return .err(JsonError.unexpectedEof)
+    }
+    if p.data[p.pos] != 102 {
+        return .err(JsonError.syntaxError)
+    }
+    if p.data[p.pos + 1] != 97 {
+        return .err(JsonError.syntaxError)
+    }
+    if p.data[p.pos + 2] != 108 {
+        return .err(JsonError.syntaxError)
+    }
+    if p.data[p.pos + 3] != 115 {
+        return .err(JsonError.syntaxError)
+    }
+    if p.data[p.pos + 4] != 101 {
+        return .err(JsonError.syntaxError)
+    }
+    p.pos = p.pos + 5
+    return .ok(Value.bool(false))
+}
+
+fun (p &Parser) parseNumber() !Value {
+    var start = p.pos
+    var isFloat = false
+
+    // Optional leading minus.
+    if p.pos < len(p.data) {
+        if p.data[p.pos] == 45 { // '-'
+            p.pos = p.pos + 1
+        }
+    }
+
+    // Integer digits.
+    if p.pos >= len(p.data) {
+        return .err(JsonError.unexpectedEof)
+    }
+    if p.data[p.pos] == 48 { // '0'
+        p.pos = p.pos + 1
+    } else {
+        if p.data[p.pos] >= 49 {
+            if p.data[p.pos] <= 57 {
+                p.pos = p.pos + 1
+                for p.pos < len(p.data) {
+                    if p.data[p.pos] >= 48 {
+                        if p.data[p.pos] <= 57 {
+                            p.pos = p.pos + 1
+                        } else {
+                            break
+                        }
+                    } else {
+                        break
+                    }
+                }
+            } else {
+                return .err(JsonError.invalidCharacter)
+            }
+        } else {
+            return .err(JsonError.invalidCharacter)
+        }
+    }
+
+    // Fractional part.
+    if p.pos < len(p.data) {
+        if p.data[p.pos] == 46 { // '.'
+            isFloat = true
+            p.pos = p.pos + 1
+            if p.pos >= len(p.data) {
+                return .err(JsonError.unexpectedEof)
+            }
+            if p.data[p.pos] < 48 {
+                return .err(JsonError.invalidCharacter)
+            }
+            if p.data[p.pos] > 57 {
+                return .err(JsonError.invalidCharacter)
+            }
+            for p.pos < len(p.data) {
+                if p.data[p.pos] >= 48 {
+                    if p.data[p.pos] <= 57 {
+                        p.pos = p.pos + 1
+                    } else {
+                        break
+                    }
+                } else {
+                    break
+                }
+            }
+        }
+    }
+
+    // Exponent part (e or E).
+    if p.pos < len(p.data) {
+        if p.data[p.pos] == 101 { // 'e'
+            isFloat = true
+            p.pos = p.pos + 1
+            if p.pos < len(p.data) {
+                if p.data[p.pos] == 43 { // '+'
+                    p.pos = p.pos + 1
+                } else {
+                    if p.data[p.pos] == 45 { // '-'
+                        p.pos = p.pos + 1
+                    }
+                }
+            }
+            if p.pos >= len(p.data) {
+                return .err(JsonError.unexpectedEof)
+            }
+            for p.pos < len(p.data) {
+                if p.data[p.pos] >= 48 {
+                    if p.data[p.pos] <= 57 {
+                        p.pos = p.pos + 1
+                    } else {
+                        break
+                    }
+                } else {
+                    break
+                }
+            }
+        } else {
+            if p.data[p.pos] == 69 { // 'E'
+                isFloat = true
+                p.pos = p.pos + 1
+                if p.pos < len(p.data) {
+                    if p.data[p.pos] == 43 {
+                        p.pos = p.pos + 1
+                    } else {
+                        if p.data[p.pos] == 45 {
+                            p.pos = p.pos + 1
+                        }
+                    }
+                }
+                if p.pos >= len(p.data) {
+                    return .err(JsonError.unexpectedEof)
+                }
+                for p.pos < len(p.data) {
+                    if p.data[p.pos] >= 48 {
+                        if p.data[p.pos] <= 57 {
+                            p.pos = p.pos + 1
+                        } else {
+                            break
+                        }
+                    } else {
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    var numBytes = p.data[start..p.pos]
+    if isFloat {
+        var f = bytesToFloat(numBytes)
+        return .ok(Value.float(f))
+    }
+    var n = bytesToInt(numBytes)
+    return .ok(Value.int(n))
+}
+
+fun (p &Parser) parseStringValue() !Value {
+    var result = p.readString()
+    switch result {
+        .err(e) :: { return .err(e) },
+        .ok(s) :: { return .ok(Value.string(s)) },
+    }
+}
+
+fun (p &Parser) readString() !string {
+    // Skip opening quote.
+    if p.pos >= len(p.data) {
+        return .err(JsonError.unexpectedEof)
+    }
+    if p.data[p.pos] != 34 {
+        return .err(JsonError.invalidCharacter)
+    }
+    p.pos = p.pos + 1
+
+    var buf = alloc([]byte, 0)
+
+    for p.pos < len(p.data) {
+        var c = p.data[p.pos]
+        if c == 34 { // closing quote
+            p.pos = p.pos + 1
+            return .ok(toString(buf))
+        }
+        if c == 92 { // backslash escape
+            p.pos = p.pos + 1
+            if p.pos >= len(p.data) {
+                return .err(JsonError.unexpectedEof)
+            }
+            var esc = p.data[p.pos]
+            p.pos = p.pos + 1
+            if esc == 34 { // '"'
+                buf = append(buf, 34)
+            } else {
+                if esc == 92 { // '\'
+                    buf = append(buf, 92)
+                } else {
+                    if esc == 47 { // '/'
+                        buf = append(buf, 47)
+                    } else {
+                        if esc == 98 { // 'b'
+                            buf = append(buf, 8)
+                        } else {
+                            if esc == 102 { // 'f'
+                                buf = append(buf, 12)
+                            } else {
+                                if esc == 110 { // 'n'
+                                    buf = append(buf, 10)
+                                } else {
+                                    if esc == 114 { // 'r'
+                                        buf = append(buf, 13)
+                                    } else {
+                                        if esc == 116 { // 't'
+                                            buf = append(buf, 9)
+                                        } else {
+                                            if esc == 117 { // 'u' unicode escape
+                                                if p.pos + 4 > len(p.data) {
+                                                    return .err(JsonError.unexpectedEof)
+                                                }
+                                                var code = 0
+                                                var hi = 0
+                                                for hi < 4 {
+                                                    var hc = p.data[p.pos]
+                                                    p.pos = p.pos + 1
+                                                    code = code * 16 + hexVal(hc)
+                                                    hi = hi + 1
+                                                }
+                                                if code < 128 {
+                                                    buf = append(buf, code)
+                                                } else {
+                                                    if code < 2048 {
+                                                        buf = append(buf, 192 + code / 64)
+                                                        buf = append(buf, 128 + code % 64)
+                                                    } else {
+                                                        buf = append(buf, 224 + code / 4096)
+                                                        buf = append(buf, 128 + (code / 64) % 64)
+                                                        buf = append(buf, 128 + code % 64)
+                                                    }
+                                                }
+                                            } else {
+                                                return .err(JsonError.invalidCharacter)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            buf = append(buf, c)
+            p.pos = p.pos + 1
+        }
+    }
+    return .err(JsonError.unexpectedEof)
+}
+
+fun (p &Parser) parseArray() !Value {
+    // Skip '['.
+    p.pos = p.pos + 1
+    p.skipWhitespace()
+
+    var arr = alloc([]Value, 0)
+
+    // Empty array.
+    if p.pos < len(p.data) {
+        if p.data[p.pos] == 93 { // ']'
+            p.pos = p.pos + 1
+            return .ok(Value.array(arr))
+        }
+    }
+
+    // Parse elements.
+    for p.pos < len(p.data) {
+        var elem = p.parseValue()
+        switch elem {
+            .err(e) :: { return .err(e) },
+            .ok(v) :: {
+                arr = append(arr, v)
+            },
+        }
+        p.skipWhitespace()
+        if p.pos >= len(p.data) {
+            return .err(JsonError.unexpectedEof)
+        }
+        if p.data[p.pos] == 93 { // ']'
+            p.pos = p.pos + 1
+            return .ok(Value.array(arr))
+        }
+        if p.data[p.pos] != 44 { // ','
+            return .err(JsonError.invalidCharacter)
+        }
+        p.pos = p.pos + 1
+    }
+    return .err(JsonError.unexpectedEof)
+}
+
+fun (p &Parser) parseObject() !Value {
+    // Skip '{'.
+    p.pos = p.pos + 1
+    p.skipWhitespace()
+
+    var m = alloc(map[string]Value, 0)
+
+    // Empty object.
+    if p.pos < len(p.data) {
+        if p.data[p.pos] == 125 { // '}'
+            p.pos = p.pos + 1
+            return .ok(Value.object(m))
+        }
+    }
+
+    // Parse key-value pairs.
+    for p.pos < len(p.data) {
+        p.skipWhitespace()
+        // Parse key.
+        var keyResult = p.readString()
+        var key = ""
+        switch keyResult {
+            .err(e) :: { return .err(e) },
+            .ok(k) :: { key = k },
+        }
+
+        p.skipWhitespace()
+        // Expect ':'.
+        if p.pos >= len(p.data) {
+            return .err(JsonError.unexpectedEof)
+        }
+        if p.data[p.pos] != 58 { // ':'
+            return .err(JsonError.invalidCharacter)
+        }
+        p.pos = p.pos + 1
+
+        // Parse value.
+        var valResult = p.parseValue()
+        switch valResult {
+            .err(e) :: { return .err(e) },
+            .ok(v) :: { m[key] = v },
+        }
+
+        p.skipWhitespace()
+        if p.pos >= len(p.data) {
+            return .err(JsonError.unexpectedEof)
+        }
+        if p.data[p.pos] == 125 { // '}'
+            p.pos = p.pos + 1
+            return .ok(Value.object(m))
+        }
+        if p.data[p.pos] != 44 { // ','
+            return .err(JsonError.invalidCharacter)
+        }
+        p.pos = p.pos + 1
+    }
+    return .err(JsonError.unexpectedEof)
+}
+
+// --------------------------------------------------------------------------
+// Number conversion helpers
+// --------------------------------------------------------------------------
+
+fun hexVal(c byte) int {
+    if c >= 48 {
+        if c <= 57 {
+            return c - 48
+        }
+    }
+    if c >= 97 {
+        if c <= 102 {
+            return c - 97 + 10
+        }
+    }
+    if c >= 65 {
+        if c <= 70 {
+            return c - 65 + 10
+        }
+    }
+    return 0
+}
+
+fun bytesToInt(data []byte) int {
+    var result = 0
+    var neg = false
+    var i = 0
+    if len(data) > 0 {
+        if data[0] == 45 { // '-'
+            neg = true
+            i = 1
+        }
+    }
+    for i < len(data) {
+        result = result * 10 + (data[i] - 48)
+        i = i + 1
+    }
+    if neg {
+        return 0 - result
+    }
+    return result
+}
+
+fun bytesToFloat(data []byte) f64 {
+    // Simple float parser: handles [-]digits[.digits][e[+-]digits].
+    var result = 0.0
+    var neg = false
+    var i = 0
+    if len(data) > 0 {
+        if data[0] == 45 {
+            neg = true
+            i = 1
+        }
+    }
+    // Integer part.
+    for i < len(data) {
+        if data[i] >= 48 {
+            if data[i] <= 57 {
+                result = result * 10.0 + f64FromInt(data[i] - 48)
+                i = i + 1
+            } else {
+                break
+            }
+        } else {
+            break
+        }
+    }
+    // Fractional part.
+    if i < len(data) {
+        if data[i] == 46 {
+            i = i + 1
+            var frac = 0.0
+            var div = 1.0
+            for i < len(data) {
+                if data[i] >= 48 {
+                    if data[i] <= 57 {
+                        frac = frac * 10.0 + f64FromInt(data[i] - 48)
+                        div = div * 10.0
+                        i = i + 1
+                    } else {
+                        break
+                    }
+                } else {
+                    break
+                }
+            }
+            result = result + frac / div
+        }
+    }
+    // Exponent part.
+    if i < len(data) {
+        if data[i] == 101 { // 'e'
+            i = i + 1
+            var expNeg = false
+            if i < len(data) {
+                if data[i] == 45 {
+                    expNeg = true
+                    i = i + 1
+                } else {
+                    if data[i] == 43 {
+                        i = i + 1
+                    }
+                }
+            }
+            var exp = 0
+            for i < len(data) {
+                if data[i] >= 48 {
+                    if data[i] <= 57 {
+                        exp = exp * 10 + (data[i] - 48)
+                        i = i + 1
+                    } else {
+                        break
+                    }
+                } else {
+                    break
+                }
+            }
+            var mul = 1.0
+            var ei = 0
+            for ei < exp {
+                mul = mul * 10.0
+                ei = ei + 1
+            }
+            if expNeg {
+                result = result / mul
+            } else {
+                result = result * mul
+            }
+        } else {
+            if data[i] == 69 { // 'E'
+                i = i + 1
+                var expNeg = false
+                if i < len(data) {
+                    if data[i] == 45 {
+                        expNeg = true
+                        i = i + 1
+                    } else {
+                        if data[i] == 43 {
+                            i = i + 1
+                        }
+                    }
+                }
+                var exp = 0
+                for i < len(data) {
+                    if data[i] >= 48 {
+                        if data[i] <= 57 {
+                            exp = exp * 10 + (data[i] - 48)
+                            i = i + 1
+                        } else {
+                            break
+                        }
+                    } else {
+                        break
+                    }
+                }
+                var mul = 1.0
+                var ei = 0
+                for ei < exp {
+                    mul = mul * 10.0
+                    ei = ei + 1
+                }
+                if expNeg {
+                    result = result / mul
+                } else {
+                    result = result * mul
+                }
+            }
+        }
+    }
+    if neg {
+        return 0.0 - result
+    }
+    return result
+}
+
+// --------------------------------------------------------------------------
+// unmarshal: JSON bytes -> target value
+// --------------------------------------------------------------------------
+
+// unmarshal decodes JSON bytes into a value.
+pub fun unmarshal(data []byte, v &any) !void {
+    // TODO: requires pointer dereference assignment support.
+    // Parse the data to validate it.
+    var result = parse(data)
+    switch result {
+        .err(e) :: { return .err(e) },
+        .ok(_) :: { return .ok(void) },
+    }
+}
+
+// --------------------------------------------------------------------------
+// Encoder: streaming JSON writer
+// --------------------------------------------------------------------------
 
 // Encoder writes JSON values to an output stream.
 pub Encoder struct {
@@ -137,29 +1171,81 @@ pub fun newEncoder(w io.Writer) Encoder {
 
 // encode writes the JSON encoding of v to the stream.
 pub fun (enc &Encoder) encode(v any) !void {
+    var data = alloc([]byte, 0)
+    if len(enc.indent) > 0 {
+        var result = marshalIndent(v, enc.prefix, enc.indent)
+        switch result {
+            .err(e) :: { return .err(e) },
+            .ok(d) :: { data = d },
+        }
+    } else {
+        var result = marshal(v)
+        switch result {
+            .err(e) :: { return .err(e) },
+            .ok(d) :: { data = d },
+        }
+    }
+    // Append newline.
+    data = append(data, 10) // '\n'
+    enc.writer.write(data)
+    return .ok(void)
 }
 
 // setIndent sets the indentation for subsequent encoding.
 pub fun (enc &Encoder) setIndent(prefix string, indent string) {
+    enc.prefix = prefix
+    enc.indent = indent
 }
+
+// --------------------------------------------------------------------------
+// Decoder: streaming JSON reader
+// --------------------------------------------------------------------------
 
 // Decoder reads and decodes JSON values from an input stream.
 pub Decoder struct {
     reader io.Reader
+    buf    []byte
+    done   bool
 }
 
 // newDecoder returns a new Decoder that reads from r.
 pub fun newDecoder(r io.Reader) Decoder {
-    return Decoder{ reader: r }
+    return Decoder{ reader: r, buf: alloc([]byte, 0), done: false }
 }
 
 // decode reads the next JSON value from the stream and stores it
 // in the value pointed to by v.
 pub fun (dec &Decoder) decode(v &any) !void {
+    // Read all available data into buffer.
+    if !dec.done {
+        var chunk = alloc([]byte, 4096)
+        var n = dec.reader.read(chunk)
+        if n > 0 {
+            var i = 0
+            for i < n {
+                dec.buf = append(dec.buf, chunk[i])
+                i = i + 1
+            }
+        } else {
+            dec.done = true
+        }
+    }
+    if len(dec.buf) == 0 {
+        return .err(JsonError.unexpectedEof)
+    }
+    // TODO: requires pointer dereference assignment support.
+    var result = parse(dec.buf)
+    switch result {
+        .err(e) :: { return .err(e) },
+        .ok(_) :: { return .ok(void) },
+    }
 }
 
 // more reports whether there is another element in the current
 // array or object being parsed.
 pub fun (dec &Decoder) more() bool {
-    return false
+    if dec.done {
+        return false
+    }
+    return len(dec.buf) > 0
 }
