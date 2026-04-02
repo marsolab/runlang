@@ -1,0 +1,219 @@
+// run_xev_bridge.zig — Zig bridge exposing libxev fd polling via C-callable functions.
+//
+// libxev's C API does not expose fd polling, only the Zig API does. This bridge
+// wraps the Zig API and exports C functions for the runtime's poller adapter.
+
+const std = @import("std");
+const xev = @import("xev");
+
+// ── Types ──────────────────────────────────────────────────────────
+
+const Loop = xev.Loop;
+const Completion = xev.Completion;
+const File = xev.File;
+const Async = xev.Async;
+const Timer = xev.Timer;
+const CallbackAction = xev.CallbackAction;
+
+// Opaque pointer to a C-side run_g_t (green thread).
+const GPtr = ?*anyopaque;
+
+// Callback the C adapter provides — called when an fd becomes ready.
+// Arguments: fd, events (bitmask: 1=read, 2=write), the G pointers.
+const ReadyCb = *const fn (c_int, u32, GPtr, GPtr) callconv(.c) void;
+
+// ── Per-fd tracking ────────────────────────────────────────────────
+
+const MaxFds = 4096;
+
+const FdSlot = struct {
+    read_g: GPtr = null,
+    write_g: GPtr = null,
+    read_completion: Completion = .{},
+    write_completion: Completion = .{},
+    active: bool = false,
+};
+
+// ── Global state ───────────────────────────────────────────────────
+
+var loop: Loop = undefined;
+var loop_initialized: bool = false;
+var async_wakeup: Async = undefined;
+var async_completion: Completion = .{};
+var async_initialized: bool = false;
+
+// Fixed-size fd table. Keeps things simple and allocation-free.
+var fd_slots: [MaxFds]FdSlot = [_]FdSlot{.{}} ** MaxFds;
+var registered_count: i32 = 0;
+
+// The callback set by the C adapter.
+var ready_callback: ?ReadyCb = null;
+
+// ── C exports ──────────────────────────────────────────────────────
+
+/// Initialize the libxev event loop. Called once from run_poller_init().
+export fn run_xev_init(cb: ReadyCb) c_int {
+    ready_callback = cb;
+    loop = Loop.init(.{}) catch return -1;
+    loop_initialized = true;
+    return 0;
+}
+
+/// Shut down the event loop.
+export fn run_xev_close() void {
+    if (async_initialized) {
+        async_wakeup.deinit();
+        async_initialized = false;
+    }
+    if (loop_initialized) {
+        loop.deinit();
+        loop_initialized = false;
+    }
+    registered_count = 0;
+}
+
+/// Register an fd. Currently a no-op bookkeeping call.
+export fn run_xev_open(fd: c_int) c_int {
+    if (fd < 0 or fd >= MaxFds) return -1;
+    fd_slots[@intCast(@as(u32, @bitCast(fd)))] = .{ .active = true };
+    registered_count += 1;
+    return 0;
+}
+
+/// Unregister an fd and cancel outstanding completions.
+export fn run_xev_close_fd(fd: c_int) void {
+    if (fd < 0 or fd >= MaxFds) return;
+    const idx: u32 = @intCast(@as(u32, @bitCast(fd)));
+    var slot = &fd_slots[idx];
+    slot.read_g = null;
+    slot.write_g = null;
+    slot.read_completion = .{};
+    slot.write_completion = .{};
+    slot.active = false;
+    registered_count -= 1;
+}
+
+/// Submit read interest for an fd. The associated G will be woken via the callback.
+export fn run_xev_poll_read(fd: c_int, g: GPtr) void {
+    if (fd < 0 or fd >= MaxFds) return;
+    const idx: u32 = @intCast(@as(u32, @bitCast(fd)));
+    var slot = &fd_slots[idx];
+    slot.read_g = g;
+    slot.read_completion = .{};
+
+    const file = File.initFd(fd);
+    file.poll(&loop, &slot.read_completion, .read, FdSlot, slot, &pollCallback);
+}
+
+/// Submit write interest for an fd.
+/// libxev high-level poll only exposes .read; for write readiness we
+/// call back immediately since most fds are write-ready.
+export fn run_xev_poll_write(fd: c_int, g: GPtr) void {
+    if (fd < 0 or fd >= MaxFds) return;
+    const idx: u32 = @intCast(@as(u32, @bitCast(fd)));
+    var slot = &fd_slots[idx];
+    slot.write_g = g;
+    if (ready_callback) |cb| {
+        const wg = slot.write_g;
+        slot.write_g = null;
+        cb(fd, 2, null, wg);
+    }
+}
+
+fn pollCallback(
+    slot: ?*FdSlot,
+    _: *Loop,
+    _: *Completion,
+    _: File,
+    result: xev.PollError!xev.PollEvent,
+) CallbackAction {
+    const s = slot orelse return .disarm;
+    if (ready_callback) |cb| {
+        const idx = (@intFromPtr(s) - @intFromPtr(&fd_slots[0])) / @sizeOf(FdSlot);
+        const fd: c_int = @intCast(idx);
+        _ = result catch {
+            const rg = s.read_g;
+            const wg = s.write_g;
+            s.read_g = null;
+            s.write_g = null;
+            cb(fd, 3, rg, wg);
+            return .disarm;
+        };
+        const rg = s.read_g;
+        s.read_g = null;
+        cb(fd, 1, rg, null);
+    }
+    return .disarm;
+}
+
+/// Run the event loop without blocking (tick once).
+export fn run_xev_tick() c_int {
+    if (!loop_initialized) return 0;
+    if (registered_count <= 0) return 0;
+    loop.run(.no_wait) catch return -1;
+    return 0;
+}
+
+/// Run the event loop, blocking until at least one event or timeout.
+export fn run_xev_tick_blocking(timeout_ms: i64) c_int {
+    if (!loop_initialized) return 0;
+
+    if (timeout_ms == 0) {
+        return run_xev_tick();
+    }
+
+    if (timeout_ms > 0) {
+        var timer = Timer.init() catch return -1;
+        defer timer.deinit();
+        var timer_c: Completion = .{};
+        timer.run(&loop, &timer_c, @intCast(@as(u64, @bitCast(timeout_ms))), void, null, &timerNoop);
+        loop.run(.once) catch return -1;
+    } else {
+        loop.run(.once) catch return -1;
+    }
+    return 0;
+}
+
+fn timerNoop(
+    _: ?*void,
+    _: *Loop,
+    _: *Completion,
+    _: Timer.RunError!void,
+) CallbackAction {
+    return .disarm;
+}
+
+/// Initialize the async notification handle for cross-thread wakeup.
+export fn run_xev_async_init() c_int {
+    if (!loop_initialized) return -1;
+    async_wakeup = Async.init() catch return -1;
+    async_initialized = true;
+    return 0;
+}
+
+/// Trigger the async notification (safe to call from any thread).
+export fn run_xev_async_notify() c_int {
+    if (!async_initialized) return -1;
+    return if (async_wakeup.notify()) |_| 0 else |_| -1;
+}
+
+/// Register a wait on the async notification.
+export fn run_xev_async_wait() void {
+    if (!async_initialized) return;
+    async_completion = .{};
+    async_wakeup.wait(&loop, &async_completion, void, null, &asyncNoop);
+}
+
+fn asyncNoop(
+    _: ?*void,
+    _: *Loop,
+    _: *Completion,
+    _: Async.WaitError!void,
+) CallbackAction {
+    return .disarm;
+}
+
+/// Returns true if there are registered fds.
+export fn run_xev_has_waiters() bool {
+    return registered_count > 0;
+}

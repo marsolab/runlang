@@ -26,6 +26,7 @@ pub fn build(b: *std.Build) void {
     const sanitize = b.option(bool, "sanitize", "Enable ASan+UBSan for runtime C code") orelse false;
     const tsan = b.option(bool, "tsan", "Enable ThreadSanitizer for runtime C code") orelse false;
     const no_gen_checks = b.option(bool, "no-gen-checks", "Disable generational reference checks at compile time") orelse false;
+    const legacy_poller = b.option(bool, "legacy-poller", "Use legacy run_poller.c instead of libxev-backed poller") orelse false;
 
     // Version from build.zig.zon
     const version = "0.1.0-alpha.1";
@@ -47,6 +48,12 @@ pub fn build(b: *std.Build) void {
     exe.linkLibC();
     b.installArtifact(exe);
 
+    // libxev dependency (cross-platform event loop for async I/O)
+    const libxev_dep = b.dependency("libxev", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // Runtime C library (static archive for use by the driver during compilation)
     const runtime_lib = b.addLibrary(.{
         .name = "runrt",
@@ -55,7 +62,14 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    const runtime_c_sources = .{
+
+    // Select poller implementation: libxev-backed (default) or legacy
+    const poller_source: []const u8 = if (legacy_poller)
+        "src/runtime/run_poller_legacy.c"
+    else
+        "src/runtime/run_xev.c";
+
+    const runtime_c_sources_base = .{
         "src/runtime/run_alloc.c",
         "src/runtime/run_string.c",
         "src/runtime/run_slice.c",
@@ -66,10 +80,11 @@ pub fn build(b: *std.Build) void {
         "src/runtime/run_map.c",
         "src/runtime/run_simd.c",
         "src/runtime/run_numa.c",
-        "src/runtime/run_poller.c",
         "src/runtime/run_runtime_api.c",
         "src/runtime/run_debug_api.c",
     };
+    // runtime_c_sources kept as alias for inline iteration below
+    const runtime_c_sources = runtime_c_sources_base;
 
     // Build sanitizer flags
     var sanitizer_flag_buf: [10][]const u8 = undefined;
@@ -107,6 +122,11 @@ pub fn build(b: *std.Build) void {
             .flags = sanitizer_flags,
         });
     }
+    // Add selected poller implementation (libxev-backed or legacy)
+    runtime_lib.root_module.addCSourceFile(.{
+        .file = b.path(poller_source),
+        .flags = sanitizer_flags,
+    });
     // run_main.c defines main() and is only included in the library,
     // not in the test executable (which has its own test_main.c).
     runtime_lib.root_module.addCSourceFile(.{
@@ -123,6 +143,22 @@ pub fn build(b: *std.Build) void {
     }
 
     runtime_lib.root_module.addIncludePath(b.path("src/runtime"));
+    // Link libxev bridge for the poller backend
+    if (!legacy_poller) {
+        // Build the Zig bridge that wraps libxev's Zig API for C consumption
+        const xev_bridge = b.addLibrary(.{
+            .name = "runxev",
+            .linkage = .static,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/runtime/run_xev_bridge.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        xev_bridge.root_module.addImport("xev", libxev_dep.module("xev"));
+        xev_bridge.linkLibC();
+        runtime_lib.linkLibrary(xev_bridge);
+    }
     runtime_lib.linkLibC();
     runtime_lib.linkSystemLibrary("pthread");
     // Note: sanitizer runtime libraries are NOT linked into the static archive.
@@ -192,6 +228,11 @@ pub fn build(b: *std.Build) void {
             .flags = sanitizer_flags,
         });
     }
+    // Add selected poller implementation for tests
+    runtime_test_exe.root_module.addCSourceFile(.{
+        .file = b.path(poller_source),
+        .flags = sanitizer_flags,
+    });
 
     // Add assembly for runtime tests too
     if (target_info.cpu.arch == .x86_64) {
@@ -202,6 +243,21 @@ pub fn build(b: *std.Build) void {
 
     runtime_test_exe.root_module.addIncludePath(b.path("src/runtime"));
     runtime_test_exe.root_module.addIncludePath(b.path("src/runtime/tests"));
+    // Link libxev bridge for test executable
+    if (!legacy_poller) {
+        const xev_test_bridge = b.addLibrary(.{
+            .name = "runxev-test",
+            .linkage = .static,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/runtime/run_xev_bridge.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        xev_test_bridge.root_module.addImport("xev", libxev_dep.module("xev"));
+        xev_test_bridge.linkLibC();
+        runtime_test_exe.linkLibrary(xev_test_bridge);
+    }
     runtime_test_exe.linkLibC();
     runtime_test_exe.linkSystemLibrary("pthread");
 
