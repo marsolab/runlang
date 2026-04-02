@@ -2,4 +2,197 @@ package ed25519
 
 use "testing"
 
-// Tests for crypto/ed25519 will go here.
+test "key sizes are correct" (t &testing.T) {
+    t.assert(publicKeySize == 32)
+    t.assert(privateKeySize == 64)
+    t.assert(signatureSize == 64)
+    t.assert(seedSize == 32)
+}
+
+test "clampScalar sets correct bits" (t &testing.T) {
+    var scalar = alloc([]byte, 0)
+    var i = 0
+    for i < 32 {
+        scalar = append(scalar, 0xff)
+        i = i + 1
+    }
+
+    var clamped = clampScalar(scalar)
+    t.assert(len(clamped) == 32)
+
+    // Lowest 3 bits of first byte must be zero.
+    t.assert(clamped[0] % 8 == 0)
+
+    // Highest bit of last byte must be zero, second highest must be one.
+    t.assert(clamped[31] < 128)
+    t.assert(clamped[31] >= 64)
+}
+
+test "newKeyFromSeed produces valid key" (t &testing.T) {
+    var seed = alloc([]byte, 0)
+    var i = 0
+    for i < seedSize {
+        seed = append(seed, byte(i + 1))
+        i = i + 1
+    }
+
+    var priv = try newKeyFromSeed(seed)
+    t.assert(len(priv.data) == privateKeySize)
+
+    var pubKey = priv.public()
+    t.assert(len(pubKey.data) == publicKeySize)
+}
+
+test "seed round-trips through key" (t &testing.T) {
+    var seed = alloc([]byte, 0)
+    var i = 0
+    for i < seedSize {
+        seed = append(seed, byte(i + 42))
+        i = i + 1
+    }
+
+    var priv = try newKeyFromSeed(seed)
+    var recovered = priv.seed()
+
+    t.assert(len(recovered) == seedSize)
+    i = 0
+    for i < seedSize {
+        t.assert(recovered[i] == seed[i])
+        i = i + 1
+    }
+}
+
+test "sign produces 64-byte signature" (t &testing.T) {
+    var seed = alloc([]byte, 0)
+    var i = 0
+    for i < seedSize {
+        seed = append(seed, byte(i + 10))
+        i = i + 1
+    }
+
+    var priv = try newKeyFromSeed(seed)
+    var message = alloc([]byte, 0)
+    message = append(message, 0x48)
+    message = append(message, 0x65)
+    message = append(message, 0x6c)
+    message = append(message, 0x6c)
+    message = append(message, 0x6f)
+
+    var sig = sign(@priv, message)
+    t.assert(len(sig) == signatureSize)
+}
+
+test "sign is deterministic" (t &testing.T) {
+    var seed = alloc([]byte, 0)
+    var i = 0
+    for i < seedSize {
+        seed = append(seed, byte(i + 7))
+        i = i + 1
+    }
+
+    var priv = try newKeyFromSeed(seed)
+    var message = alloc([]byte, 0)
+    message = append(message, 0x41)
+    message = append(message, 0x42)
+    message = append(message, 0x43)
+
+    var sig1 = sign(@priv, message)
+    var sig2 = sign(@priv, message)
+
+    i = 0
+    for i < signatureSize {
+        t.assert(sig1[i] == sig2[i])
+        i = i + 1
+    }
+}
+
+test "verify accepts valid signature" (t &testing.T) {
+    var seed = alloc([]byte, 0)
+    var i = 0
+    for i < seedSize {
+        seed = append(seed, byte(i + 3))
+        i = i + 1
+    }
+
+    var priv = try newKeyFromSeed(seed)
+    var pubKey = priv.public()
+
+    var message = alloc([]byte, 0)
+    message = append(message, 0x74)
+    message = append(message, 0x65)
+    message = append(message, 0x73)
+    message = append(message, 0x74)
+
+    var sig = sign(@priv, message)
+    var valid = verify(@pubKey, message, sig)
+    t.assert(valid)
+}
+
+test "verify rejects wrong message" (t &testing.T) {
+    var seed = alloc([]byte, 0)
+    var i = 0
+    for i < seedSize {
+        seed = append(seed, byte(i + 5))
+        i = i + 1
+    }
+
+    var priv = try newKeyFromSeed(seed)
+    var pubKey = priv.public()
+
+    var message = alloc([]byte, 0)
+    message = append(message, 0x41)
+
+    var sig = sign(@priv, message)
+
+    var wrongMsg = alloc([]byte, 0)
+    wrongMsg = append(wrongMsg, 0x42)
+
+    var valid = verify(@pubKey, wrongMsg, sig)
+    t.assert(!valid)
+}
+
+test "verify rejects short signature" (t &testing.T) {
+    var seed = alloc([]byte, 0)
+    var i = 0
+    for i < seedSize {
+        seed = append(seed, byte(i))
+        i = i + 1
+    }
+
+    var priv = try newKeyFromSeed(seed)
+    var pubKey = priv.public()
+
+    var shortSig = alloc([]byte, 0)
+    shortSig = append(shortSig, 0x01)
+
+    var valid = verify(@pubKey, alloc([]byte, 0), shortSig)
+    t.assert(!valid)
+}
+
+test "public key bytes round-trip" (t &testing.T) {
+    var seed = alloc([]byte, 0)
+    var i = 0
+    for i < seedSize {
+        seed = append(seed, byte(i + 20))
+        i = i + 1
+    }
+
+    var priv = try newKeyFromSeed(seed)
+    var pubKey = priv.public()
+
+    var pubBytes = pubKey.bytes()
+    t.assert(len(pubBytes) == publicKeySize)
+}
+
+test "private key bytes returns full key" (t &testing.T) {
+    var seed = alloc([]byte, 0)
+    var i = 0
+    for i < seedSize {
+        seed = append(seed, byte(i + 15))
+        i = i + 1
+    }
+
+    var priv = try newKeyFromSeed(seed)
+    var privBytes = priv.bytes()
+    t.assert(len(privBytes) == privateKeySize)
+}
