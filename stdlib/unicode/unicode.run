@@ -6,78 +6,394 @@ pub let maxRune = 1114111
 // replacementChar is the Unicode replacement character U+FFFD.
 pub let replacementChar = 65533
 
+// surrogateMin is the minimum surrogate code point (U+D800).
+let surrogateMin = 55296
+
+// surrogateMax is the maximum surrogate code point (U+DFFF).
+let surrogateMax = 57343
+
 // isLetter reports whether the rune is a Unicode letter.
+// Covers ASCII letters and common Unicode letter ranges:
+//   Latin Extended, Greek, Cyrillic, Armenian, Hebrew, Arabic,
+//   Devanagari, CJK Unified Ideographs, Hangul Syllables, and more.
 pub fun isLetter(r int) bool {
+    // ASCII letters
+    if r >= 65 and r <= 90 { return true }
+    if r >= 97 and r <= 122 { return true }
+
+    // Below ASCII range — not a letter
+    if r < 128 { return false }
+
+    // Latin Extended-A/B (U+00C0..U+024F), excluding U+00D7 and U+00F7
+    if r >= 192 and r <= 591 {
+        if r == 215 or r == 247 { return false }
+        return true
+    }
+
+    // IPA Extensions (U+0250..U+02AF)
+    if r >= 592 and r <= 687 { return true }
+
+    // Greek and Coptic (U+0370..U+03FF)
+    if r >= 880 and r <= 1023 { return true }
+
+    // Cyrillic (U+0400..U+04FF)
+    if r >= 1024 and r <= 1279 { return true }
+
+    // Armenian (U+0530..U+058F)
+    if r >= 1328 and r <= 1423 { return true }
+
+    // Hebrew (U+0590..U+05FF)
+    if r >= 1424 and r <= 1535 { return true }
+
+    // Arabic (U+0600..U+06FF)
+    if r >= 1536 and r <= 1791 { return true }
+
+    // Devanagari (U+0900..U+097F)
+    if r >= 2304 and r <= 2431 { return true }
+
+    // Bengali (U+0980..U+09FF)
+    if r >= 2432 and r <= 2559 { return true }
+
+    // Thai (U+0E00..U+0E7F)
+    if r >= 3584 and r <= 3711 { return true }
+
+    // Georgian (U+10A0..U+10FF)
+    if r >= 4256 and r <= 4351 { return true }
+
+    // Hangul Jamo (U+1100..U+11FF)
+    if r >= 4352 and r <= 4607 { return true }
+
+    // Latin Extended Additional (U+1E00..U+1EFF)
+    if r >= 7680 and r <= 7935 { return true }
+
+    // Greek Extended (U+1F00..U+1FFF)
+    if r >= 7936 and r <= 8191 { return true }
+
+    // CJK Unified Ideographs (U+4E00..U+9FFF)
+    if r >= 19968 and r <= 40959 { return true }
+
+    // Hangul Syllables (U+AC00..U+D7AF)
+    if r >= 44032 and r <= 55215 { return true }
+
+    // CJK Compatibility Ideographs (U+F900..U+FAFF)
+    if r >= 63744 and r <= 64255 { return true }
+
+    // Halfwidth and Fullwidth Forms (letters only, U+FF21..U+FF3A, U+FF41..U+FF5A)
+    if r >= 65313 and r <= 65338 { return true }
+    if r >= 65345 and r <= 65370 { return true }
+
     return false
 }
 
-// isDigit reports whether the rune is a decimal digit.
+// isDigit reports whether the rune is a decimal digit (0-9).
 pub fun isDigit(r int) bool {
-    return false
+    return r >= 48 and r <= 57
 }
 
 // isUpper reports whether the rune is an upper case letter.
 pub fun isUpper(r int) bool {
+    // ASCII uppercase
+    if r >= 65 and r <= 90 { return true }
+    if r < 128 { return false }
+
+    // Latin-1 Supplement uppercase (U+00C0..U+00D6, U+00D8..U+00DE)
+    if r >= 192 and r <= 214 { return true }
+    if r >= 216 and r <= 222 { return true }
+
+    // Greek uppercase (U+0391..U+03A9)
+    if r >= 913 and r <= 937 { return true }
+
+    // Cyrillic uppercase (U+0410..U+042F)
+    if r >= 1040 and r <= 1071 { return true }
+
+    // Fullwidth uppercase (U+FF21..U+FF3A)
+    if r >= 65313 and r <= 65338 { return true }
+
     return false
 }
 
 // isLower reports whether the rune is a lower case letter.
 pub fun isLower(r int) bool {
+    // ASCII lowercase
+    if r >= 97 and r <= 122 { return true }
+    if r < 128 { return false }
+
+    // Latin-1 Supplement lowercase (U+00E0..U+00F6, U+00F8..U+00FE)
+    if r >= 224 and r <= 246 { return true }
+    if r >= 248 and r <= 254 { return true }
+
+    // Latin-1 sharp s (U+00DF)
+    if r == 223 { return true }
+
+    // Greek lowercase (U+03B1..U+03C9)
+    if r >= 945 and r <= 969 { return true }
+
+    // Cyrillic lowercase (U+0430..U+044F)
+    if r >= 1072 and r <= 1103 { return true }
+
+    // Fullwidth lowercase (U+FF41..U+FF5A)
+    if r >= 65345 and r <= 65370 { return true }
+
     return false
 }
 
-// isTitle reports whether the rune is a title case letter.
+// isTitle reports whether the rune is a Unicode title case letter.
+// Title case letters are a small set (e.g., U+01C5 Dz, U+01C8 Lj, U+01CB Nj).
 pub fun isTitle(r int) bool {
+    // Titlecase digraphs from Latin Extended-B
+    if r == 453 { return true }
+    if r == 456 { return true }
+    if r == 459 { return true }
+    if r == 498 { return true }
+
+    // Georgian Mtavruli (U+1C90..U+1CBF) — sometimes treated as title case
+    if r >= 7312 and r <= 7359 { return true }
+
     return false
 }
 
 // isSpace reports whether the rune is a Unicode whitespace character.
+// Includes ASCII whitespace and Unicode space separators.
 pub fun isSpace(r int) bool {
+    // ASCII whitespace
+    if r == 9 { return true }
+    if r == 10 { return true }
+    if r == 11 { return true }
+    if r == 12 { return true }
+    if r == 13 { return true }
+    if r == 32 { return true }
+
+    // Unicode whitespace
+    if r == 133 { return true }
+    if r == 160 { return true }
+    if r == 5760 { return true }
+
+    // En/Em spaces and others (U+2000..U+200A)
+    if r >= 8192 and r <= 8202 { return true }
+
+    if r == 8232 { return true }
+    if r == 8233 { return true }
+    if r == 8239 { return true }
+    if r == 8287 { return true }
+    if r == 12288 { return true }
+
     return false
 }
 
 // isPunct reports whether the rune is a Unicode punctuation character.
 pub fun isPunct(r int) bool {
+    // ASCII punctuation ranges
+    if r >= 33 and r <= 47 { return true }
+    if r >= 58 and r <= 64 { return true }
+    if r >= 91 and r <= 96 { return true }
+    if r >= 123 and r <= 126 { return true }
+
+    // Latin-1 Supplement punctuation
+    if r == 161 { return true }
+    if r == 171 { return true }
+    if r == 183 { return true }
+    if r == 187 { return true }
+    if r == 191 { return true }
+
+    // General Punctuation (U+2010..U+2027)
+    if r >= 8208 and r <= 8231 { return true }
+
+    // CJK punctuation (U+3000..U+303F)
+    if r >= 12288 and r <= 12351 { return true }
+
+    // Fullwidth punctuation (U+FF01..U+FF0F, U+FF1A..U+FF20, U+FF3B..U+FF40, U+FF5B..U+FF65)
+    if r >= 65281 and r <= 65295 { return true }
+    if r >= 65306 and r <= 65312 { return true }
+    if r >= 65339 and r <= 65344 { return true }
+    if r >= 65371 and r <= 65381 { return true }
+
     return false
 }
 
 // isControl reports whether the rune is a Unicode control character.
 pub fun isControl(r int) bool {
+    // C0 controls (U+0000..U+001F)
+    if r >= 0 and r <= 31 { return true }
+
+    // DEL (U+007F)
+    if r == 127 { return true }
+
+    // C1 controls (U+0080..U+009F)
+    if r >= 128 and r <= 159 { return true }
+
     return false
 }
 
 // isGraphic reports whether the rune is a graphic character
-// (letter, mark, number, punctuation, symbol, or space).
+// (letter, mark, number, punctuation, symbol, or space — but not control).
 pub fun isGraphic(r int) bool {
+    if isControl(r) { return false }
+    if isLetter(r) { return true }
+    if isNumber(r) { return true }
+    if isPunct(r) { return true }
+    if isSymbol(r) { return true }
+    if isSpace(r) { return true }
+
+    // General category mark characters (U+0300..U+036F combining diacriticals)
+    if r >= 768 and r <= 879 { return true }
+
     return false
 }
 
 // isPrint reports whether the rune is a printable character.
+// Same as isGraphic but excludes the space characters that are not the ASCII space.
 pub fun isPrint(r int) bool {
+    if isControl(r) { return false }
+    if isLetter(r) { return true }
+    if isNumber(r) { return true }
+    if isPunct(r) { return true }
+    if isSymbol(r) { return true }
+    if r == 32 { return true }
+
+    // Combining marks are printable
+    if r >= 768 and r <= 879 { return true }
+
     return false
 }
 
 // isSymbol reports whether the rune is a Unicode symbol character.
 pub fun isSymbol(r int) bool {
+    // ASCII symbols
+    if r == 36 { return true }
+    if r == 43 { return true }
+    if r == 60 { return true }
+    if r == 61 { return true }
+    if r == 62 { return true }
+    if r == 94 { return true }
+    if r == 96 { return true }
+    if r == 124 { return true }
+    if r == 126 { return true }
+
+    // Latin-1 symbols
+    if r >= 162 and r <= 169 { return true }
+    if r == 172 { return true }
+    if r == 174 { return true }
+    if r == 175 { return true }
+    if r == 176 { return true }
+    if r == 177 { return true }
+    if r == 180 { return true }
+    if r == 182 { return true }
+    if r == 184 { return true }
+    if r == 215 { return true }
+    if r == 247 { return true }
+
+    // Currency Symbols (U+20A0..U+20CF)
+    if r >= 8352 and r <= 8399 { return true }
+
+    // Letterlike Symbols (U+2100..U+214F)
+    if r >= 8448 and r <= 8527 { return true }
+
+    // Number Forms (U+2150..U+218F)
+    if r >= 8528 and r <= 8591 { return true }
+
+    // Arrows (U+2190..U+21FF)
+    if r >= 8592 and r <= 8703 { return true }
+
+    // Mathematical Operators (U+2200..U+22FF)
+    if r >= 8704 and r <= 8959 { return true }
+
+    // Miscellaneous Technical (U+2300..U+23FF)
+    if r >= 8960 and r <= 9215 { return true }
+
+    // Box Drawing, Block Elements, Geometric Shapes (U+2500..U+25FF)
+    if r >= 9472 and r <= 9727 { return true }
+
+    // Miscellaneous Symbols (U+2600..U+26FF)
+    if r >= 9728 and r <= 9983 { return true }
+
+    // Dingbats (U+2700..U+27BF)
+    if r >= 9984 and r <= 10175 { return true }
+
     return false
 }
 
 // isNumber reports whether the rune is a Unicode number character.
+// This includes digits and other numeric characters (superscripts, fractions, etc.).
 pub fun isNumber(r int) bool {
+    // ASCII digits
+    if r >= 48 and r <= 57 { return true }
+
+    // Superscript digits (U+00B2, U+00B3, U+00B9)
+    if r == 178 { return true }
+    if r == 179 { return true }
+    if r == 185 { return true }
+
+    // Vulgar fractions (U+00BC..U+00BE)
+    if r >= 188 and r <= 190 { return true }
+
+    // Arabic-Indic digits (U+0660..U+0669)
+    if r >= 1632 and r <= 1641 { return true }
+
+    // Extended Arabic-Indic digits (U+06F0..U+06F9)
+    if r >= 1776 and r <= 1785 { return true }
+
+    // Devanagari digits (U+0966..U+096F)
+    if r >= 2406 and r <= 2415 { return true }
+
+    // Number Forms (U+2150..U+218F)
+    if r >= 8528 and r <= 8591 { return true }
+
+    // Fullwidth digits (U+FF10..U+FF19)
+    if r >= 65296 and r <= 65305 { return true }
+
     return false
 }
 
 // toUpper maps the rune to upper case.
+// Returns the rune unchanged if it has no upper case mapping.
 pub fun toUpper(r int) int {
-    return 0
+    // ASCII lowercase to uppercase
+    if r >= 97 and r <= 122 { return r - 32 }
+
+    // Latin-1 Supplement lowercase (U+00E0..U+00F6) -> uppercase (U+00C0..U+00D6)
+    if r >= 224 and r <= 246 { return r - 32 }
+
+    // Latin-1 Supplement lowercase (U+00F8..U+00FE) -> uppercase (U+00D8..U+00DE)
+    if r >= 248 and r <= 254 { return r - 32 }
+
+    // Greek lowercase (U+03B1..U+03C9) -> uppercase (U+0391..U+03A9)
+    if r >= 945 and r <= 969 { return r - 32 }
+
+    // Cyrillic lowercase (U+0430..U+044F) -> uppercase (U+0410..U+042F)
+    if r >= 1072 and r <= 1103 { return r - 32 }
+
+    // Fullwidth lowercase (U+FF41..U+FF5A) -> uppercase (U+FF21..U+FF3A)
+    if r >= 65345 and r <= 65370 { return r - 32 }
+
+    return r
 }
 
 // toLower maps the rune to lower case.
+// Returns the rune unchanged if it has no lower case mapping.
 pub fun toLower(r int) int {
-    return 0
+    // ASCII uppercase to lowercase
+    if r >= 65 and r <= 90 { return r + 32 }
+
+    // Latin-1 Supplement uppercase (U+00C0..U+00D6) -> lowercase (U+00E0..U+00F6)
+    if r >= 192 and r <= 214 { return r + 32 }
+
+    // Latin-1 Supplement uppercase (U+00D8..U+00DE) -> lowercase (U+00F8..U+00FE)
+    if r >= 216 and r <= 222 { return r + 32 }
+
+    // Greek uppercase (U+0391..U+03A9) -> lowercase (U+03B1..U+03C9)
+    if r >= 913 and r <= 937 { return r + 32 }
+
+    // Cyrillic uppercase (U+0410..U+042F) -> lowercase (U+0430..U+044F)
+    if r >= 1040 and r <= 1071 { return r + 32 }
+
+    // Fullwidth uppercase (U+FF21..U+FF3A) -> lowercase (U+FF41..U+FF5A)
+    if r >= 65313 and r <= 65338 { return r + 32 }
+
+    return r
 }
 
 // toTitle maps the rune to title case.
+// For most runes, title case is the same as upper case.
 pub fun toTitle(r int) int {
-    return 0
+    return toUpper(r)
 }
