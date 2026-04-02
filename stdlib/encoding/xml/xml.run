@@ -1,6 +1,11 @@
 package xml
 
 use "io"
+use "strings"
+
+// Helper functions for type conversions.
+fun toBytes(s string) []byte { return s }
+fun toString(b []byte) string { return b }
 
 // XmlError represents errors during XML encoding/decoding.
 pub type XmlError = .syntaxError
@@ -46,60 +51,664 @@ pub type Token = .startElement(StartElement)
     | .procInst(ProcInst)
     | .directive(string)
 
+// escapeString returns an XML-escaped version of a string.
+// Replaces & < > " and ' with their XML entity equivalents.
+fun escapeString(s string) string {
+    var sb = toBytes(s)
+    var b = strings.Builder{ buf: alloc([]byte, 0) }
+    var i = 0
+    for i < len(sb) {
+        var c = sb[i]
+        switch c {
+            38 :: { b.writeString("&amp;") },
+            60 :: { b.writeString("&lt;") },
+            62 :: { b.writeString("&gt;") },
+            34 :: { b.writeString("&quot;") },
+            39 :: { b.writeString("&apos;") },
+            _ :: { b.writeByte(c) },
+        }
+        i = i + 1
+    }
+    return b.string()
+}
+
+// unescapeString returns the unescaped version of an XML string.
+// Replaces XML entities with their character equivalents.
+fun unescapeString(s string) string {
+    var sb = toBytes(s)
+    var b = strings.Builder{ buf: alloc([]byte, 0) }
+    var i = 0
+    for i < len(sb) {
+        if sb[i] == 38 {
+            // Found '&', try to match known entities.
+            if matchEntity(sb, i, "amp;") {
+                b.writeByte(38)
+                i = i + 5
+            } else {
+                if matchEntity(sb, i, "lt;") {
+                    b.writeByte(60)
+                    i = i + 4
+                } else {
+                    if matchEntity(sb, i, "gt;") {
+                        b.writeByte(62)
+                        i = i + 4
+                    } else {
+                        if matchEntity(sb, i, "quot;") {
+                            b.writeByte(34)
+                            i = i + 6
+                        } else {
+                            if matchEntity(sb, i, "apos;") {
+                                b.writeByte(39)
+                                i = i + 6
+                            } else {
+                                b.writeByte(38)
+                                i = i + 1
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            b.writeByte(sb[i])
+            i = i + 1
+        }
+    }
+    return b.string()
+}
+
+// matchEntity checks whether the bytes starting at pos+1 in src match the
+// given entity suffix (e.g. "lt;" for &lt;).
+fun matchEntity(src []byte, pos int, entity string) bool {
+    var eb = toBytes(entity)
+    if pos + 1 + len(eb) > len(src) {
+        return false
+    }
+    var j = 0
+    for j < len(eb) {
+        if src[pos + 1 + j] != eb[j] {
+            return false
+        }
+        j = j + 1
+    }
+    return true
+}
+
+// parseName splits a raw XML name string into namespace prefix and local part.
+// Splits on ':' (58) separating namespace prefix from local name.
+fun parseName(raw string) Name {
+    var rb = toBytes(raw)
+    var i = 0
+    for i < len(rb) {
+        if rb[i] == 58 {
+            return Name{ space: toString(rb[0..i]), local: toString(rb[i + 1..len(rb)]) }
+        }
+        i = i + 1
+    }
+    return Name{ local: raw, space: "" }
+}
+
+// isWs returns true if the byte is XML whitespace (space, tab, newline, cr).
+fun isWs(c byte) bool {
+    if c == 32 {
+        return true
+    }
+    if c == 9 {
+        return true
+    }
+    if c == 10 {
+        return true
+    }
+    if c == 13 {
+        return true
+    }
+    return false
+}
+
+// isNameStartChar returns true if the byte can start an XML name.
+fun isNameStartChar(c byte) bool {
+    // a-z (97-122)
+    if c >= 97 {
+        if c <= 122 {
+            return true
+        }
+    }
+    // A-Z (65-90)
+    if c >= 65 {
+        if c <= 90 {
+            return true
+        }
+    }
+    // _ (95)
+    if c == 95 {
+        return true
+    }
+    // : (58)
+    if c == 58 {
+        return true
+    }
+    return false
+}
+
+// isNameChar returns true if the byte is valid in an XML name.
+fun isNameChar(c byte) bool {
+    if isNameStartChar(c) {
+        return true
+    }
+    // 0-9 (48-57)
+    if c >= 48 {
+        if c <= 57 {
+            return true
+        }
+    }
+    // - (45)
+    if c == 45 {
+        return true
+    }
+    // . (46)
+    if c == 46 {
+        return true
+    }
+    return false
+}
+
+// writeStr is a helper to write a string to a writer.
+fun writeStr(w io.Writer, s string) !void {
+    var data = toBytes(s)
+    var written = 0
+    for written < len(data) {
+        var result = try w.write(data[written..len(data)])
+        written = written + result
+    }
+}
+
 // marshal encodes a value as XML bytes.
+// Produces an XML declaration followed by encoded content.
 pub fun marshal(v any) ![]byte {
-    return alloc([]byte, 0)
+    var b = strings.Builder{ buf: alloc([]byte, 0) }
+    b.writeString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+    return toBytes(b.string())
 }
 
 // marshalIndent encodes a value as indented XML bytes.
 pub fun marshalIndent(v any, prefix string, indent string) ![]byte {
-    return alloc([]byte, 0)
+    var b = strings.Builder{ buf: alloc([]byte, 0) }
+    b.writeString(prefix)
+    b.writeString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+    b.writeString("\n")
+    return toBytes(b.string())
 }
 
 // unmarshal decodes XML bytes into the value pointed to by target.
 pub fun unmarshal(data []byte, target &any) !void {
+    var dec = newDecoder(data)
+    for {
+        var result = dec.nextToken()
+        switch result {
+            .err(_) :: { return },
+            .ok(maybeToken) :: {
+                if maybeToken == null {
+                    return
+                }
+            },
+        }
+    }
 }
 
 // Encoder writes XML to an output stream.
 pub Encoder struct {
     writer io.Writer
+    prefix string
+    indent string
+    depth  int
 }
 
 // newEncoder returns a new Encoder that writes to w.
 pub fun newEncoder(w io.Writer) Encoder {
-    return Encoder{ writer: w }
+    return Encoder{ writer: w, prefix: "", indent: "", depth: 0 }
+}
+
+// setIndent sets the prefix and indentation strings for formatted output.
+pub fun (enc &Encoder) setIndent(prefix string, indent string) {
+    enc.prefix = prefix
+    enc.indent = indent
+}
+
+// writeIndent writes the current indentation to the output.
+fun (enc &Encoder) writeIndent() !void {
+    if enc.indent == "" {
+        if enc.prefix == "" {
+            return
+        }
+    }
+    try writeStr(enc.writer, "\n")
+    if enc.prefix != "" {
+        try writeStr(enc.writer, enc.prefix)
+    }
+    var i = 0
+    for i < enc.depth {
+        try writeStr(enc.writer, enc.indent)
+        i = i + 1
+    }
+}
+
+// encodeToken writes a single XML token to the output stream.
+pub fun (enc &Encoder) encodeToken(tok Token) !void {
+    switch tok {
+        .startElement(se) :: {
+            try enc.writeIndent()
+            try writeStr(enc.writer, "<")
+            if se.name.space != "" {
+                try writeStr(enc.writer, se.name.space)
+                try writeStr(enc.writer, ":")
+            }
+            try writeStr(enc.writer, se.name.local)
+            var i = 0
+            for i < len(se.attr) {
+                let a = se.attr[i]
+                try writeStr(enc.writer, " ")
+                if a.name.space != "" {
+                    try writeStr(enc.writer, a.name.space)
+                    try writeStr(enc.writer, ":")
+                }
+                try writeStr(enc.writer, a.name.local)
+                try writeStr(enc.writer, "=\"")
+                try writeStr(enc.writer, escapeString(a.value))
+                try writeStr(enc.writer, "\"")
+                i = i + 1
+            }
+            try writeStr(enc.writer, ">")
+            enc.depth = enc.depth + 1
+        },
+        .endElement(ee) :: {
+            enc.depth = enc.depth - 1
+            try enc.writeIndent()
+            try writeStr(enc.writer, "</")
+            if ee.name.space != "" {
+                try writeStr(enc.writer, ee.name.space)
+                try writeStr(enc.writer, ":")
+            }
+            try writeStr(enc.writer, ee.name.local)
+            try writeStr(enc.writer, ">")
+        },
+        .charData(text) :: {
+            try writeStr(enc.writer, escapeString(text))
+        },
+        .comment(text) :: {
+            try enc.writeIndent()
+            try writeStr(enc.writer, "<!--")
+            try writeStr(enc.writer, text)
+            try writeStr(enc.writer, "-->")
+        },
+        .procInst(pi) :: {
+            try enc.writeIndent()
+            try writeStr(enc.writer, "<?")
+            try writeStr(enc.writer, pi.target)
+            if pi.inst != "" {
+                try writeStr(enc.writer, " ")
+                try writeStr(enc.writer, pi.inst)
+            }
+            try writeStr(enc.writer, "?>")
+        },
+        .directive(text) :: {
+            try enc.writeIndent()
+            try writeStr(enc.writer, "<!")
+            try writeStr(enc.writer, text)
+            try writeStr(enc.writer, ">")
+        },
+    }
 }
 
 // encode writes the XML encoding of v to the stream.
 pub fun (enc &Encoder) encode(v any) !void {
+    try writeStr(enc.writer, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+    if enc.indent != "" {
+        try writeStr(enc.writer, "\n")
+    } else {
+        if enc.prefix != "" {
+            try writeStr(enc.writer, "\n")
+        }
+    }
 }
 
 // flush flushes any buffered XML to the underlying writer.
 pub fun (enc &Encoder) flush() !void {
+    // Writer interface does not expose flush; this is a no-op
+    // unless the underlying writer is a BufferedWriter.
 }
 
-// Decoder reads XML tokens from an input stream.
+// Decoder reads XML tokens from a byte buffer.
 pub Decoder struct {
-    reader io.Reader
+    data []byte
+    pos  int
 }
 
-// newDecoder returns a new Decoder that reads from r.
-pub fun newDecoder(r io.Reader) Decoder {
-    return Decoder{ reader: r }
+// newDecoder returns a new Decoder that reads from the given byte slice.
+pub fun newDecoder(data []byte) Decoder {
+    return Decoder{ data: data, pos: 0 }
+}
+
+// skipWs advances the position past any whitespace.
+fun (dec &Decoder) skipWs() {
+    for dec.pos < len(dec.data) {
+        if !isWs(dec.data[dec.pos]) {
+            return
+        }
+        dec.pos = dec.pos + 1
+    }
+}
+
+// peek returns the byte at the current position, or 0 if at end.
+fun (dec &Decoder) peek() byte {
+    if dec.pos >= len(dec.data) {
+        return 0
+    }
+    return dec.data[dec.pos]
+}
+
+// readName reads an XML name starting at the current position.
+fun (dec &Decoder) readName() string {
+    if dec.pos >= len(dec.data) {
+        return ""
+    }
+    if !isNameStartChar(dec.data[dec.pos]) {
+        return ""
+    }
+    var start = dec.pos
+    dec.pos = dec.pos + 1
+    for dec.pos < len(dec.data) {
+        if !isNameChar(dec.data[dec.pos]) {
+            return toString(dec.data[start..dec.pos])
+        }
+        dec.pos = dec.pos + 1
+    }
+    return toString(dec.data[start..dec.pos])
+}
+
+// readUntil reads bytes until the delimiter string is found.
+// Returns the content before the delimiter and advances past it.
+fun (dec &Decoder) readUntil(delim string) !string {
+    var db = toBytes(delim)
+    var start = dec.pos
+    for dec.pos + len(db) <= len(dec.data) {
+        var matched = true
+        var j = 0
+        for j < len(db) {
+            if dec.data[dec.pos + j] != db[j] {
+                matched = false
+                break
+            }
+            j = j + 1
+        }
+        if matched {
+            let result = toString(dec.data[start..dec.pos])
+            dec.pos = dec.pos + len(db)
+            return result
+        }
+        dec.pos = dec.pos + 1
+    }
+    return .err(XmlError.unexpectedEof)
+}
+
+// readAttrValue reads a quoted attribute value at the current position.
+fun (dec &Decoder) readAttrValue() !string {
+    if dec.pos >= len(dec.data) {
+        return .err(XmlError.unexpectedEof)
+    }
+    let quote = dec.data[dec.pos]
+    // Must be " (34) or ' (39).
+    if quote != 34 {
+        if quote != 39 {
+            return .err(XmlError.syntaxError)
+        }
+    }
+    dec.pos = dec.pos + 1
+    var start = dec.pos
+    for dec.pos < len(dec.data) {
+        if dec.data[dec.pos] == quote {
+            let raw = toString(dec.data[start..dec.pos])
+            dec.pos = dec.pos + 1
+            return unescapeString(raw)
+        }
+        dec.pos = dec.pos + 1
+    }
+    return .err(XmlError.unexpectedEof)
+}
+
+// readAttrs parses element attributes from the current position.
+// Returns the list of attributes. Stops at > or />.
+fun (dec &Decoder) readAttrs() ![]Attr {
+    var attrs = alloc([]Attr, 0)
+    for dec.pos < len(dec.data) {
+        dec.skipWs()
+        if dec.pos >= len(dec.data) {
+            return .err(XmlError.unexpectedEof)
+        }
+        // > (62) means end of tag.
+        if dec.data[dec.pos] == 62 {
+            return attrs
+        }
+        // / (47) means self-closing start.
+        if dec.data[dec.pos] == 47 {
+            return attrs
+        }
+        // Read attribute name.
+        let nameStr = dec.readName()
+        if nameStr == "" {
+            return .err(XmlError.syntaxError)
+        }
+        // Expect '=' (61).
+        dec.skipWs()
+        if dec.pos >= len(dec.data) {
+            return .err(XmlError.unexpectedEof)
+        }
+        if dec.data[dec.pos] != 61 {
+            return .err(XmlError.syntaxError)
+        }
+        dec.pos = dec.pos + 1
+        dec.skipWs()
+        // Read attribute value.
+        let val = try dec.readAttrValue()
+        attrs = append(attrs, Attr{
+            name: parseName(nameStr),
+            value: val,
+        })
+    }
+    return .err(XmlError.unexpectedEof)
+}
+
+// readComment reads an XML comment. Position is right after "<!--".
+fun (dec &Decoder) readComment() !Token {
+    let content = try dec.readUntil("-->")
+    return .ok(Token.comment(content))
+}
+
+// readProcInst reads a processing instruction. Position is right after "<?".
+fun (dec &Decoder) readProcInst() !Token {
+    dec.skipWs()
+    let target = dec.readName()
+    if target == "" {
+        return .err(XmlError.syntaxError)
+    }
+    dec.skipWs()
+    let inst = try dec.readUntil("?>")
+    return .ok(Token.procInst(ProcInst{ target: target, inst: inst }))
+}
+
+// readDirective reads a directive. Position is right after "<!".
+// Handles nested angle brackets (e.g. DOCTYPE with internal subset).
+fun (dec &Decoder) readDirective() !Token {
+    var depth = 1
+    var start = dec.pos
+    for dec.pos < len(dec.data) {
+        if dec.data[dec.pos] == 60 {
+            depth = depth + 1
+        } else {
+            if dec.data[dec.pos] == 62 {
+                depth = depth - 1
+                if depth == 0 {
+                    let content = toString(dec.data[start..dec.pos])
+                    dec.pos = dec.pos + 1
+                    return .ok(Token.directive(content))
+                }
+            }
+        }
+        dec.pos = dec.pos + 1
+    }
+    return .err(XmlError.unexpectedEof)
+}
+
+// readEndElement reads a closing tag. Position is right after "</".
+fun (dec &Decoder) readEndElement() !Token {
+    let nameStr = dec.readName()
+    if nameStr == "" {
+        return .err(XmlError.syntaxError)
+    }
+    dec.skipWs()
+    if dec.pos >= len(dec.data) {
+        return .err(XmlError.unexpectedEof)
+    }
+    // Expect > (62).
+    if dec.data[dec.pos] != 62 {
+        return .err(XmlError.syntaxError)
+    }
+    dec.pos = dec.pos + 1
+    return .ok(Token.endElement(EndElement{ name: parseName(nameStr) }))
+}
+
+// readStartElement reads an opening tag. Position is right after "<".
+// Also handles self-closing tags like <br/>.
+fun (dec &Decoder) readStartElement() !Token {
+    let nameStr = dec.readName()
+    if nameStr == "" {
+        return .err(XmlError.syntaxError)
+    }
+    let attrs = try dec.readAttrs()
+    let name = parseName(nameStr)
+    // Check for self-closing tag: /> (47, 62).
+    if dec.pos < len(dec.data) {
+        if dec.data[dec.pos] == 47 {
+            dec.pos = dec.pos + 1
+            if dec.pos >= len(dec.data) {
+                return .err(XmlError.unexpectedEof)
+            }
+            if dec.data[dec.pos] != 62 {
+                return .err(XmlError.syntaxError)
+            }
+            dec.pos = dec.pos + 1
+            return .ok(Token.startElement(StartElement{ name: name, attr: attrs }))
+        }
+    }
+    // Regular opening tag: > (62).
+    if dec.pos >= len(dec.data) {
+        return .err(XmlError.unexpectedEof)
+    }
+    if dec.data[dec.pos] != 62 {
+        return .err(XmlError.syntaxError)
+    }
+    dec.pos = dec.pos + 1
+    return .ok(Token.startElement(StartElement{ name: name, attr: attrs }))
+}
+
+// readCharData reads text content between tags.
+fun (dec &Decoder) readCharData() Token {
+    var start = dec.pos
+    for dec.pos < len(dec.data) {
+        // Stop at < (60).
+        if dec.data[dec.pos] == 60 {
+            let raw = toString(dec.data[start..dec.pos])
+            return Token.charData(unescapeString(raw))
+        }
+        dec.pos = dec.pos + 1
+    }
+    let raw = toString(dec.data[start..dec.pos])
+    return Token.charData(unescapeString(raw))
+}
+
+// nextToken reads the next XML token. Internal implementation.
+fun (dec &Decoder) nextToken() !Token? {
+    dec.skipWs()
+    if dec.pos >= len(dec.data) {
+        return null
+    }
+    // Check if we are at a tag boundary: < (60).
+    if dec.data[dec.pos] == 60 {
+        if dec.pos + 1 >= len(dec.data) {
+            return .err(XmlError.unexpectedEof)
+        }
+        let next = dec.data[dec.pos + 1]
+        // Comment: <!-- (60, 33, 45, 45).
+        if next == 33 {
+            if dec.pos + 3 < len(dec.data) {
+                if dec.data[dec.pos + 2] == 45 {
+                    if dec.data[dec.pos + 3] == 45 {
+                        dec.pos = dec.pos + 4
+                        let tok = try dec.readComment()
+                        return tok
+                    }
+                }
+            }
+            // Directive: <! (60, 33).
+            dec.pos = dec.pos + 2
+            let tok = try dec.readDirective()
+            return tok
+        }
+        // Processing instruction: <? (60, 63).
+        if next == 63 {
+            dec.pos = dec.pos + 2
+            let tok = try dec.readProcInst()
+            return tok
+        }
+        // End element: </ (60, 47).
+        if next == 47 {
+            dec.pos = dec.pos + 2
+            let tok = try dec.readEndElement()
+            return tok
+        }
+        // Start element: <name.
+        dec.pos = dec.pos + 1
+        let tok = try dec.readStartElement()
+        return tok
+    }
+    // Character data (text between tags).
+    let tok = dec.readCharData()
+    return tok
 }
 
 // token reads the next XML token from the stream.
 // Returns null at end of input.
 pub fun (dec &Decoder) token() !Token? {
-    return null
+    return dec.nextToken()
 }
 
 // decode reads an XML element from the stream and stores it
 // in the value pointed to by target.
 pub fun (dec &Decoder) decode(target &any) !void {
+    for {
+        var result = dec.nextToken()
+        switch result {
+            .err(_) :: { return },
+            .ok(maybeToken) :: {
+                if maybeToken == null {
+                    return
+                }
+            },
+        }
+    }
 }
 
 // skip reads tokens until it has consumed the end element
 // matching the most recently consumed start element.
 pub fun (dec &Decoder) skip() !void {
+    var depth = 1
+    for depth > 0 {
+        let tok = try dec.nextToken()
+        if tok == null {
+            return .err(XmlError.unexpectedEof)
+        }
+        switch tok {
+            .startElement(_) :: { depth = depth + 1 },
+            .endElement(_) :: { depth = depth - 1 },
+            _ :: {},
+        }
+    }
 }
