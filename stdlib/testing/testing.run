@@ -1,5 +1,7 @@
 package testing
 
+use "fmt"
+
 // Operator represents a test comparison operator used with the `expect` keyword.
 // Operators are created via methods on T (t.eq, t.gt, t.contains, etc.)
 // and describe how to compare a value against an expectation.
@@ -37,48 +39,136 @@ pub T struct {
 // log records a message in the test log.
 // Messages are only printed on failure or when running with -v.
 pub fun (t &T) log(msg string) {
+    t.logBuf = append(t.logBuf, msg)
 }
 
 // logf records a formatted message in the test log.
 pub fun (t &T) logf(format string, args ...any) {
+    t.log(fmt.sprintf(format, args))
 }
 
 // fail marks the test as failed but continues execution.
 pub fun (t &T) fail() {
+    t.failed = true
 }
 
 // failNow marks the test as failed and stops execution immediately.
 pub fun (t &T) failNow() {
+    t.failed = true
 }
 
 // error logs a message and marks the test as failed.
 pub fun (t &T) error(msg string) {
+    t.log(msg)
+    t.fail()
 }
 
 // errorf logs a formatted message and marks the test as failed.
 pub fun (t &T) errorf(format string, args ...any) {
+    t.error(fmt.sprintf(format, args))
 }
 
 // fatal logs a message, marks the test as failed, and stops immediately.
 pub fun (t &T) fatal(msg string) {
+    t.log(msg)
+    t.failNow()
 }
 
 // fatalf logs a formatted message, marks the test as failed, and stops immediately.
 pub fun (t &T) fatalf(format string, args ...any) {
+    t.fatal(fmt.sprintf(format, args))
 }
 
 // skip marks the test as skipped and stops execution.
 pub fun (t &T) skip(reason string) {
+    t.skipped = true
+    t.log("skipped: " + reason)
 }
 
 // run launches a subtest with the given name and body.
 // Subtests run as independent test units with their own T context.
 pub fun (t &T) run(name string, body fun(t &T)) {
+    var child = T{
+        name: name,
+        failed: false,
+        skipped: false,
+        logBuf: alloc([]string, 0),
+        parent: .some(t),
+        isParallel: false,
+        deadlineMs: t.deadlineMs,
+        tempDirVal: null,
+    }
+    body(&child)
+    if child.failed {
+        t.failed = true
+    }
 }
 
 // expect asserts that got matches the given operator.
 // On failure, reports source location, got vs want, and operator description.
 pub fun (t &T) expect(got any, op Operator) {
+    if op.kind == .eq && got != op.want {
+        t.error("expect eq failed")
+        return
+    }
+    if op.kind == .ne && got == op.want {
+        t.error("expect ne failed")
+        return
+    }
+    if op.kind == .isTrue && !got {
+        t.error("expect isTrue failed")
+        return
+    }
+    if op.kind == .isFalse && got {
+        t.error("expect isFalse failed")
+        return
+    }
+    if op.kind == .isNil && got != null {
+        t.error("expect isNil failed")
+        return
+    }
+    if op.kind == .notNil && got == null {
+        t.error("expect notNil failed")
+        return
+    }
+}
+
+// assert fails the test when condition is false.
+pub fun (t &T) assert(condition bool) {
+    if !condition {
+        t.fatal("assert failed")
+    }
+}
+
+// assert_eq asserts deep equality between got and want.
+pub fun (t &T) assert_eq(got any, want any) {
+    if got != want {
+        t.fatalf("assert_eq failed: got=%v want=%v", got, want)
+    }
+}
+
+// assert_ne asserts that got and want are different.
+pub fun (t &T) assert_ne(got any, want any) {
+    if got == want {
+        t.fatalf("assert_ne failed: value=%v", got)
+    }
+}
+
+// assert_err asserts that err is a non-null error value.
+pub fun (t &T) assert_err(err any) {
+    if err == null {
+        t.fatal("assert_err failed: expected an error")
+    }
+}
+
+// assertEqual is a camelCase alias for assert_eq.
+pub fun (t &T) assertEqual(got any, want any) {
+    t.assert_eq(got, want)
+}
+
+// assertNotEqual is a camelCase alias for assert_ne.
+pub fun (t &T) assertNotEqual(got any, want any) {
+    t.assert_ne(got, want)
 }
 
 // parallel marks this test as safe to run in parallel with other
@@ -276,16 +366,19 @@ pub B struct {
 // resetTimer resets the benchmark timer and counters.
 // Call this after expensive setup that should not be measured.
 pub fun (b &B) resetTimer() {
+    b.duration = 0
 }
 
 // startTimer starts or resumes timing.
 // Called automatically before the benchmark body executes.
 pub fun (b &B) startTimer() {
+    b.running = true
 }
 
 // stopTimer pauses timing. Use with startTimer to exclude
 // sections from measurement.
 pub fun (b &B) stopTimer() {
+    b.running = false
 }
 
 // reportMetric adds a custom metric to the benchmark results.
@@ -295,10 +388,19 @@ pub fun (b &B) reportMetric(name string, value f64, unit string) {
 // bytesPerOp sets the number of bytes processed per benchmark iteration.
 // Used to compute throughput (MB/s) in results.
 pub fun (b &B) bytesPerOp(n int) {
+    b.bytes = n
 }
 
 // run launches a sub-benchmark.
 pub fun (b &B) run(name string, body fun(b &B)) {
+    var sub = B{
+        name: name,
+        n: b.n,
+        duration: 0,
+        running: false,
+        bytes: 0,
+    }
+    body(&sub)
 }
 
 // --- Test Results ---
