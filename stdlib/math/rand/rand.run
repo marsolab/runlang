@@ -11,15 +11,17 @@ pub Rand struct {
 
 let multiplier = 6364136223846793005
 let increment = 1442695040888963407
-let maxWord = 9223372036854775807
-let floatScale = 9007199254740992.0
+let max_word = 9223372036854775807
+let float_scale = 9007199254740992.0
 
 var global Rand = Rand{ s0: 1, s1: 0, s2: 0, s3: 0 }
+var global_seeded = false
+var auto_seed_counter = 1469598103934665603
 
-fun mixSeed(seed int) int {
+fun mix_seed(seed int) int {
     var x = seed
     if x == 0 {
-        return 1
+        x = 1
     }
     if x < 0 {
         x = -x
@@ -27,10 +29,29 @@ fun mixSeed(seed int) int {
     return x
 }
 
+fun next_auto_seed() int {
+    auto_seed_counter = (auto_seed_counter * multiplier) + increment
+    if auto_seed_counter < 0 {
+        return -auto_seed_counter
+    }
+    return auto_seed_counter
+}
+
+fun ensure_global_seeded() {
+    if global_seeded {
+        return
+    }
+    global.seed(next_auto_seed())
+    global_seeded = true
+}
+
 // new creates a new Rand seeded with the given seed value.
 pub fun new(seed int) Rand {
-    var s = mixSeed(seed)
-    return Rand{ s0: s, s1: s + 1, s2: s + 2, s3: s + 3 }
+    var s0 = mix_seed(seed)
+    var s1 = mix_seed((s0 * multiplier) + increment)
+    var s2 = mix_seed((s1 * multiplier) + increment)
+    var s3 = mix_seed((s2 * multiplier) + increment)
+    return Rand{ s0: s0, s1: s1, s2: s2, s3: s3 }
 }
 
 // int returns a non-negative pseudo-random int.
@@ -43,26 +64,36 @@ pub fun (r &Rand) int() int {
     r.s2 = r.s1
     r.s1 = r.s0
     r.s0 = next
-    return next % maxWord
+    return next % max_word
 }
 
-// intN returns a non-negative pseudo-random int in the half-open interval [0, n).
+// int_n returns a non-negative pseudo-random int in the half-open interval [0, n).
 // Returns 0 when n <= 0.
-pub fun (r &Rand) intN(n int) int {
+pub fun (r &Rand) int_n(n int) int {
     if n <= 0 {
         return 0
     }
     return r.int() % n
 }
 
+// intN is a backward-compatible alias for int_n.
+pub fun (r &Rand) intN(n int) int {
+    return r.int_n(n)
+}
+
+// float64 returns a pseudo-random f64 in the half-open interval [0.0, 1.0).
+pub fun (r &Rand) float64() f64 {
+    return (r.int() % 9007199254740992) / float_scale
+}
+
+// f64 is a backward-compatible alias for float64.
+pub fun (r &Rand) f64() f64 {
+    return r.float64()
+}
+
 // u64 returns a pseudo-random u64.
 pub fun (r &Rand) u64() int {
     return r.int()
-}
-
-// f64 returns a pseudo-random f64 in the half-open interval [0.0, 1.0).
-pub fun (r &Rand) f64() f64 {
-    return (r.int() % 9007199254740992) / floatScale
 }
 
 // bool returns a pseudo-random boolean.
@@ -72,9 +103,12 @@ pub fun (r &Rand) bool() bool {
 
 // shuffle pseudo-randomizes the order of elements in the slice.
 pub fun (r &Rand) shuffle(s []any) {
+    if len(s) <= 1 {
+        return
+    }
     var i = len(s) - 1
     for i > 0 {
-        var j = r.intN(i + 1)
+        var j = r.int_n(i + 1)
         var t = s[i]
         s[i] = s[j]
         s[j] = t
@@ -88,7 +122,7 @@ pub fun (r &Rand) choice(s []any) any {
     if len(s) == 0 {
         return null
     }
-    return s[r.intN(len(s))]
+    return s[r.int_n(len(s))]
 }
 
 // seed resets the generator to the given seed.
@@ -101,7 +135,22 @@ pub fun (r &Rand) seed(s int) {
 }
 
 // Global convenience APIs.
-pub fun int() int { return global.int() }
-pub fun int_n(n int) int { return global.intN(n) }
-pub fun float64() f64 { return global.f64() }
-pub fun shuffle(s []any) { global.shuffle(s) }
+pub fun int() int {
+    ensure_global_seeded()
+    return global.int()
+}
+
+pub fun int_n(n int) int {
+    ensure_global_seeded()
+    return global.int_n(n)
+}
+
+pub fun float64() f64 {
+    ensure_global_seeded()
+    return global.float64()
+}
+
+pub fun shuffle(s []any) {
+    ensure_global_seeded()
+    global.shuffle(s)
+}
