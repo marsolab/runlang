@@ -17,13 +17,13 @@ extern void run_test_simd(void);
 extern void run_test_numa(void);
 extern void run_test_runtime_api(void);
 extern void run_test_debug_api(void);
+extern void run_test_poller(void);
 
 int main(void) {
     printf("Run Runtime Test Suite\n");
     printf("======================\n");
 
-    /* Force single-processor mode for deterministic testing.
-     * Multi-threaded scheduling requires lock-free queues (future work). */
+    /* Force single-processor mode for deterministic testing. */
     setenv("RUN_MAXPROCS", "1", 1);
 
     /* Initialize the scheduler (required for scheduler and channel tests) */
@@ -38,6 +38,7 @@ int main(void) {
     run_test_debug_api();
     run_test_scheduler();
     run_test_chan();
+    run_test_poller();
 
     TEST_SUMMARY();
 }

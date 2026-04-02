@@ -161,6 +161,12 @@ pub fn build(b: *std.Build) void {
     }
     runtime_lib.linkLibC();
     runtime_lib.linkSystemLibrary("pthread");
+    // Link libunwind for stack traces with DWARF unwinding.
+    // On macOS, libunwind is part of the system (linked automatically).
+    // On Linux, it requires the libunwind-dev package.
+    if (target_info.os.tag == .linux) {
+        runtime_lib.linkSystemLibrary("unwind");
+    }
     // Note: sanitizer runtime libraries are NOT linked into the static archive.
     // The consuming executable is responsible for linking them.
     b.installArtifact(runtime_lib);
@@ -215,6 +221,7 @@ pub fn build(b: *std.Build) void {
         "src/runtime/tests/test_numa.c",
         "src/runtime/tests/test_runtime_api.c",
         "src/runtime/tests/test_debug_api.c",
+        "src/runtime/tests/test_poller.c",
     };
     inline for (runtime_test_sources) |src| {
         runtime_test_exe.root_module.addCSourceFile(.{
@@ -260,6 +267,10 @@ pub fn build(b: *std.Build) void {
     }
     runtime_test_exe.linkLibC();
     runtime_test_exe.linkSystemLibrary("pthread");
+    // Link libunwind for stack trace tests (matches runtime_lib linking).
+    if (target_info.os.tag == .linux) {
+        runtime_test_exe.linkSystemLibrary("unwind");
+    }
 
     // Link sanitizer runtime libraries for the test executable.
     // On Ubuntu/Debian, these live in GCC's versioned lib directory
