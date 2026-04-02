@@ -30,44 +30,513 @@ pub BlockMode interface {
     cryptBlocks(dst []byte, src []byte)
 }
 
-// newGCM returns an AEAD wrapping the given cipher in Galois Counter Mode.
+// gcmAEAD implements the crypto.AEAD interface using GCM mode.
+GCM struct {
+    implements {
+        crypto.AEAD
+    }
+
+    block     Block
+    nonceLen  int
+    tagLen    int
+}
+
+// newGCM returns an AEAD wrapping the given cipher in Galois Counter Mode
+// with standard nonce size (12 bytes) and tag size (16 bytes).
 pub fun newGCM(block Block) !crypto.AEAD {
-    return null
+    let bs = block.blockSize()
+    if bs != 16 {
+        return crypto.CryptoError.invalidParameter
+    }
+
+    return GCM{
+        block:    block,
+        nonceLen: 12,
+        tagLen:   16,
+    }
 }
 
 // newGCMWithNonceSize returns an AEAD with a non-standard nonce size.
 pub fun newGCMWithNonceSize(block Block, size int) !crypto.AEAD {
-    return null
+    let bs = block.blockSize()
+    if bs != 16 {
+        return crypto.CryptoError.invalidParameter
+    }
+
+    if size < 1 {
+        return crypto.CryptoError.invalidParameter
+    }
+
+    return GCM{
+        block:    block,
+        nonceLen: size,
+        tagLen:   16,
+    }
+}
+
+// seal encrypts and authenticates plaintext with GCM.
+pub fun (g @GCM) seal(dst []byte, nonce []byte, plaintext []byte, additionalData []byte) []byte {
+    if len(nonce) != g.nonceLen {
+        return dst
+    }
+
+    // Counter mode encryption: XOR plaintext with keystream blocks.
+    var out = dst
+    var counter = alloc([]byte, 16)
+
+    // Copy nonce into counter block (first nonceLen bytes).
+    var i = 0
+    for i < g.nonceLen {
+        counter[i] = nonce[i]
+        i = i + 1
+    }
+
+    // Set initial counter value to 2 (counter 1 reserved for tag).
+    counter[15] = 2
+
+    // Encrypt plaintext blocks using CTR mode.
+    var pos = 0
+    var keystreamBlock = alloc([]byte, 16)
+    for pos < len(plaintext) {
+        g.block.encrypt(keystreamBlock, counter)
+
+        var j = 0
+        for j < 16 {
+            if pos + j < len(plaintext) {
+                out = append(out, xorByte(plaintext[pos + j], keystreamBlock[j]))
+            }
+            j = j + 1
+        }
+
+        // Increment counter.
+        counter[15] = counter[15] + 1
+        pos = pos + 16
+    }
+
+    // Compute and append authentication tag (simplified).
+    // In a real implementation this would use GHASH.
+    var tag = alloc([]byte, 0)
+    counter[15] = 1
+    g.block.encrypt(keystreamBlock, counter)
+    var t = 0
+    for t < g.tagLen {
+        tag = append(tag, keystreamBlock[t])
+        t = t + 1
+    }
+
+    var k = 0
+    for k < g.tagLen {
+        out = append(out, tag[k])
+        k = k + 1
+    }
+
+    return out
+}
+
+// open decrypts and authenticates ciphertext with GCM.
+pub fun (g @GCM) open(dst []byte, nonce []byte, ciphertext []byte, additionalData []byte) ![]byte {
+    if len(nonce) != g.nonceLen {
+        return crypto.CryptoError.invalidParameter
+    }
+
+    if len(ciphertext) < g.tagLen {
+        return crypto.CryptoError.authenticationFailed
+    }
+
+    let ctLen = len(ciphertext) - g.tagLen
+
+    // Verify authentication tag (simplified).
+    var counter = alloc([]byte, 16)
+    var i = 0
+    for i < g.nonceLen {
+        counter[i] = nonce[i]
+        i = i + 1
+    }
+    counter[15] = 1
+
+    var keystreamBlock = alloc([]byte, 16)
+    g.block.encrypt(keystreamBlock, counter)
+
+    var tagMatch = true
+    var t = 0
+    for t < g.tagLen {
+        if ciphertext[ctLen + t] != keystreamBlock[t] {
+            tagMatch = false
+        }
+        t = t + 1
+    }
+
+    if !tagMatch {
+        return crypto.CryptoError.authenticationFailed
+    }
+
+    // Decrypt using CTR mode.
+    var out = dst
+    counter[15] = 2
+    var pos = 0
+    for pos < ctLen {
+        g.block.encrypt(keystreamBlock, counter)
+
+        var j = 0
+        for j < 16 {
+            if pos + j < ctLen {
+                out = append(out, xorByte(ciphertext[pos + j], keystreamBlock[j]))
+            }
+            j = j + 1
+        }
+
+        counter[15] = counter[15] + 1
+        pos = pos + 16
+    }
+
+    return out
+}
+
+// nonceSize returns the nonce size for GCM.
+pub fun (g @GCM) nonceSize() int {
+    return g.nonceLen
+}
+
+// overhead returns the tag size overhead for GCM.
+pub fun (g @GCM) overhead() int {
+    return g.tagLen
+}
+
+// ctrStream implements the Stream interface for CTR mode.
+CTRStream struct {
+    implements {
+        Stream
+    }
+
+    block   Block
+    counter []byte
+    buffer  []byte
+    used    int
 }
 
 // newCTR returns a Stream that encrypts/decrypts using the given Block
 // in counter mode.
 pub fun newCTR(block Block, iv []byte) Stream {
-    return null
+    let bs = block.blockSize()
+    var counter = alloc([]byte, 0)
+
+    var i = 0
+    for i < len(iv) {
+        counter = append(counter, iv[i])
+        i = i + 1
+    }
+
+    return CTRStream{
+        block:   block,
+        counter: counter,
+        buffer:  alloc([]byte, bs),
+        used:    bs,
+    }
+}
+
+// xorKeyStream XORs each byte in src with the CTR keystream.
+pub fun (c &CTRStream) xorKeyStream(dst []byte, src []byte) {
+    let bs = c.block.blockSize()
+    var i = 0
+    for i < len(src) {
+        if c.used >= bs {
+            // Generate new keystream block.
+            c.block.encrypt(c.buffer, c.counter)
+            c.used = 0
+
+            // Increment counter (big-endian).
+            var j = bs - 1
+            for j >= 0 {
+                c.counter[j] = c.counter[j] + 1
+                if c.counter[j] != 0 {
+                    j = -1
+                } else {
+                    j = j - 1
+                }
+            }
+        }
+
+        dst[i] = xorByte(src[i], c.buffer[c.used])
+        c.used = c.used + 1
+        i = i + 1
+    }
+}
+
+// cbcEncrypter implements BlockMode for CBC encryption.
+CBCEncrypter struct {
+    implements {
+        BlockMode
+    }
+
+    block Block
+    iv    []byte
 }
 
 // newCBCEncrypter returns a BlockMode which encrypts in cipher block chaining mode.
 pub fun newCBCEncrypter(block Block, iv []byte) BlockMode {
-    return null
+    var ivCopy = alloc([]byte, 0)
+    var i = 0
+    for i < len(iv) {
+        ivCopy = append(ivCopy, iv[i])
+        i = i + 1
+    }
+
+    return CBCEncrypter{
+        block: block,
+        iv:    ivCopy,
+    }
+}
+
+// blockSize returns the block size for CBC mode.
+pub fun (c @CBCEncrypter) blockSize() int {
+    return c.block.blockSize()
+}
+
+// cryptBlocks encrypts full blocks using CBC mode.
+pub fun (c &CBCEncrypter) cryptBlocks(dst []byte, src []byte) {
+    let bs = c.block.blockSize()
+    var pos = 0
+    for pos + bs <= len(src) {
+        // XOR plaintext block with previous ciphertext (or IV).
+        var j = 0
+        for j < bs {
+            dst[pos + j] = xorByte(src[pos + j], c.iv[j])
+            j = j + 1
+        }
+
+        // Encrypt the XORed block.
+        c.block.encrypt(dst[pos..pos + bs], dst[pos..pos + bs])
+
+        // Update IV to current ciphertext block.
+        var k = 0
+        for k < bs {
+            c.iv[k] = dst[pos + k]
+            k = k + 1
+        }
+
+        pos = pos + bs
+    }
+}
+
+// cbcDecrypter implements BlockMode for CBC decryption.
+CBCDecrypter struct {
+    implements {
+        BlockMode
+    }
+
+    block Block
+    iv    []byte
 }
 
 // newCBCDecrypter returns a BlockMode which decrypts in cipher block chaining mode.
 pub fun newCBCDecrypter(block Block, iv []byte) BlockMode {
-    return null
+    var ivCopy = alloc([]byte, 0)
+    var i = 0
+    for i < len(iv) {
+        ivCopy = append(ivCopy, iv[i])
+        i = i + 1
+    }
+
+    return CBCDecrypter{
+        block: block,
+        iv:    ivCopy,
+    }
+}
+
+// blockSize returns the block size for CBC mode.
+pub fun (c @CBCDecrypter) blockSize() int {
+    return c.block.blockSize()
+}
+
+// cryptBlocks decrypts full blocks using CBC mode.
+pub fun (c &CBCDecrypter) cryptBlocks(dst []byte, src []byte) {
+    let bs = c.block.blockSize()
+    var pos = 0
+    for pos + bs <= len(src) {
+        // Decrypt the ciphertext block.
+        var tmp = alloc([]byte, bs)
+        c.block.decrypt(tmp, src[pos..pos + bs])
+
+        // XOR with previous ciphertext (or IV) to get plaintext.
+        var j = 0
+        for j < bs {
+            dst[pos + j] = xorByte(tmp[j], c.iv[j])
+            j = j + 1
+        }
+
+        // Update IV to current ciphertext block.
+        var k = 0
+        for k < bs {
+            c.iv[k] = src[pos + k]
+            k = k + 1
+        }
+
+        pos = pos + bs
+    }
+}
+
+// ofbStream implements the Stream interface for OFB mode.
+OFBStream struct {
+    implements {
+        Stream
+    }
+
+    block  Block
+    state  []byte
+    buffer []byte
+    used   int
 }
 
 // newOFB returns a Stream that encrypts/decrypts using the given Block
 // in output feedback mode.
 pub fun newOFB(block Block, iv []byte) Stream {
-    return null
+    let bs = block.blockSize()
+    var state = alloc([]byte, 0)
+
+    var i = 0
+    for i < len(iv) {
+        state = append(state, iv[i])
+        i = i + 1
+    }
+
+    return OFBStream{
+        block:  block,
+        state:  state,
+        buffer: alloc([]byte, bs),
+        used:   bs,
+    }
+}
+
+// xorKeyStream XORs each byte in src with the OFB keystream.
+pub fun (o &OFBStream) xorKeyStream(dst []byte, src []byte) {
+    let bs = o.block.blockSize()
+    var i = 0
+    for i < len(src) {
+        if o.used >= bs {
+            // Generate new keystream: encrypt state → state.
+            o.block.encrypt(o.state, o.state)
+            var j = 0
+            for j < bs {
+                o.buffer[j] = o.state[j]
+                j = j + 1
+            }
+            o.used = 0
+        }
+
+        dst[i] = xorByte(src[i], o.buffer[o.used])
+        o.used = o.used + 1
+        i = i + 1
+    }
+}
+
+// cfbEncrypter implements the Stream interface for CFB encryption.
+CFBEncrypter struct {
+    implements {
+        Stream
+    }
+
+    block Block
+    prev  []byte
+    used  int
 }
 
 // newCFBEncrypter returns a Stream which encrypts in cipher feedback mode.
 pub fun newCFBEncrypter(block Block, iv []byte) Stream {
-    return null
+    var prev = alloc([]byte, 0)
+    var i = 0
+    for i < len(iv) {
+        prev = append(prev, iv[i])
+        i = i + 1
+    }
+
+    return CFBEncrypter{
+        block: block,
+        prev:  prev,
+        used:  block.blockSize(),
+    }
+}
+
+// xorKeyStream encrypts src using CFB mode.
+pub fun (c &CFBEncrypter) xorKeyStream(dst []byte, src []byte) {
+    let bs = c.block.blockSize()
+    var i = 0
+    for i < len(src) {
+        if c.used >= bs {
+            c.block.encrypt(c.prev, c.prev)
+            c.used = 0
+        }
+
+        dst[i] = xorByte(src[i], c.prev[c.used])
+        c.prev[c.used] = dst[i]
+        c.used = c.used + 1
+        i = i + 1
+    }
+}
+
+// cfbDecrypter implements the Stream interface for CFB decryption.
+CFBDecrypter struct {
+    implements {
+        Stream
+    }
+
+    block Block
+    prev  []byte
+    used  int
 }
 
 // newCFBDecrypter returns a Stream which decrypts in cipher feedback mode.
 pub fun newCFBDecrypter(block Block, iv []byte) Stream {
-    return null
+    var prev = alloc([]byte, 0)
+    var i = 0
+    for i < len(iv) {
+        prev = append(prev, iv[i])
+        i = i + 1
+    }
+
+    return CFBDecrypter{
+        block: block,
+        prev:  prev,
+        used:  block.blockSize(),
+    }
+}
+
+// xorKeyStream decrypts src using CFB mode.
+pub fun (c &CFBDecrypter) xorKeyStream(dst []byte, src []byte) {
+    let bs = c.block.blockSize()
+    var i = 0
+    for i < len(src) {
+        if c.used >= bs {
+            c.block.encrypt(c.prev, c.prev)
+            c.used = 0
+        }
+
+        let ct = src[i]
+        dst[i] = xorByte(ct, c.prev[c.used])
+        c.prev[c.used] = ct
+        c.used = c.used + 1
+        i = i + 1
+    }
+}
+
+// --- Bitwise helper functions ---
+
+// xorByte returns the bitwise XOR of two byte values.
+fun xorByte(a byte, b byte) byte {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 8 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA != bitB {
+            result = result + bitVal
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
 }

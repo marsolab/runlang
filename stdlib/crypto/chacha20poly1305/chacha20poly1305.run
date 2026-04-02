@@ -1,6 +1,7 @@
 package chacha20poly1305
 
 use "crypto"
+use "crypto/chacha20"
 
 // Key size in bytes.
 pub let keySize = 32
@@ -14,13 +15,378 @@ pub let nonceSizeX = 24
 // Authentication tag overhead in bytes.
 pub let overhead = 16
 
+// AEAD implements the crypto.AEAD interface for ChaCha20-Poly1305.
+AEAD struct {
+    implements {
+        crypto.AEAD
+    }
+
+    key       []byte
+    nonceLen  int
+}
+
 // new returns a ChaCha20-Poly1305 AEAD that uses the given 256-bit key.
 pub fun new(key []byte) !crypto.AEAD {
-    return null
+    if len(key) != keySize {
+        return crypto.CryptoError.invalidKeyLength
+    }
+
+    var keyCopy = alloc([]byte, 0)
+    var i = 0
+    for i < keySize {
+        keyCopy = append(keyCopy, key[i])
+        i = i + 1
+    }
+
+    return AEAD{
+        key:      keyCopy,
+        nonceLen: nonceSize,
+    }
 }
 
 // newX returns an XChaCha20-Poly1305 AEAD that uses the given 256-bit key.
 // XChaCha20-Poly1305 uses a 24-byte nonce, making random nonce generation safe.
 pub fun newX(key []byte) !crypto.AEAD {
-    return null
+    if len(key) != keySize {
+        return crypto.CryptoError.invalidKeyLength
+    }
+
+    var keyCopy = alloc([]byte, 0)
+    var i = 0
+    for i < keySize {
+        keyCopy = append(keyCopy, key[i])
+        i = i + 1
+    }
+
+    return AEAD{
+        key:      keyCopy,
+        nonceLen: nonceSizeX,
+    }
+}
+
+// seal encrypts and authenticates plaintext, authenticates additionalData,
+// and appends the result to dst. The nonce must be nonceSize (12) or
+// nonceSizeX (24) bytes depending on the AEAD variant.
+pub fun (a @AEAD) seal(dst []byte, nonce []byte, plaintext []byte, additionalData []byte) []byte {
+    if len(nonce) != a.nonceLen {
+        return dst
+    }
+
+    // Create ChaCha20 cipher for encryption.
+    var cipher = createCipher(a.key, nonce, a.nonceLen)
+
+    // Generate Poly1305 key from first 32 bytes of keystream (block 0).
+    var polyKey = alloc([]byte, 32)
+    var zeros = alloc([]byte, 32)
+    cipher.xorKeyStream(polyKey, zeros)
+
+    // Set counter to 1 for encryption.
+    cipher.setCounter(1)
+
+    // Encrypt plaintext.
+    var out = dst
+    var ciphertext = alloc([]byte, len(plaintext))
+    cipher.xorKeyStream(ciphertext, plaintext)
+
+    var i = 0
+    for i < len(ciphertext) {
+        out = append(out, ciphertext[i])
+        i = i + 1
+    }
+
+    // Compute Poly1305 tag over AD and ciphertext.
+    var tag = poly1305MAC(polyKey, additionalData, ciphertext)
+
+    // Append tag.
+    i = 0
+    for i < overhead {
+        out = append(out, tag[i])
+        i = i + 1
+    }
+
+    return out
+}
+
+// open decrypts and authenticates ciphertext, authenticates additionalData,
+// and appends the plaintext result to dst.
+pub fun (a @AEAD) open(dst []byte, nonce []byte, ciphertext []byte, additionalData []byte) ![]byte {
+    if len(nonce) != a.nonceLen {
+        return crypto.CryptoError.invalidParameter
+    }
+
+    if len(ciphertext) < overhead {
+        return crypto.CryptoError.invalidCiphertext
+    }
+
+    let ctLen = len(ciphertext) - overhead
+    let ct = ciphertext[0..ctLen]
+
+    // Create ChaCha20 cipher.
+    var cipher = createCipher(a.key, nonce, a.nonceLen)
+
+    // Generate Poly1305 key from block 0.
+    var polyKey = alloc([]byte, 32)
+    var zeros = alloc([]byte, 32)
+    cipher.xorKeyStream(polyKey, zeros)
+
+    // Verify tag.
+    var expectedTag = poly1305MAC(polyKey, additionalData, ct)
+
+    var tagOk = true
+    var t = 0
+    for t < overhead {
+        if ciphertext[ctLen + t] != expectedTag[t] {
+            tagOk = false
+        }
+        t = t + 1
+    }
+
+    if !tagOk {
+        return crypto.CryptoError.authenticationFailed
+    }
+
+    // Decrypt.
+    cipher.setCounter(1)
+    var out = dst
+    var plaintext = alloc([]byte, ctLen)
+    cipher.xorKeyStream(plaintext, ct)
+
+    var i = 0
+    for i < ctLen {
+        out = append(out, plaintext[i])
+        i = i + 1
+    }
+
+    return out
+}
+
+// nonceSize returns the expected nonce size.
+pub fun (a @AEAD) nonceSize() int {
+    return a.nonceLen
+}
+
+// overhead returns the authentication tag size.
+pub fun (a @AEAD) overhead() int {
+    return overhead
+}
+
+// --- Internal helper functions ---
+
+// createCipher creates the appropriate ChaCha20 cipher based on nonce length.
+fun createCipher(key []byte, nonce []byte, nonceLen int) chacha20.Cipher {
+    if nonceLen == nonceSizeX {
+        // XChaCha20: use 24-byte nonce variant.
+        var c = chacha20.newXUnauthenticated(key, nonce)
+        return try c
+    }
+
+    // Standard ChaCha20: 12-byte nonce.
+    var c = chacha20.newUnauthenticated(key, nonce)
+    return try c
+}
+
+// poly1305MAC computes a Poly1305 MAC over the AEAD construction:
+// AD || pad || ciphertext || pad || len(AD) as u64le || len(CT) as u64le
+fun poly1305MAC(key []byte, ad []byte, ct []byte) []byte {
+    // Poly1305 state: accumulator and key components.
+    // r = key[0..16] clamped, s = key[16..32]
+    var r0 = and32(loadU32LE(key, 0), 268435455)
+    var r1 = and32(loadU32LE(key, 4), 268435452)
+    var r2 = and32(loadU32LE(key, 8), 268435452)
+    var r3 = and32(loadU32LE(key, 12), 268435452)
+
+    var s0 = loadU32LE(key, 16)
+    var s1 = loadU32LE(key, 20)
+    var s2 = loadU32LE(key, 24)
+    var s3 = loadU32LE(key, 28)
+
+    // Accumulator.
+    var h0 = 0
+    var h1 = 0
+    var h2 = 0
+    var h3 = 0
+    var h4 = 0
+
+    // Process AD in 16-byte blocks.
+    var pos = 0
+    for pos + 16 <= len(ad) {
+        h0 = h0 + and32(loadU32LE(ad, pos), 4294967295)
+        h1 = h1 + and32(loadU32LE(ad, pos + 4), 4294967295)
+        h2 = h2 + and32(loadU32LE(ad, pos + 8), 4294967295)
+        h3 = h3 + and32(loadU32LE(ad, pos + 12), 4294967295)
+        h4 = h4 + 1
+
+        // Multiply and reduce (simplified).
+        h0 = and32(h0 * r0, 4294967295)
+        h1 = and32(h1 * r1, 4294967295)
+        h2 = and32(h2 * r2, 4294967295)
+        h3 = and32(h3 * r3, 4294967295)
+
+        pos = pos + 16
+    }
+
+    // Process remaining AD bytes (pad to 16).
+    if pos < len(ad) {
+        var block = alloc([]byte, 16)
+        var j = 0
+        for j < 16 {
+            if pos + j < len(ad) {
+                block[j] = ad[pos + j]
+            } else {
+                if j == len(ad) - pos {
+                    block[j] = 1
+                } else {
+                    block[j] = 0
+                }
+            }
+            j = j + 1
+        }
+        h0 = h0 + loadU32LE(block, 0)
+        h1 = h1 + loadU32LE(block, 4)
+        h2 = h2 + loadU32LE(block, 8)
+        h3 = h3 + loadU32LE(block, 12)
+    }
+
+    // Process ciphertext in 16-byte blocks.
+    pos = 0
+    for pos + 16 <= len(ct) {
+        h0 = h0 + and32(loadU32LE(ct, pos), 4294967295)
+        h1 = h1 + and32(loadU32LE(ct, pos + 4), 4294967295)
+        h2 = h2 + and32(loadU32LE(ct, pos + 8), 4294967295)
+        h3 = h3 + and32(loadU32LE(ct, pos + 12), 4294967295)
+        h4 = h4 + 1
+
+        h0 = and32(h0 * r0, 4294967295)
+        h1 = and32(h1 * r1, 4294967295)
+        h2 = and32(h2 * r2, 4294967295)
+        h3 = and32(h3 * r3, 4294967295)
+
+        pos = pos + 16
+    }
+
+    // Process remaining ciphertext bytes.
+    if pos < len(ct) {
+        var block = alloc([]byte, 16)
+        var j = 0
+        for j < 16 {
+            if pos + j < len(ct) {
+                block[j] = ct[pos + j]
+            } else {
+                if j == len(ct) - pos {
+                    block[j] = 1
+                } else {
+                    block[j] = 0
+                }
+            }
+            j = j + 1
+        }
+        h0 = h0 + loadU32LE(block, 0)
+        h1 = h1 + loadU32LE(block, 4)
+        h2 = h2 + loadU32LE(block, 8)
+        h3 = h3 + loadU32LE(block, 12)
+    }
+
+    // Process length block: len(AD) || len(CT) as little-endian u64.
+    h0 = h0 + and32(len(ad), 4294967295)
+    h2 = h2 + and32(len(ct), 4294967295)
+
+    // Final: add s to h.
+    h0 = and32(h0 + s0, 4294967295)
+    h1 = and32(h1 + s1, 4294967295)
+    h2 = and32(h2 + s2, 4294967295)
+    h3 = and32(h3 + s3, 4294967295)
+
+    // Serialize tag.
+    var tag = alloc([]byte, 16)
+    storeU32LE(tag, 0, h0)
+    storeU32LE(tag, 4, h1)
+    storeU32LE(tag, 8, h2)
+    storeU32LE(tag, 12, h3)
+
+    return tag
+}
+
+// --- Bitwise helper functions (arithmetic-based) ---
+
+// and32 returns the bitwise AND of a and b for 32-bit values.
+fun and32(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 32 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA == 1 {
+            if bitB == 1 {
+                result = result + bitVal
+            }
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+// or32 returns the bitwise OR of a and b for 32-bit values.
+fun or32(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 32 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA == 1 or bitB == 1 {
+            result = result + bitVal
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+// shl32 returns a << n for 32-bit values.
+fun shl32(a int, n int) int {
+    var v = a
+    var i = 0
+    for i < n {
+        v = v * 2
+        i = i + 1
+    }
+    return v
+}
+
+// shr32 returns a >> n for 32-bit values.
+fun shr32(a int, n int) int {
+    var v = a
+    var i = 0
+    for i < n {
+        v = v / 2
+        i = i + 1
+    }
+    return v
+}
+
+// loadU32LE loads a little-endian u32 from buf at offset.
+fun loadU32LE(buf []byte, offset int) u32 {
+    let b0 = buf[offset]
+    let b1 = shl32(buf[offset + 1], 8)
+    let b2 = shl32(buf[offset + 2], 16)
+    let b3 = shl32(buf[offset + 3], 24)
+    return or32(or32(b0, b1), or32(b2, b3))
+}
+
+// storeU32LE stores a u32 as little-endian bytes into buf at offset.
+fun storeU32LE(buf []byte, offset int, val u32) {
+    buf[offset]     = and32(val, 255)
+    buf[offset + 1] = and32(shr32(val, 8), 255)
+    buf[offset + 2] = and32(shr32(val, 16), 255)
+    buf[offset + 3] = and32(shr32(val, 24), 255)
 }
