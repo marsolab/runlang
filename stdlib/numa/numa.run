@@ -22,73 +22,140 @@ pub Topology struct {
 
 // available reports whether the system has more than one NUMA node.
 pub fun available() bool {
-    return false
+    return nodeCount() > 1
 }
 
 // nodeCount returns the number of NUMA nodes (>= 1).
 pub fun nodeCount() int {
-    return 0
+    var count = __builtin_numa_node_count()
+    if count < 1 {
+        return 1
+    }
+    return count
 }
 
 // currentNode returns the NUMA node the calling thread is running on.
 pub fun currentNode() int {
-    return 0
+    return __builtin_numa_current_node()
 }
 
 // preferredNode returns the preferred NUMA node of the current
 // green thread, or -1 if no preference is set.
 pub fun preferredNode() int {
-    return -1
+    return __builtin_numa_preferred_node()
 }
 
 // cpuCount returns the number of CPUs on the given NUMA node.
 pub fun cpuCount(node int) int {
-    return 0
+    if node < 0 {
+        return 0
+    }
+    if node >= nodeCount() {
+        return 0
+    }
+    return __builtin_numa_cpu_count(node)
 }
 
 // distance returns the relative distance between two NUMA nodes.
 // A distance of 10 indicates local access; higher values indicate
 // increasing latency.
 pub fun distance(nodeA int, nodeB int) int {
-    return 0
+    if nodeA == nodeB {
+        return 10
+    }
+    var count = nodeCount()
+    if nodeA < 0 {
+        return -1
+    }
+    if nodeA >= count {
+        return -1
+    }
+    if nodeB < 0 {
+        return -1
+    }
+    if nodeB >= count {
+        return -1
+    }
+    return __builtin_numa_distance(nodeA, nodeB)
 }
 
 // memoryOnNode returns the total memory in bytes on the given node.
 pub fun memoryOnNode(node int) int {
-    return 0
+    if node < 0 {
+        return 0
+    }
+    if node >= nodeCount() {
+        return 0
+    }
+    return __builtin_numa_memory_on_node(node)
 }
 
 // localAlloc allocates size bytes on the current thread's NUMA node.
 pub fun localAlloc(size int) &byte {
-    return null
+    if size <= 0 {
+        return null
+    }
+    return __builtin_numa_local_alloc(size)
 }
 
 // nodeAlloc allocates size bytes on the specified NUMA node.
 pub fun nodeAlloc(node int, size int) &byte {
-    return null
+    if size <= 0 {
+        return null
+    }
+    if node < 0 {
+        return null
+    }
+    if node >= nodeCount() {
+        return null
+    }
+    return __builtin_numa_node_alloc(node, size)
 }
 
 // interleaveAlloc allocates size bytes interleaved round-robin
 // across all NUMA nodes.
 pub fun interleaveAlloc(size int) &byte {
-    return null
+    if size <= 0 {
+        return null
+    }
+    return __builtin_numa_interleave_alloc(size)
 }
 
 // free releases memory previously allocated by localAlloc,
 // nodeAlloc, or interleaveAlloc.
 pub fun free(ptr &byte, size int) {
+    if ptr == null {
+        return
+    }
+    if size <= 0 {
+        return
+    }
+    __builtin_numa_free(ptr, size)
 }
 
 // bindThread binds the calling OS thread to CPUs on the given
 // NUMA node. Returns 0 on success, -1 on failure.
 pub fun bindThread(node int) int {
-    return 0
+    if node < 0 {
+        return -1
+    }
+    if node >= nodeCount() {
+        return -1
+    }
+    return __builtin_numa_bind_thread(node)
 }
 
 // bindGreenThread sets the preferred NUMA node for the current
 // green thread. The scheduler will prefer running the thread on
 // a processor assigned to that node.
 pub fun bindGreenThread(node int) {
+    if node < 0 {
+        return
+    }
+    if node >= nodeCount() {
+        return
+    }
+    __builtin_numa_bind_green_thread(node)
 }
 
 // setMemoryPolicy sets the memory placement policy for the
@@ -96,5 +163,27 @@ pub fun bindGreenThread(node int) {
 // node is used by policyBind and policyPreferred.
 // Returns 0 on success, -1 on failure.
 pub fun setMemoryPolicy(policy int, node int) int {
-    return 0
+    if policy < policyLocal {
+        return -1
+    }
+    if policy > policyPreferred {
+        return -1
+    }
+    if policy == policyBind {
+        if node < 0 {
+            return -1
+        }
+        if node >= nodeCount() {
+            return -1
+        }
+    }
+    if policy == policyPreferred {
+        if node < 0 {
+            return -1
+        }
+        if node >= nodeCount() {
+            return -1
+        }
+    }
+    return __builtin_numa_set_memory_policy(policy, node)
 }

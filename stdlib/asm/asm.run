@@ -8,66 +8,110 @@ pub type Arch = .x86_64
 
 // arch returns the current target architecture.
 pub fun arch() Arch {
+    if isX8664 {
+        return .x86_64
+    }
+    if isAarch64 {
+        return .aarch64
+    }
+    if isRiscv64 {
+        return .riscv64
+    }
+    if isWasm32 {
+        return .wasm32
+    }
     return .x86_64
 }
 
 // Platform detection constants (compile-time).
-pub let isX8664 = false
-pub let isAarch64 = false
-pub let isRiscv64 = false
-pub let isWasm32 = false
+pub let isX8664 = __builtin_is_x86_64()
+pub let isAarch64 = __builtin_is_aarch64()
+pub let isRiscv64 = __builtin_is_riscv64()
+pub let isWasm32 = __builtin_is_wasm32()
 
 // hasAvx reports whether the CPU supports AVX instructions.
 pub fun hasAvx() bool {
+    if isX8664 {
+        return __builtin_cpu_has_feature("avx")
+    }
     return false
 }
 
 // hasAvx2 reports whether the CPU supports AVX2 instructions.
 pub fun hasAvx2() bool {
+    if isX8664 {
+        return __builtin_cpu_has_feature("avx2")
+    }
     return false
 }
 
 // hasAvx512 reports whether the CPU supports AVX-512 instructions.
 pub fun hasAvx512() bool {
+    if isX8664 {
+        return __builtin_cpu_has_feature("avx512f")
+    }
     return false
 }
 
 // hasSse42 reports whether the CPU supports SSE 4.2 instructions.
 pub fun hasSse42() bool {
+    if isX8664 {
+        return __builtin_cpu_has_feature("sse4.2")
+    }
     return false
 }
 
 // hasNeon reports whether the CPU supports ARM NEON instructions.
 pub fun hasNeon() bool {
+    if isAarch64 {
+        return __builtin_cpu_has_feature("neon")
+    }
     return false
 }
 
 // hasSve reports whether the CPU supports ARM SVE instructions.
 pub fun hasSve() bool {
+    if isAarch64 {
+        return __builtin_cpu_has_feature("sve")
+    }
     return false
 }
 
 // fence issues a full memory fence (sequential consistency barrier).
 pub fun fence() {
+    __builtin_memory_fence()
 }
 
 // loadFence issues a load-acquire memory fence.
 pub fun loadFence() {
+    __builtin_load_fence()
 }
 
 // storeFence issues a store-release memory fence.
 pub fun storeFence() {
+    __builtin_store_fence()
 }
 
 // prefetch issues a prefetch hint for the given memory address.
 pub fun prefetch(addr &byte) {
+    __builtin_prefetch(addr)
 }
 
 // cacheLineSize returns the L1 data cache line size in bytes.
 pub fun cacheLineSize() int {
+    if isX8664 {
+        return 64
+    }
+    if isAarch64 {
+        return 64
+    }
+    if isRiscv64 {
+        return 64
+    }
     return 64
 }
 
 // flushCacheLine flushes the cache line containing the given address.
 pub fun flushCacheLine(addr &byte) {
+    __builtin_cache_line_flush(addr)
 }

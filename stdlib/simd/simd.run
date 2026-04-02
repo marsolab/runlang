@@ -7,103 +7,156 @@ package simd
 
 // hadd returns the horizontal sum (reduction) of all lanes.
 pub fun hadd(v v4f32) f32 {
-    return 0.0
+    var s = v[0] + v[1] + v[2] + v[3]
+    return s
 }
 
 // dot returns the dot product of two vectors.
 pub fun dot(a v4f32, b v4f32) f32 {
-    return 0.0
+    var prod = a * b
+    return hadd(prod)
 }
 
 // shuffle permutes vector lanes using compile-time literal indices.
 pub fun shuffle(v v4f32, i0 int, i1 int, i2 int, i3 int) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    return v4f32{ v[i0], v[i1], v[i2], v[i3] }
 }
 
 // min returns the element-wise minimum of two vectors.
 pub fun min(a v4f32, b v4f32) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    var r = v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    var i = 0
+    for i < 4 {
+        if a[i] < b[i] {
+            r[i] = a[i]
+        } else {
+            r[i] = b[i]
+        }
+        i = i + 1
+    }
+    return r
 }
 
 // max returns the element-wise maximum of two vectors.
 pub fun max(a v4f32, b v4f32) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    var r = v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    var i = 0
+    for i < 4 {
+        if a[i] > b[i] {
+            r[i] = a[i]
+        } else {
+            r[i] = b[i]
+        }
+        i = i + 1
+    }
+    return r
 }
 
 // select blends two vectors using a mask: mask[i] ? a[i] : b[i].
 pub fun select(mask v4bool, a v4f32, b v4f32) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    var r = v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    var i = 0
+    for i < 4 {
+        if mask[i] {
+            r[i] = a[i]
+        } else {
+            r[i] = b[i]
+        }
+        i = i + 1
+    }
+    return r
 }
 
 // load performs an aligned load from a pointer to a vector.
 pub fun load(ptr @v4f32) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    return __builtin_simd_load_aligned(ptr)
 }
 
 // loadUnaligned performs an unaligned load from a pointer to a vector.
 pub fun loadUnaligned(ptr @v4f32) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    return __builtin_simd_load_unaligned(ptr)
 }
 
 // store performs an aligned store of a vector through a mutable pointer.
 pub fun store(ptr &v4f32, v v4f32) {
+    __builtin_simd_store_aligned(ptr, v)
 }
 
 // width returns the compiled SIMD fast-path width in bits
 // (256 for AVX, 128 for SSE/NEON, 0 for scalar fallback).
 pub fun width() int {
+    if __builtin_has_avx() {
+        return 256
+    }
+    if __builtin_has_sse2() {
+        return 128
+    }
+    if __builtin_has_neon() {
+        return 128
+    }
     return 0
 }
 
 // sqrt returns the element-wise square root. Float vectors only.
 pub fun sqrt(v v4f32) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    return __builtin_simd_sqrt(v)
 }
 
 // abs returns the element-wise absolute value. Float vectors only.
 pub fun abs(v v4f32) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    var r = v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    var i = 0
+    for i < 4 {
+        if v[i] < 0.0 {
+            r[i] = -v[i]
+        } else {
+            r[i] = v[i]
+        }
+        i = i + 1
+    }
+    return r
 }
 
 // floor returns the element-wise floor. Float vectors only.
 pub fun floor(v v4f32) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    return __builtin_simd_floor(v)
 }
 
 // ceil returns the element-wise ceiling. Float vectors only.
 pub fun ceil(v v4f32) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    return __builtin_simd_ceil(v)
 }
 
 // round returns the element-wise round to nearest. Float vectors only.
 pub fun round(v v4f32) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    return __builtin_simd_round(v)
 }
 
 // fma returns fused multiply-add: a*b + c, element-wise. Float vectors only.
 pub fun fma(a v4f32, b v4f32, c v4f32) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    return a * b + c
 }
 
 // clamp returns element-wise clamping to the range [lo, hi].
 pub fun clamp(v v4f32, lo v4f32, hi v4f32) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    return min(max(v, lo), hi)
 }
 
 // broadcast fills all lanes of vector type T with the given scalar value.
 // Usage: simd.broadcast(v4f32, 1.0)
 pub fun broadcast(v v4f32) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    var val = v[0]
+    return v4f32{ val, val, val, val }
 }
 
 // i32ToF32 converts an integer vector to a float vector.
 // Works with v4i32 -> v4f32 and v8i32 -> v8f32.
 pub fun i32ToF32(v v4i32) v4f32 {
-    return v4f32{ 0.0, 0.0, 0.0, 0.0 }
+    return __builtin_simd_i32_to_f32(v)
 }
 
 // f32ToI32 converts a float vector to an integer vector.
 // Works with v4f32 -> v4i32 and v8f32 -> v8i32.
 pub fun f32ToI32(v v4f32) v4i32 {
-    return v4i32{ 0, 0, 0, 0 }
+    return __builtin_simd_f32_to_i32(v)
 }
