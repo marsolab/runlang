@@ -70,31 +70,24 @@ async function fetchStrapi<T>(
   }
 }
 
-export async function getPosts(
-  page = 1,
-  pageSize = 10,
-): Promise<StrapiResponse<StrapiPost[]>> {
+export async function getPosts(page = 1, pageSize = 10): Promise<StrapiResponse<StrapiPost[]>> {
   return fetchStrapi<StrapiPost[]>("/articles", {
-    "populate": "*",
-    "sort": "publishedAt:desc",
+    populate: "*",
+    sort: "publishedAt:desc",
     "pagination[page]": String(page),
     "pagination[pageSize]": String(pageSize),
   });
 }
 
-export async function getPostBySlug(
-  slug: string,
-): Promise<StrapiPost | null> {
+export async function getPostBySlug(slug: string): Promise<StrapiPost | null> {
   const response = await fetchStrapi<StrapiPost[]>("/articles", {
-    "populate": "*",
+    populate: "*",
     "filters[slug][$eq]": slug,
   });
   return response.data[0] ?? null;
 }
 
-export async function getCategories(): Promise<
-  StrapiResponse<{ name: string; slug: string }[]>
-> {
+export async function getCategories(): Promise<StrapiResponse<{ name: string; slug: string }[]>> {
   return fetchStrapi<{ name: string; slug: string }[]>("/categories", {
     populate: "*",
   });

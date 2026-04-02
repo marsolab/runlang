@@ -36,7 +36,12 @@ interface TabsListProps {
 
 export function TabsList({ children, className }: TabsListProps) {
   return (
-    <div className={cn("inline-flex flex-wrap items-center gap-1 rounded-lg bg-white/5 p-1", className)}>
+    <div
+      className={cn(
+        "inline-flex flex-wrap items-center gap-1 rounded-lg bg-white/5 p-1",
+        className,
+      )}
+    >
       {children}
     </div>
   );

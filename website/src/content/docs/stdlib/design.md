@@ -1,4 +1,8 @@
-# Standard Library Implementation Design
+---
+title: "Standard Library Design"
+sidebar:
+  order: 0
+---
 
 ## Decision: Stdlib Written in Run
 

@@ -59,9 +59,9 @@ zig build -Dtsan=true           # ThreadSanitizer
 
 ## Detailed Design Documentation
 
-See [docs/runtime/](../../docs/runtime/) for the complete runtime design, including:
-- [Architecture](../../docs/runtime/architecture.md) — component diagram, init/shutdown sequences
-- [Memory](../../docs/runtime/memory.md) — generational allocation, virtual memory, arenas
-- [Scheduler](../../docs/runtime/scheduler.md) — GMP model green thread design
-- [Concurrency](../../docs/runtime/concurrency.md) — channels and synchronization
-- [Platform](../../docs/runtime/platform.md) — platform-specific implementation details
+See the [Runtime documentation](https://runlang.dev/runtime/overview/) on the website, including:
+- [Architecture](https://runlang.dev/runtime/architecture/) — component diagram, init/shutdown sequences
+- [Memory](https://runlang.dev/runtime/memory/) — generational allocation, virtual memory, arenas
+- [Scheduler](https://runlang.dev/runtime/scheduler/) — GMP model green thread design
+- [Concurrency](https://runlang.dev/runtime/concurrency/) — channels and synchronization
+- [Platform](https://runlang.dev/runtime/platform/) — platform-specific implementation details

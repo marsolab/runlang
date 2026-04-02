@@ -1,4 +1,9 @@
-# Standard Library Packages
+---
+title: "Standard Library Packages"
+sidebar:
+  order: 1
+---
+
 
 This document defines the complete set of standard library packages for Run, their purpose, key types/functions, dependencies, and implementation priority.
 

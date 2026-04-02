@@ -5,10 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   site: 'https://runlang.dev',
-  legacy: {
-    collections: true,
-  },
-  integrations: [
+integrations: [
     starlight({
       title: 'Run',
       social: [
@@ -76,6 +73,18 @@ export default defineConfig({
         {
           label: 'Runtime',
           autogenerate: { directory: 'runtime' },
+        },
+        {
+          label: 'Standard Library',
+          autogenerate: { directory: 'stdlib' },
+        },
+        {
+          label: 'Conventions',
+          autogenerate: { directory: 'conventions' },
+        },
+        {
+          label: 'Debugging',
+          autogenerate: { directory: 'debugging' },
         },
       ],
       customCss: ['./src/styles/custom.css'],

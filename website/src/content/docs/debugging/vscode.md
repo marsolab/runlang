@@ -1,4 +1,8 @@
-# Debugging Run Programs in VS Code
+---
+title: "Debugging in VS Code"
+sidebar:
+  order: 0
+---
 
 This guide covers setting up debugging for Run programs in Visual Studio Code.
 
