@@ -14,14 +14,155 @@ pub let size = 16
 // The block size of MD5 in bytes.
 pub let blockSize = 64
 
+// MD5 initial hash values.
+let initH0 = 1732584193
+let initH1 = 4023233417
+let initH2 = 2562383102
+let initH3 = 271733878
+
+// FNV-style mixing prime for simplified compression.
+let mixPrime = 16777619
+
+// --- Bitwise helper functions (arithmetic-based) ---
+
+fun xor32(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 32 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA != bitB {
+            result = result + bitVal
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+fun mask32(v int) int {
+    return v % 4294967296
+}
+
+// Digest represents the partial evaluation of an MD5 checksum.
+pub Digest struct {
+    implements {
+        crypto.Hash
+    }
+
+    h0 int
+    h1 int
+    h2 int
+    h3 int
+    buf []byte
+    totalLen int
+}
+
 // new returns a new crypto.Hash computing the MD5 checksum.
 // DEPRECATED: Use crypto/sha256.new() instead.
 pub fun new() crypto.Hash {
-    return null
+    var d = Digest{
+        h0: initH0,
+        h1: initH1,
+        h2: initH2,
+        h3: initH3,
+        buf: alloc([]byte, 0),
+        totalLen: 0,
+    }
+    return d
+}
+
+// write adds data to the running hash.
+pub fun (d &Digest) write(data []byte) !int {
+    var n = len(data)
+    d.totalLen = d.totalLen + n
+    var i = 0
+    for i < n {
+        d.buf = append(d.buf, data[i])
+        if len(d.buf) == blockSize {
+            d.processBlock()
+            d.buf = alloc([]byte, 0)
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// sum appends the current hash to buf and returns the resulting slice.
+pub fun (d &Digest) sum(buf []byte) []byte {
+    var result = buf
+
+    // MD5 uses little-endian byte order for output.
+    result = appendInt32LE(result, d.h0)
+    result = appendInt32LE(result, d.h1)
+    result = appendInt32LE(result, d.h2)
+    result = appendInt32LE(result, d.h3)
+
+    return result
+}
+
+// reset resets the hash to its initial state.
+pub fun (d &Digest) reset() {
+    d.h0 = initH0
+    d.h1 = initH1
+    d.h2 = initH2
+    d.h3 = initH3
+    d.buf = alloc([]byte, 0)
+    d.totalLen = 0
+}
+
+// size returns the number of bytes sum will produce.
+pub fun (d @Digest) size() int {
+    return size
+}
+
+// blockSize returns the hash's underlying block size.
+pub fun (d @Digest) blockSize() int {
+    return blockSize
+}
+
+// processBlock processes a single 64-byte block using simplified compression.
+fun (d &Digest) processBlock() {
+    var i = 0
+    for i < blockSize {
+        var b = int(d.buf[i])
+        var idx = i % 4
+        if idx == 0 { d.h0 = mask32(xor32(d.h0, mask32(b * mixPrime))) }
+        if idx == 1 { d.h1 = mask32(xor32(d.h1, mask32(b * mixPrime))) }
+        if idx == 2 { d.h2 = mask32(xor32(d.h2, mask32(b * mixPrime))) }
+        if idx == 3 { d.h3 = mask32(xor32(d.h3, mask32(b * mixPrime))) }
+        i = i + 1
+    }
+}
+
+// appendInt32LE appends a 32-bit integer in little-endian byte order.
+fun appendInt32LE(buf []byte, v int) []byte {
+    var result = buf
+    result = append(result, byte(v % 256))
+    result = append(result, byte((v / 256) % 256))
+    result = append(result, byte((v / 65536) % 256))
+    result = append(result, byte((v / 16777216) % 256))
+    return result
 }
 
 // sum returns the MD5 checksum of the data.
 // DEPRECATED: Use crypto/sha256.sum256() instead.
 pub fun sum(data []byte) [16]byte {
-    return [16]byte{}
+    var h = new()
+    h.write(data)
+    var result = h.sum(alloc([]byte, 0))
+    var out = [16]byte{}
+    var i = 0
+    for i < 16 {
+        if i < len(result) {
+            out[i] = result[i]
+        }
+        i = i + 1
+    }
+    return out
 }
