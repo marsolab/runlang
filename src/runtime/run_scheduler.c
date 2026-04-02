@@ -168,7 +168,7 @@ bool run_g_queue_remove(run_g_queue_t *q, run_g_t *g) {
 void run_local_queue_init(run_local_queue_t *q) {
     atomic_store_explicit(&q->head, 0, memory_order_relaxed);
     atomic_store_explicit(&q->tail, 0, memory_order_relaxed);
-    memset(q->buf, 0, sizeof(q->buf));
+    memset((void *)q->buf, 0, sizeof(q->buf));
 }
 
 bool run_local_queue_push(run_local_queue_t *q, run_g_t *g) {
@@ -1193,7 +1193,7 @@ static void sigurg_handler(int sig, siginfo_t *info, void *uctx) {
 #if defined(__aarch64__)
     uc->uc_mcontext.pc = (uint64_t)run_async_preempt;
 #else
-    uc->uc_mcontext.gregs[REG_RIP] = (uint64_t)run_async_preempt;
+    uc->uc_mcontext.gregs[REG_RIP] = (greg_t)(uintptr_t)run_async_preempt;
 #endif
 #endif
 }
