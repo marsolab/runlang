@@ -1,0 +1,45 @@
+name: Runtime CI
+
+on:
+  push:
+    branches: [main]
+    paths: ['src/runtime/**', 'build.zig', 'build.zig.zon']
+  pull_request:
+    paths: ['src/runtime/**', 'build.zig', 'build.zig.zon']
+
+jobs:
+  runtime-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-13]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+      - name: Build runtime
+        run: zig build
+      - name: Runtime tests
+        run: zig build test-runtime
+
+  runtime-benchmarks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+      - name: Run benchmarks
+        run: zig build bench-runtime
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ matrix.os }}
+          path: bench-results.json
+        if: always()

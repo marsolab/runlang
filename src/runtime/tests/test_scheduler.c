@@ -132,6 +132,39 @@ static void test_g_queue_remove(void) {
     RUN_ASSERT(p == &g3);
 }
 
+static void test_runtime_metrics(void) {
+    /* Get baseline metrics */
+    run_metrics_t before = run_runtime_metrics();
+
+    /* Spawn a few Gs */
+    g_counter = 0;
+    int spawn_n = 5;
+    for (int i = 0; i < spawn_n; i++) {
+        run_spawn(increment_fn, NULL);
+    }
+
+    /* Run the scheduler to completion */
+    run_scheduler_run();
+
+    /* Verify the Gs actually ran */
+    RUN_ASSERT_EQ(g_counter, spawn_n);
+
+    /* Get metrics after */
+    run_metrics_t after = run_runtime_metrics();
+
+    /* spawn_count should have increased by exactly spawn_n */
+    int64_t spawns = after.spawn_count - before.spawn_count;
+    RUN_ASSERT_EQ((int)spawns, spawn_n);
+
+    /* complete_count should have increased by at least spawn_n */
+    int64_t completes = after.complete_count - before.complete_count;
+    RUN_ASSERT((int)completes >= spawn_n);
+
+    /* context_switches should have increased (at least one per G) */
+    int64_t switches = after.context_switches - before.context_switches;
+    RUN_ASSERT((int)switches >= spawn_n);
+}
+
 void run_test_scheduler(void) {
     TEST_SUITE("run_scheduler");
     RUN_TEST(test_scheduler_init);
@@ -143,4 +176,5 @@ void run_test_scheduler(void) {
     RUN_TEST(test_spawn_with_arg);
     RUN_TEST(test_yield);
     RUN_TEST(test_spawn_many);
+    RUN_TEST(test_runtime_metrics);
 }

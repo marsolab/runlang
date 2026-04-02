@@ -157,6 +157,10 @@ int run_poller_poll_blocking(int64_t timeout_ns) {
     return woken;
 }
 
+void run_poller_wakeup(void) {
+    run_xev_async_notify();
+}
+
 bool run_poller_has_waiters(void) {
     return run_xev_has_waiters();
 }

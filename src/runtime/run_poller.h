@@ -80,6 +80,11 @@ int run_poller_poll(void);
  * timeout_ns = 0 means non-blocking, -1 means block indefinitely. */
 int run_poller_poll_blocking(int64_t timeout_ns);
 
+/* ---------- Wakeup ---------- */
+
+/* Wake the poller from a blocking poll (thread-safe, lockless). */
+void run_poller_wakeup(void);
+
 /* ---------- Query ---------- */
 
 /* Returns true if the poller has any registered fds. */

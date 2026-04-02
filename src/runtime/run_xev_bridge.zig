@@ -162,6 +162,12 @@ export fn run_xev_tick_blocking(timeout_ms: i64) c_int {
         return run_xev_tick();
     }
 
+    // Re-register async wait so notify wakes us
+    if (async_initialized) {
+        async_completion = .{};
+        async_wakeup.wait(&loop, &async_completion, void, null, &asyncNoop);
+    }
+
     if (timeout_ms > 0) {
         var timer = Timer.init() catch return -1;
         defer timer.deinit();

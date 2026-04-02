@@ -138,8 +138,10 @@ pub fn build(b: *std.Build) void {
     const target_info = target.result;
     if (target_info.cpu.arch == .x86_64) {
         runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
+        runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_amd64.S"));
     } else if (target_info.cpu.arch == .aarch64) {
         runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_context_arm64.S"));
+        runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_arm64.S"));
     }
 
     runtime_lib.root_module.addIncludePath(b.path("src/runtime"));
@@ -244,8 +246,10 @@ pub fn build(b: *std.Build) void {
     // Add assembly for runtime tests too
     if (target_info.cpu.arch == .x86_64) {
         runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
+        runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_amd64.S"));
     } else if (target_info.cpu.arch == .aarch64) {
         runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_arm64.S"));
+        runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_arm64.S"));
     }
 
     runtime_test_exe.root_module.addIncludePath(b.path("src/runtime"));
