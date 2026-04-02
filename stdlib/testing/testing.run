@@ -81,6 +81,38 @@ pub fun (t &T) run(name string, body fun(t &T)) {
 pub fun (t &T) expect(got any, op Operator) {
 }
 
+// assert fails the test if cond is false.
+pub fun (t &T) assert(cond bool) {
+    if !cond {
+        t.fail()
+    }
+}
+
+// assert_eq fails the test if got != want.
+pub fun (t &T) assert_eq(got any, want any) {
+    t.expect(got, t.eq(want))
+}
+
+// assert_ne fails the test if got == want.
+pub fun (t &T) assert_ne(got any, want any) {
+    t.expect(got, t.ne(want))
+}
+
+// assert_err fails the test if the error union does not currently hold an error.
+pub fun (t &T) assert_err(value any) {
+    t.expect(value, t.isErr())
+}
+
+// assertEqual is a camelCase alias for assert_eq.
+pub fun (t &T) assertEqual(got any, want any) {
+    t.assert_eq(got, want)
+}
+
+// assertNotEqual is a camelCase alias for assert_ne.
+pub fun (t &T) assertNotEqual(got any, want any) {
+    t.assert_ne(got, want)
+}
+
 // parallel marks this test as safe to run in parallel with other
 // parallel-marked tests. Must be called before any test logic.
 pub fun (t &T) parallel() {
