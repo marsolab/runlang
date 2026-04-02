@@ -7,16 +7,22 @@ pub Mutex struct {
 
 // lock acquires the mutex, blocking until it is available.
 pub fun (m &Mutex) lock() {
+    m.locked = true
 }
 
 // unlock releases the mutex.
 pub fun (m &Mutex) unlock() {
+    m.locked = false
 }
 
 // tryLock attempts to acquire the mutex without blocking.
 // Returns true if the lock was acquired.
 pub fun (m &Mutex) tryLock() bool {
-    return false
+    if m.locked {
+        return false
+    }
+    m.locked = true
+    return true
 }
 
 // RwMutex is a reader/writer mutual exclusion lock.
@@ -28,18 +34,24 @@ pub RwMutex struct {
 
 // readLock acquires the read lock.
 pub fun (rw &RwMutex) readLock() {
+    rw.readers = rw.readers + 1
 }
 
 // readUnlock releases the read lock.
 pub fun (rw &RwMutex) readUnlock() {
+    if rw.readers > 0 {
+        rw.readers = rw.readers - 1
+    }
 }
 
 // writeLock acquires the write lock.
 pub fun (rw &RwMutex) writeLock() {
+    rw.writing = true
 }
 
 // writeUnlock releases the write lock.
 pub fun (rw &RwMutex) writeUnlock() {
+    rw.writing = false
 }
 
 // WaitGroup waits for a collection of tasks to finish.
@@ -49,13 +61,19 @@ pub WaitGroup struct {
 
 // add adds delta to the WaitGroup counter.
 pub fun (wg &WaitGroup) add(delta int) {
+    wg.count = wg.count + delta
 }
 
 // done decrements the WaitGroup counter by one.
 pub fun (wg &WaitGroup) done() {
+    if wg.count > 0 {
+        wg.count = wg.count - 1
+    }
 }
 
 // wait blocks until the WaitGroup counter is zero.
+// In single-threaded mode this is a no-op; the runtime will
+// provide real blocking when concurrency is available.
 pub fun (wg &WaitGroup) wait() {
 }
 
@@ -67,6 +85,10 @@ pub Once struct {
 // do calls the function f if and only if do is being called for
 // the first time for this instance of Once.
 pub fun (o &Once) do(f fun()) {
+    if !o.done {
+        o.done = true
+        f()
+    }
 }
 
 // Atomic provides atomic operations on a value.
@@ -76,26 +98,34 @@ pub Atomic struct {
 
 // load atomically loads and returns the value.
 pub fun (a &Atomic) load() int {
-    return 0
+    return a.value
 }
 
 // store atomically stores the value.
 pub fun (a &Atomic) store(val int) {
+    a.value = val
 }
 
 // add atomically adds delta to the value and returns the new value.
 pub fun (a &Atomic) add(delta int) int {
-    return 0
+    a.value = a.value + delta
+    return a.value
 }
 
 // swap atomically stores new and returns the previous value.
 pub fun (a &Atomic) swap(new int) int {
-    return 0
+    let old = a.value
+    a.value = new
+    return old
 }
 
 // compareAndSwap executes the compare-and-swap operation.
 // Returns true if the swap was performed.
 pub fun (a &Atomic) compareAndSwap(old int, new int) bool {
+    if a.value == old {
+        a.value = new
+        return true
+    }
     return false
 }
 
@@ -106,14 +136,17 @@ pub AtomicBool struct {
 
 // load atomically loads and returns the value.
 pub fun (a &AtomicBool) load() bool {
-    return false
+    return a.value
 }
 
 // store atomically stores the value.
 pub fun (a &AtomicBool) store(val bool) {
+    a.value = val
 }
 
 // swap atomically stores new and returns the previous value.
 pub fun (a &AtomicBool) swap(new bool) bool {
-    return false
+    let old = a.value
+    a.value = new
+    return old
 }
