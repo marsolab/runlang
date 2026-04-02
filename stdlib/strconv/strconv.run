@@ -4,83 +4,645 @@ package strconv
 pub type ParseError = .invalidSyntax
     | .outOfRange
 
+// Helper functions for type conversions.
+fun toBytes(s string) []byte { return s }
+fun toString(b []byte) string { return b }
+
+// digitVal returns the numeric value of a digit character in the given base,
+// or -1 if the character is not a valid digit for that base.
+fun digitVal(c byte, base int) int {
+    var v = -1
+    if c >= 48 and c <= 57 {
+        v = c - 48
+    }
+    if c >= 97 and c <= 122 {
+        v = c - 97 + 10
+    }
+    if c >= 65 and c <= 90 {
+        v = c - 65 + 10
+    }
+    if v >= 0 and v < base {
+        return v
+    }
+    return -1
+}
+
 // parseInt parses a string as an integer in the given base (0 for auto-detect).
 // Base 0 means auto-detect: "0x" prefix for hex, "0o" for octal, "0b" for binary,
 // otherwise decimal.
 pub fun parseInt(s string, base int) !int {
-    return 0
+    var sb = toBytes(s)
+    if len(sb) == 0 {
+        return ParseError.invalidSyntax
+    }
+
+    var neg = false
+    var start = 0
+    if sb[0] == 45 {
+        neg = true
+        start = 1
+    }
+    if sb[0] == 43 {
+        start = 1
+    }
+
+    if start >= len(sb) {
+        return ParseError.invalidSyntax
+    }
+
+    // Determine base.
+    var b = base
+    if b == 0 {
+        b = 10
+        if sb[start] == 48 and start + 1 < len(sb) {
+            if sb[start + 1] == 120 or sb[start + 1] == 88 {
+                b = 16
+                start = start + 2
+            }
+            if b == 10 and (sb[start + 1] == 111 or sb[start + 1] == 79) {
+                b = 8
+                start = start + 2
+            }
+            if b == 10 and (sb[start + 1] == 98 or sb[start + 1] == 66) {
+                b = 2
+                start = start + 2
+            }
+        }
+    }
+
+    if start >= len(sb) {
+        return ParseError.invalidSyntax
+    }
+
+    if b < 2 or b > 36 {
+        return ParseError.invalidSyntax
+    }
+
+    var result = 0
+    var i = start
+    var hasDigit = false
+    for i < len(sb) {
+        var d = digitVal(sb[i], b)
+        if d < 0 {
+            return ParseError.invalidSyntax
+        }
+        hasDigit = true
+        result = result * b + d
+        i = i + 1
+    }
+
+    if !hasDigit {
+        return ParseError.invalidSyntax
+    }
+
+    if neg {
+        return -result
+    }
+    return result
 }
 
 // parseFloat parses a string as a floating-point number.
 pub fun parseFloat(s string) !f64 {
-    return 0.0
+    var sb = toBytes(s)
+    if len(sb) == 0 {
+        return ParseError.invalidSyntax
+    }
+
+    var neg = false
+    var pos = 0
+    if sb[0] == 45 {
+        neg = true
+        pos = 1
+    }
+    if sb[0] == 43 {
+        pos = 1
+    }
+
+    if pos >= len(sb) {
+        return ParseError.invalidSyntax
+    }
+
+    // Parse integer part.
+    var intPart = 0.0
+    var hasInt = false
+    for pos < len(sb) and sb[pos] >= 48 and sb[pos] <= 57 {
+        intPart = intPart * 10.0 + (sb[pos] - 48)
+        hasInt = true
+        pos = pos + 1
+    }
+
+    // Parse fractional part.
+    var fracPart = 0.0
+    var hasFrac = false
+    if pos < len(sb) and sb[pos] == 46 {
+        pos = pos + 1
+        var scale = 0.1
+        for pos < len(sb) and sb[pos] >= 48 and sb[pos] <= 57 {
+            fracPart = fracPart + (sb[pos] - 48) * scale
+            scale = scale * 0.1
+            hasFrac = true
+            pos = pos + 1
+        }
+    }
+
+    if !hasInt and !hasFrac {
+        return ParseError.invalidSyntax
+    }
+
+    var result = intPart + fracPart
+
+    // Parse exponent part.
+    if pos < len(sb) and (sb[pos] == 101 or sb[pos] == 69) {
+        pos = pos + 1
+        var expNeg = false
+        if pos < len(sb) and sb[pos] == 45 {
+            expNeg = true
+            pos = pos + 1
+        }
+        if pos < len(sb) and sb[pos] == 43 {
+            pos = pos + 1
+        }
+        var expVal = 0
+        var hasExp = false
+        for pos < len(sb) and sb[pos] >= 48 and sb[pos] <= 57 {
+            expVal = expVal * 10 + (sb[pos] - 48)
+            hasExp = true
+            pos = pos + 1
+        }
+        if !hasExp {
+            return ParseError.invalidSyntax
+        }
+        var mult = 1.0
+        var ei = 0
+        for ei < expVal {
+            mult = mult * 10.0
+            ei = ei + 1
+        }
+        if expNeg {
+            result = result / mult
+        } else {
+            result = result * mult
+        }
+    }
+
+    if pos != len(sb) {
+        return ParseError.invalidSyntax
+    }
+
+    if neg {
+        return -result
+    }
+    return result
 }
 
 // parseBool parses a string as a boolean.
 // Accepted values: "1", "t", "T", "TRUE", "true", "True",
 // "0", "f", "F", "FALSE", "false", "False".
 pub fun parseBool(s string) !bool {
-    return false
+    if s == "1" or s == "t" or s == "T" or s == "TRUE" or s == "true" or s == "True" {
+        return true
+    }
+    if s == "0" or s == "f" or s == "F" or s == "FALSE" or s == "false" or s == "False" {
+        return false
+    }
+    return ParseError.invalidSyntax
 }
 
 // parseUint parses a string as an unsigned integer in the given base.
 pub fun parseUint(s string, base int) !u64 {
-    return 0
+    var sb = toBytes(s)
+    if len(sb) == 0 {
+        return ParseError.invalidSyntax
+    }
+
+    var start = 0
+    if sb[0] == 43 {
+        start = 1
+    }
+
+    if start >= len(sb) {
+        return ParseError.invalidSyntax
+    }
+
+    // Reject negative numbers for unsigned parsing.
+    if sb[0] == 45 {
+        return ParseError.outOfRange
+    }
+
+    // Determine base.
+    var b = base
+    if b == 0 {
+        b = 10
+        if sb[start] == 48 and start + 1 < len(sb) {
+            if sb[start + 1] == 120 or sb[start + 1] == 88 {
+                b = 16
+                start = start + 2
+            }
+            if b == 10 and (sb[start + 1] == 111 or sb[start + 1] == 79) {
+                b = 8
+                start = start + 2
+            }
+            if b == 10 and (sb[start + 1] == 98 or sb[start + 1] == 66) {
+                b = 2
+                start = start + 2
+            }
+        }
+    }
+
+    if start >= len(sb) {
+        return ParseError.invalidSyntax
+    }
+
+    if b < 2 or b > 36 {
+        return ParseError.invalidSyntax
+    }
+
+    var result = 0
+    var i = start
+    var hasDigit = false
+    for i < len(sb) {
+        var d = digitVal(sb[i], b)
+        if d < 0 {
+            return ParseError.invalidSyntax
+        }
+        hasDigit = true
+        result = result * b + d
+        i = i + 1
+    }
+
+    if !hasDigit {
+        return ParseError.invalidSyntax
+    }
+
+    return result
 }
 
 // formatInt returns the string representation of i in the given base.
 pub fun formatInt(i int, base int) string {
-    return ""
+    if base < 2 or base > 36 {
+        return ""
+    }
+    if i == 0 {
+        return "0"
+    }
+
+    var neg = false
+    var val = i
+    if val < 0 {
+        neg = true
+        val = -val
+    }
+
+    // Build digits in reverse.
+    var buf = alloc([]byte, 0)
+    for val > 0 {
+        var rem = val - (val / base) * base
+        if rem < 10 {
+            buf = append(buf, rem + 48)
+        } else {
+            buf = append(buf, rem - 10 + 97)
+        }
+        val = val / base
+    }
+
+    if neg {
+        buf = append(buf, 45)
+    }
+
+    // Reverse the buffer.
+    var result = alloc([]byte, len(buf))
+    var j = 0
+    for j < len(buf) {
+        result[j] = buf[len(buf) - 1 - j]
+        j = j + 1
+    }
+    return toString(result)
 }
 
 // formatFloat converts the floating-point number f to a string,
 // using the given format ('f', 'e', 'g') and precision.
 pub fun formatFloat(f f64, fmt byte, prec int) string {
-    return ""
+    // Handle negative numbers.
+    if f < 0.0 {
+        return "-" + formatFloat(-f, fmt, prec)
+    }
+
+    // Handle zero.
+    if f == 0.0 {
+        if fmt == 101 or fmt == 69 {
+            var result = "0"
+            if prec > 0 {
+                result = result + "."
+                var k = 0
+                for k < prec {
+                    result = result + "0"
+                    k = k + 1
+                }
+            }
+            return result + "e+00"
+        }
+        var result = "0"
+        if prec > 0 {
+            result = result + "."
+            var k = 0
+            for k < prec {
+                result = result + "0"
+                k = k + 1
+            }
+        }
+        return result
+    }
+
+    // Format 'f' (fixed-point): default.
+    // Format 'e' (scientific notation).
+    // Format 'g' (shortest representation).
+    if fmt == 101 or fmt == 69 {
+        return formatSci(f, prec)
+    }
+
+    if fmt == 103 or fmt == 71 {
+        // Use 'e' if exponent is large, otherwise 'f'.
+        var val = f
+        var exp = 0
+        for val >= 10.0 {
+            val = val / 10.0
+            exp = exp + 1
+        }
+        for val < 1.0 and val > 0.0 {
+            val = val * 10.0
+            exp = exp - 1
+        }
+        if exp < -4 or exp >= prec {
+            return formatSci(f, prec - 1)
+        }
+        return formatFixed(f, prec - 1 - exp)
+    }
+
+    // Default: 'f' format.
+    return formatFixed(f, prec)
+}
+
+// formatFixed formats a non-negative float in fixed-point notation.
+fun formatFixed(f f64, prec int) string {
+    // Extract integer part.
+    var intVal = 0
+    var tmp = f
+    for tmp >= 1.0 {
+        intVal = intVal + 1
+        tmp = tmp - 1.0
+    }
+    // Recompute properly.
+    intVal = 0
+    var fp = f
+    // Count integer digits.
+    var intPart = fp
+    var iPart = 0
+    // Truncate to integer.
+    var whole = 0
+    var rem = f
+    for rem >= 1.0 {
+        whole = whole + 1
+        rem = rem - 1.0
+    }
+    // whole is now the integer part (approximately).
+    // For better precision, use repeated division.
+    var intStr = formatInt(whole, 10)
+
+    if prec <= 0 {
+        return intStr
+    }
+
+    // Extract fractional digits.
+    var frac = f
+    var iw = 0
+    for iw < whole {
+        frac = frac - 1.0
+        iw = iw + 1
+    }
+
+    var fracBuf = alloc([]byte, 0)
+    var p = 0
+    for p < prec {
+        frac = frac * 10.0
+        var digit = 0
+        for frac >= 1.0 {
+            digit = digit + 1
+            frac = frac - 1.0
+        }
+        // Clamp digit to 0-9.
+        if digit > 9 {
+            digit = 9
+        }
+        fracBuf = append(fracBuf, digit + 48)
+        p = p + 1
+    }
+
+    return intStr + "." + toString(fracBuf)
+}
+
+// formatSci formats a non-negative float in scientific notation.
+fun formatSci(f f64, prec int) string {
+    var val = f
+    var exp = 0
+    for val >= 10.0 {
+        val = val / 10.0
+        exp = exp + 1
+    }
+    for val < 1.0 and val > 0.0 {
+        val = val * 10.0
+        exp = exp - 1
+    }
+
+    // val is now in [1.0, 10.0).
+    var mantissa = formatFixed(val, prec)
+
+    var expStr = ""
+    if exp >= 0 {
+        expStr = "e+"
+    } else {
+        expStr = "e-"
+        exp = -exp
+    }
+    if exp < 10 {
+        expStr = expStr + "0" + formatInt(exp, 10)
+    } else {
+        expStr = expStr + formatInt(exp, 10)
+    }
+
+    return mantissa + expStr
 }
 
 // formatBool returns "true" or "false" according to the value of b.
 pub fun formatBool(b bool) string {
-    return ""
+    if b {
+        return "true"
+    }
+    return "false"
 }
 
 // formatUint returns the string representation of u in the given base.
 pub fun formatUint(u u64, base int) string {
-    return ""
+    if base < 2 or base > 36 {
+        return ""
+    }
+    if u == 0 {
+        return "0"
+    }
+
+    var val = u
+    var buf = alloc([]byte, 0)
+    for val > 0 {
+        var rem = val - (val / base) * base
+        if rem < 10 {
+            buf = append(buf, rem + 48)
+        } else {
+            buf = append(buf, rem - 10 + 97)
+        }
+        val = val / base
+    }
+
+    // Reverse the buffer.
+    var result = alloc([]byte, len(buf))
+    var j = 0
+    for j < len(buf) {
+        result[j] = buf[len(buf) - 1 - j]
+        j = j + 1
+    }
+    return toString(result)
 }
 
 // atoi is shorthand for parseInt(s, 10).
 pub fun atoi(s string) !int {
-    return 0
+    return parseInt(s, 10)
 }
 
 // itoa is shorthand for formatInt(i, 10).
 pub fun itoa(i int) string {
-    return ""
+    return formatInt(i, 10)
 }
 
 // quote returns a double-quoted string literal representing s,
 // using escape sequences (\t, \n, \r, \\, \") for control characters.
 pub fun quote(s string) string {
-    return ""
+    var sb = toBytes(s)
+    var buf = alloc([]byte, 0)
+    buf = append(buf, 34)
+    var i = 0
+    for i < len(sb) {
+        var c = sb[i]
+        if c == 92 {
+            buf = append(buf, 92)
+            buf = append(buf, 92)
+        } else {
+            if c == 34 {
+                buf = append(buf, 92)
+                buf = append(buf, 34)
+            } else {
+                if c == 10 {
+                    buf = append(buf, 92)
+                    buf = append(buf, 110)
+                } else {
+                    if c == 13 {
+                        buf = append(buf, 92)
+                        buf = append(buf, 114)
+                    } else {
+                        if c == 9 {
+                            buf = append(buf, 92)
+                            buf = append(buf, 116)
+                        } else {
+                            buf = append(buf, c)
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    buf = append(buf, 34)
+    return toString(buf)
 }
 
 // unquote interprets a quoted string literal, returning the string value.
 pub fun unquote(s string) !string {
-    return ""
+    var sb = toBytes(s)
+    if len(sb) < 2 {
+        return ParseError.invalidSyntax
+    }
+    if sb[0] != 34 or sb[len(sb) - 1] != 34 {
+        return ParseError.invalidSyntax
+    }
+
+    var buf = alloc([]byte, 0)
+    var i = 1
+    var end = len(sb) - 1
+    for i < end {
+        if sb[i] == 92 {
+            i = i + 1
+            if i >= end {
+                return ParseError.invalidSyntax
+            }
+            var esc = sb[i]
+            if esc == 110 {
+                buf = append(buf, 10)
+            } else {
+                if esc == 114 {
+                    buf = append(buf, 13)
+                } else {
+                    if esc == 116 {
+                        buf = append(buf, 9)
+                    } else {
+                        if esc == 92 {
+                            buf = append(buf, 92)
+                        } else {
+                            if esc == 34 {
+                                buf = append(buf, 34)
+                            } else {
+                                return ParseError.invalidSyntax
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            buf = append(buf, sb[i])
+        }
+        i = i + 1
+    }
+    return toString(buf)
 }
 
 // appendInt appends the string representation of i in the given base to dst.
 pub fun appendInt(dst []byte, i int, base int) []byte {
-    return alloc([]byte, 0)
+    var s = toBytes(formatInt(i, base))
+    var result = dst
+    var j = 0
+    for j < len(s) {
+        result = append(result, s[j])
+        j = j + 1
+    }
+    return result
 }
 
 // appendFloat appends the string form of the floating-point number f to dst.
 pub fun appendFloat(dst []byte, f f64, fmt byte, prec int) []byte {
-    return alloc([]byte, 0)
+    var s = toBytes(formatFloat(f, fmt, prec))
+    var result = dst
+    var j = 0
+    for j < len(s) {
+        result = append(result, s[j])
+        j = j + 1
+    }
+    return result
 }
 
 // appendBool appends "true" or "false" to dst.
 pub fun appendBool(dst []byte, b bool) []byte {
-    return alloc([]byte, 0)
+    var s = toBytes(formatBool(b))
+    var result = dst
+    var j = 0
+    for j < len(s) {
+        result = append(result, s[j])
+        j = j + 1
+    }
+    return result
 }
