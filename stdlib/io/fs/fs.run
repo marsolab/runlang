@@ -1,7 +1,5 @@
 package fs
 
-use "io"
-
 // FsError represents errors from filesystem operations.
 pub type FsError = .not_found
     | .permission_denied
@@ -85,28 +83,262 @@ pub type FileMode = .regular
     | .pipe
     | .device
 
-// walkDir walks the file tree rooted at root, calling fn for each file
-// or directory in the tree, including root.
-pub fun walkDir(fsys FS, root string, fn fun(path string, d DirEntry, err any) any) {
-}
+// WalkFunc is the type of function called by walkDir to visit each file
+// or directory in a file tree.
+pub type WalkFunc = fun(path string, d DirEntry, err any) any
 
-// sub returns an FS corresponding to the subtree rooted at dir.
-pub fun sub(fsys FS, dir string) !FS {
-    return null
-}
+// validPath reports whether the given path name is valid for use
+// with an FS implementation.
+// A valid path must be unrooted (no leading slash), must not contain
+// ".." elements, must not have trailing slashes, and must not have
+// empty segments. The special path "." is valid.
+pub fun validPath(name string) bool {
+    if len(name) == 0 {
+        return false
+    }
 
-// glob returns the names of all files matching the pattern.
-pub fun glob(fsys FS, pattern string) ![]string {
-    return alloc([]string, 0)
+    if name == "." {
+        return true
+    }
+
+    // Must not start with a slash.
+    if name[0] == 47 {
+        return false
+    }
+
+    // Must not end with a slash.
+    if name[len(name) - 1] == 47 {
+        return false
+    }
+
+    // Walk through segments separated by '/'.
+    var start = 0
+    var pos = 0
+    for pos <= len(name) {
+        if pos == len(name) or name[pos] == 47 {
+            let seg = name[start..pos]
+
+            // Empty segment (double slash).
+            if len(seg) == 0 {
+                return false
+            }
+
+            // No "." or ".." segments.
+            if seg == "." {
+                return false
+            }
+            if seg == ".." {
+                return false
+            }
+
+            start = pos + 1
+        }
+        pos = pos + 1
+    }
+
+    return true
 }
 
 // readFile reads the named file from the file system fs and returns its contents.
 pub fun readFile(fsys FS, name string) ![]byte {
-    return alloc([]byte, 0)
+    if not validPath(name) {
+        return FsError.invalid_path
+    }
+
+    var file = try fsys.open(name)
+    var result = alloc([]byte, 0)
+    var buf = alloc([]byte, 512)
+
+    for {
+        var n = try file.read(buf)
+        if n == 0 {
+            break
+        }
+        var i = 0
+        for i < n {
+            result = append(result, buf[i])
+            i = i + 1
+        }
+    }
+
+    try file.close()
+    return result
 }
 
-// validPath reports whether the given path name is valid for use
-// with an FS implementation.
-pub fun validPath(name string) bool {
-    return false
+// walkDir walks the file tree rooted at root, calling callback for each file
+// or directory in the tree, including root.
+pub fun walkDir(fsys ReadDirFS, root string, callback WalkFunc) {
+    if not validPath(root) {
+        return
+    }
+
+    walkDirRecursive(fsys, root, callback)
+}
+
+// walkDirRecursive is the internal recursive walker.
+fun walkDirRecursive(fsys ReadDirFS, dir string, callback WalkFunc) {
+    var entries = fsys.readDir(dir)
+
+    var i = 0
+    for i < len(entries) {
+        let entry = entries[i]
+        var path = dir + "/" + entry.name()
+        if dir == "." {
+            path = entry.name()
+        }
+
+        callback(path, entry, null)
+
+        if entry.is_dir() {
+            walkDirRecursive(fsys, path, callback)
+        }
+
+        i = i + 1
+    }
+}
+
+// SubFS wraps an FS and prepends a directory prefix to all paths.
+pub SubFS struct {
+    implements {
+        FS
+    }
+
+    base FS
+    dir  string
+}
+
+// open opens the named file relative to the sub-directory.
+pub fun (s @SubFS) open(name string) !File {
+    if not validPath(name) {
+        return FsError.invalid_path
+    }
+    var fullPath = s.dir + "/" + name
+    if name == "." {
+        fullPath = s.dir
+    }
+    return try s.base.open(fullPath)
+}
+
+// sub returns an FS corresponding to the subtree rooted at dir.
+pub fun sub(fsys FS, dir string) !FS {
+    if not validPath(dir) {
+        return FsError.invalid_path
+    }
+    if dir == "." {
+        return fsys
+    }
+    return SubFS{ base: fsys, dir: dir }
+}
+
+// glob returns the names of all files matching the pattern.
+// The pattern may contain '*' (matches any sequence of non-/ characters)
+// and '?' (matches any single non-/ character) wildcards.
+pub fun glob(fsys ReadDirFS, pattern string) ![]string {
+    if not validPath(pattern) {
+        return FsError.invalid_path
+    }
+
+    var matches = alloc([]string, 0)
+
+    // Split pattern into segments.
+    var patParts = splitPath(pattern)
+
+    // Start matching from root.
+    matches = globRecursive(fsys, ".", patParts, 0, matches)
+
+    return matches
+}
+
+// globRecursive matches path segments against pattern parts.
+fun globRecursive(fsys ReadDirFS, dir string, parts []string, depth int, matches []string) []string {
+    if depth >= len(parts) {
+        return matches
+    }
+
+    var entries = fsys.readDir(dir)
+    let pat = parts[depth]
+    let isLast = depth == len(parts) - 1
+
+    var result = matches
+    var i = 0
+    for i < len(entries) {
+        let entry = entries[i]
+        if matchSegment(pat, entry.name()) {
+            var path = dir + "/" + entry.name()
+            if dir == "." {
+                path = entry.name()
+            }
+            if isLast {
+                result = append(result, path)
+            } else {
+                if entry.is_dir() {
+                    result = globRecursive(fsys, path, parts, depth + 1, result)
+                }
+            }
+        }
+        i = i + 1
+    }
+
+    return result
+}
+
+// matchSegment matches a single path segment against a pattern segment
+// supporting '*' and '?' wildcards.
+fun matchSegment(pattern string, name string) bool {
+    var pi = 0
+    var ni = 0
+    var star = -1
+    var match = 0
+
+    for ni < len(name) {
+        if pi < len(pattern) {
+            if pattern[pi] == 63 {
+                pi = pi + 1
+                ni = ni + 1
+                continue
+            }
+            if pattern[pi] == name[ni] {
+                pi = pi + 1
+                ni = ni + 1
+                continue
+            }
+            if pattern[pi] == 42 {
+                star = pi
+                match = ni
+                pi = pi + 1
+                continue
+            }
+        }
+
+        if star != -1 {
+            pi = star + 1
+            match = match + 1
+            ni = match
+            continue
+        }
+
+        return false
+    }
+
+    for pi < len(pattern) and pattern[pi] == 42 {
+        pi = pi + 1
+    }
+    return pi == len(pattern)
+}
+
+// splitPath splits a path into its component segments.
+fun splitPath(p string) []string {
+    var parts = alloc([]string, 0)
+    var start = 0
+    var pos = 0
+    for pos <= len(p) {
+        if pos == len(p) or p[pos] == 47 {
+            if pos > start {
+                parts = append(parts, p[start..pos])
+            }
+            start = pos + 1
+        }
+        pos = pos + 1
+    }
+    return parts
 }
