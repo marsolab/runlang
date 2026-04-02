@@ -238,11 +238,11 @@ pub fun until(t Time) Duration {
 
 // sleep pauses the current green thread for the given duration.
 // Note: no-op until runtime provides a sleep syscall binding.
-pub fun sleep(d Duration) {
+pub fun sleep(d int) {
 }
 
 // after returns a channel that receives the current time after duration d.
-pub fun after(d Duration) chan Time {
+pub fun after(d int) chan Time {
     return alloc(chan Time)
 }
 
@@ -358,7 +358,7 @@ pub fun parse(layout string, value string) !Time {
 }
 
 // add returns the time t+d.
-pub fun (t Time) add(d Duration) Time {
+pub fun (t Time) add(d int) Time {
     var totalNs = t.nanoseconds + d
     var extraSec = totalNs / 1000000000
     var ns = totalNs - extraSec * 1000000000
@@ -580,7 +580,7 @@ pub fun (t Time) inLocation(loc @Location) Time {
 
 // truncate returns the result of rounding t down to a multiple of d.
 // If d <= 0, returns t unchanged.
-pub fun (t Time) truncate(d Duration) Time {
+pub fun (t Time) truncate(d int) Time {
     if d <= 0 {
         return t
     }
@@ -595,7 +595,7 @@ pub fun (t Time) truncate(d Duration) Time {
 
 // round returns the result of rounding t to the nearest multiple of d.
 // If d <= 0, returns t unchanged.
-pub fun (t Time) round(d Duration) Time {
+pub fun (t Time) round(d int) Time {
     if d <= 0 {
         return t
     }
@@ -621,7 +621,7 @@ pub Timer struct {
 
 // newTimer creates a new Timer that will fire after duration d.
 // Note: actual scheduling requires runtime support; creates the struct only.
-pub fun newTimer(d Duration) Timer {
+pub fun newTimer(d int) Timer {
     return Timer{ c: alloc(chan Time), done: false }
 }
 
@@ -636,7 +636,7 @@ pub fun (t &Timer) stop() bool {
 }
 
 // reset changes the timer to expire after duration d.
-pub fun (t &Timer) reset(d Duration) {
+pub fun (t &Timer) reset(d int) {
     t.done = false
 }
 
@@ -649,7 +649,7 @@ pub Ticker struct {
 // newTicker returns a new Ticker containing a channel that will send
 // the current time on the channel after each tick.
 // Note: actual tick scheduling requires runtime support.
-pub fun newTicker(d Duration) Ticker {
+pub fun newTicker(d int) Ticker {
     return Ticker{ c: alloc(chan Time), interval: d }
 }
 
