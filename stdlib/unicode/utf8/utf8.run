@@ -12,63 +12,309 @@ pub let runeSelf = 128
 // utfMax is the maximum number of bytes of a UTF-8 encoded Unicode character.
 pub let utfMax = 4
 
+// surrogateMin is U+D800.
+let surrogateMin = 55296
+
+// surrogateMax is U+DFFF.
+let surrogateMax = 57343
+
+// Byte masks and prefixes for UTF-8 encoding.
+// 1-byte: 0xxxxxxx           (0..127)
+// 2-byte: 110xxxxx 10xxxxxx  (128..2047)
+// 3-byte: 1110xxxx 10xxxxxx 10xxxxxx  (2048..65535)
+// 4-byte: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx  (65536..1114111)
+
+let mask2 = 31
+let mask3 = 15
+let mask4 = 7
+let maskCont = 63
+
+let prefix2 = 192
+let prefix3 = 224
+let prefix4 = 240
+let prefixCont = 128
+
 // encode writes into buf the UTF-8 encoding of the rune and returns
-// the number of bytes written.
+// the number of bytes written. Returns 0 if the rune is invalid or
+// the buffer is too small.
 pub fun encode(buf []byte, r int) int {
-    return 0
+    // Invalid rune check
+    if r < 0 or r > maxRune { return 0 }
+    if r >= surrogateMin and r <= surrogateMax { return 0 }
+
+    // 1-byte (ASCII)
+    if r < 128 {
+        if len(buf) < 1 { return 0 }
+        buf[0] = r
+        return 1
+    }
+
+    // 2-byte
+    if r < 2048 {
+        if len(buf) < 2 { return 0 }
+        buf[0] = prefix2 + (r / 64)
+        buf[1] = prefixCont + (r % 64)
+        return 2
+    }
+
+    // 3-byte
+    if r < 65536 {
+        if len(buf) < 3 { return 0 }
+        buf[0] = prefix3 + (r / 4096)
+        buf[1] = prefixCont + ((r / 64) % 64)
+        buf[2] = prefixCont + (r % 64)
+        return 3
+    }
+
+    // 4-byte
+    if len(buf) < 4 { return 0 }
+    buf[0] = prefix4 + (r / 262144)
+    buf[1] = prefixCont + ((r / 4096) % 64)
+    buf[2] = prefixCont + ((r / 64) % 64)
+    buf[3] = prefixCont + (r % 64)
+    return 4
 }
 
 // decode decodes the first UTF-8 encoding in buf and returns the rune
-// and the number of bytes consumed.
+// and the number of bytes consumed. Returns (runeError, 0) for empty input,
+// and (runeError, 1) for invalid sequences.
 pub fun decode(buf []byte) struct { rune int, size int } {
-    return .{ rune: 0, size: 0 }
+    var n = len(buf)
+    if n == 0 {
+        return .{ rune: runeError, size: 0 }
+    }
+
+    var b0 = buf[0]
+
+    // 1-byte (ASCII): 0xxxxxxx
+    if b0 < 128 {
+        return .{ rune: b0, size: 1 }
+    }
+
+    // Continuation byte or invalid leading byte
+    if b0 < prefix2 {
+        return .{ rune: runeError, size: 1 }
+    }
+
+    // 2-byte: 110xxxxx 10xxxxxx
+    if b0 < prefix3 {
+        if n < 2 { return .{ rune: runeError, size: 1 } }
+        var b1 = buf[1]
+        if b1 < prefixCont or b1 >= prefix2 {
+            return .{ rune: runeError, size: 1 }
+        }
+        var r = ((b0 - prefix2) * 64) + (b1 - prefixCont)
+        // Reject overlong encoding
+        if r < 128 { return .{ rune: runeError, size: 1 } }
+        return .{ rune: r, size: 2 }
+    }
+
+    // 3-byte: 1110xxxx 10xxxxxx 10xxxxxx
+    if b0 < prefix4 {
+        if n < 3 { return .{ rune: runeError, size: 1 } }
+        var b1 = buf[1]
+        var b2 = buf[2]
+        if b1 < prefixCont or b1 >= prefix2 {
+            return .{ rune: runeError, size: 1 }
+        }
+        if b2 < prefixCont or b2 >= prefix2 {
+            return .{ rune: runeError, size: 1 }
+        }
+        var r = ((b0 - prefix3) * 4096) + ((b1 - prefixCont) * 64) + (b2 - prefixCont)
+        // Reject overlong encoding
+        if r < 2048 { return .{ rune: runeError, size: 1 } }
+        // Reject surrogates
+        if r >= surrogateMin and r <= surrogateMax {
+            return .{ rune: runeError, size: 1 }
+        }
+        return .{ rune: r, size: 3 }
+    }
+
+    // 4-byte: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+    if b0 < 248 {
+        if n < 4 { return .{ rune: runeError, size: 1 } }
+        var b1 = buf[1]
+        var b2 = buf[2]
+        var b3 = buf[3]
+        if b1 < prefixCont or b1 >= prefix2 {
+            return .{ rune: runeError, size: 1 }
+        }
+        if b2 < prefixCont or b2 >= prefix2 {
+            return .{ rune: runeError, size: 1 }
+        }
+        if b3 < prefixCont or b3 >= prefix2 {
+            return .{ rune: runeError, size: 1 }
+        }
+        var r = ((b0 - prefix4) * 262144) + ((b1 - prefixCont) * 4096) + ((b2 - prefixCont) * 64) + (b3 - prefixCont)
+        // Reject overlong encoding
+        if r < 65536 { return .{ rune: runeError, size: 1 } }
+        // Reject values beyond maxRune
+        if r > maxRune { return .{ rune: runeError, size: 1 } }
+        return .{ rune: r, size: 4 }
+    }
+
+    // Invalid leading byte (>= 0xF8)
+    return .{ rune: runeError, size: 1 }
 }
 
 // decodeString decodes the first UTF-8 encoding in s and returns the rune
 // and the number of bytes consumed.
 pub fun decodeString(s string) struct { rune int, size int } {
-    return .{ rune: 0, size: 0 }
+    var buf = toBytes(s)
+    return decode(buf)
 }
 
 // valid reports whether buf consists entirely of valid UTF-8 encoded runes.
 pub fun valid(buf []byte) bool {
-    return false
+    var i = 0
+    var n = len(buf)
+    for i < n {
+        var b0 = buf[i]
+
+        // 1-byte (ASCII)
+        if b0 < 128 {
+            i = i + 1
+        } else if b0 < prefix2 {
+            // Unexpected continuation byte
+            return false
+        } else if b0 < prefix3 {
+            // 2-byte
+            if i + 1 >= n { return false }
+            var b1 = buf[i + 1]
+            if b1 < prefixCont or b1 >= prefix2 { return false }
+            var r = ((b0 - prefix2) * 64) + (b1 - prefixCont)
+            if r < 128 { return false }
+            i = i + 2
+        } else if b0 < prefix4 {
+            // 3-byte
+            if i + 2 >= n { return false }
+            var b1 = buf[i + 1]
+            var b2 = buf[i + 2]
+            if b1 < prefixCont or b1 >= prefix2 { return false }
+            if b2 < prefixCont or b2 >= prefix2 { return false }
+            var r = ((b0 - prefix3) * 4096) + ((b1 - prefixCont) * 64) + (b2 - prefixCont)
+            if r < 2048 { return false }
+            if r >= surrogateMin and r <= surrogateMax { return false }
+            i = i + 3
+        } else if b0 < 248 {
+            // 4-byte
+            if i + 3 >= n { return false }
+            var b1 = buf[i + 1]
+            var b2 = buf[i + 2]
+            var b3 = buf[i + 3]
+            if b1 < prefixCont or b1 >= prefix2 { return false }
+            if b2 < prefixCont or b2 >= prefix2 { return false }
+            if b3 < prefixCont or b3 >= prefix2 { return false }
+            var r = ((b0 - prefix4) * 262144) + ((b1 - prefixCont) * 4096) + ((b2 - prefixCont) * 64) + (b3 - prefixCont)
+            if r < 65536 { return false }
+            if r > maxRune { return false }
+            i = i + 4
+        } else {
+            // Invalid leading byte
+            return false
+        }
+    }
+    return true
 }
 
 // validString reports whether s consists entirely of valid UTF-8 encoded runes.
 pub fun validString(s string) bool {
-    return false
+    var buf = toBytes(s)
+    return valid(buf)
 }
 
 // validRune reports whether r can be legally encoded as UTF-8.
+// Code points that are out of range or surrogates are invalid.
 pub fun validRune(r int) bool {
-    return false
+    if r < 0 { return false }
+    if r >= surrogateMin and r <= surrogateMax { return false }
+    if r > maxRune { return false }
+    return true
 }
 
 // runeCount returns the number of runes in buf.
+// Erroneous and short encodings are treated as single-byte replacements.
 pub fun runeCount(buf []byte) int {
-    return 0
+    var count = 0
+    var i = 0
+    var n = len(buf)
+    for i < n {
+        var b0 = buf[i]
+        if b0 < 128 {
+            i = i + 1
+        } else if b0 < prefix2 {
+            // Invalid continuation byte — count as 1 rune
+            i = i + 1
+        } else if b0 < prefix3 {
+            if i + 1 < n and buf[i + 1] >= prefixCont and buf[i + 1] < prefix2 {
+                i = i + 2
+            } else {
+                i = i + 1
+            }
+        } else if b0 < prefix4 {
+            if i + 2 < n and buf[i + 1] >= prefixCont and buf[i + 1] < prefix2 and buf[i + 2] >= prefixCont and buf[i + 2] < prefix2 {
+                i = i + 3
+            } else {
+                i = i + 1
+            }
+        } else if b0 < 248 {
+            if i + 3 < n and buf[i + 1] >= prefixCont and buf[i + 1] < prefix2 and buf[i + 2] >= prefixCont and buf[i + 2] < prefix2 and buf[i + 3] >= prefixCont and buf[i + 3] < prefix2 {
+                i = i + 4
+            } else {
+                i = i + 1
+            }
+        } else {
+            i = i + 1
+        }
+        count = count + 1
+    }
+    return count
 }
 
 // runeCountString returns the number of runes in s.
 pub fun runeCountString(s string) int {
-    return 0
+    var buf = toBytes(s)
+    return runeCount(buf)
 }
 
 // runeLen returns the number of bytes required to encode the rune.
 // Returns -1 if the rune is not a valid value to encode in UTF-8.
 pub fun runeLen(r int) int {
-    return 0
+    if r < 0 { return -1 }
+    if r < 128 { return 1 }
+    if r < 2048 { return 2 }
+    if r >= surrogateMin and r <= surrogateMax { return -1 }
+    if r < 65536 { return 3 }
+    if r <= maxRune { return 4 }
+    return -1
 }
 
 // fullRune reports whether the bytes in buf begin with a full UTF-8
-// encoding of a rune.
+// encoding of a rune. An invalid encoding is considered a full (though
+// erroneous) rune since it will convert as a width-1 error rune.
 pub fun fullRune(buf []byte) bool {
-    return false
+    var n = len(buf)
+    if n == 0 { return false }
+
+    var b0 = buf[0]
+    if b0 < 128 { return true }
+    if b0 < prefix2 { return true }
+    if b0 < prefix3 { return n >= 2 }
+    if b0 < prefix4 { return n >= 3 }
+    if b0 < 248 { return n >= 4 }
+    return true
 }
 
 // runeStart reports whether the byte could be the first byte of an
-// encoded, possibly invalid rune.
+// encoded, possibly invalid rune. Second and subsequent bytes always
+// have the top two bits set to 10.
 pub fun runeStart(b byte) bool {
-    return false
+    // A byte is a rune start if it's NOT a continuation byte (10xxxxxx).
+    // Continuation bytes are in range 0x80..0xBF (128..191).
+    if b < 128 { return true }
+    if b >= prefixCont and b < prefix2 { return false }
+    return true
 }
+
+// Helper to convert string to byte slice.
+fun toBytes(s string) []byte { return s }
