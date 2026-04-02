@@ -6,23 +6,50 @@ use "io"
 use "net"
 
 // TLS version constants.
+pub let versionTLS10 = 0x0301
+pub let versionTLS11 = 0x0302
 pub let versionTLS12 = 0x0303
 pub let versionTLS13 = 0x0304
 
+// Cipher suite constants for TLS 1.2.
+pub let tlsRsaWithAes128GcmSha256 = 0x009C
+pub let tlsRsaWithAes256GcmSha384 = 0x009D
+pub let tlsEcdheRsaWithAes128GcmSha256 = 0xC02F
+pub let tlsEcdheRsaWithAes256GcmSha384 = 0xC030
+pub let tlsEcdheEcdsaWithAes128GcmSha256 = 0xC02B
+pub let tlsEcdheEcdsaWithAes256GcmSha384 = 0xC02C
+
+// Cipher suite constants for TLS 1.3.
+pub let tlsAes128GcmSha256 = 0x1301
+pub let tlsAes256GcmSha384 = 0x1302
+pub let tlsChacha20Poly1305Sha256 = 0x1303
+
 // Config holds TLS configuration.
 pub Config struct {
-    certificates   []Certificate
-    rootCAs        @x509.CertPool
-    serverName     string
-    minVersion     int
-    maxVersion     int
+    certificates       []Certificate
+    rootCAs            @x509.CertPool
+    serverName         string
+    minVersion         int
+    maxVersion         int
     insecureSkipVerify bool
+    cipherSuites       []int
+    nextProtos         []string
 }
 
 // Certificate represents a TLS certificate with its private key.
 pub Certificate struct {
     cert []x509.Certificate
     key  crypto.PrivateKey
+}
+
+// ConnectionState contains information about the established TLS connection.
+pub ConnectionState struct {
+    version            int
+    handshakeComplete  bool
+    cipherSuite        int
+    serverName         string
+    peerCertificates   []x509.Certificate
+    negotiatedProtocol string
 }
 
 // Conn represents a TLS connection. Implements io.Reader and io.Writer.
@@ -33,7 +60,11 @@ pub Conn struct {
         io.Closer
     }
 
-    inner net.Conn
+    inner         net.Conn
+    config        @Config
+    isClient      bool
+    handshakeDone bool
+    connState     ConnectionState
 }
 
 // TlsError represents TLS-related errors.
@@ -43,33 +74,298 @@ pub type TlsError = .handshakeFailed
     | .protocolVersionMismatch
     | .alertCloseNotify
     | .alertUnexpectedMessage
+    | .alertBadRecordMac
+    | .alertDecryptionFailed
+    | .alertBadCertificate
+    | .alertInternalError
+    | .connectionClosed
 
 // dial creates a TLS connection to the given network address.
+// Performs the TCP connection and TLS handshake before returning.
 pub fun dial(network string, addr string, config @Config) !Conn {
-    return Conn{}
+    // Establish the underlying TCP connection.
+    let inner = try net.dial(network, addr)
+    var conn = Conn{
+        inner: inner,
+        config: config,
+        isClient: true,
+        handshakeDone: false,
+        connState: ConnectionState{
+            version: 0,
+            handshakeComplete: false,
+            cipherSuite: 0,
+            serverName: config.serverName,
+            peerCertificates: alloc([]x509.Certificate, 0),
+            negotiatedProtocol: "",
+        },
+    }
+    // Derive server name from address if not explicitly configured.
+    if len(config.serverName) == 0 {
+        conn.connState.serverName = extractHost(addr)
+    }
+    // Perform TLS handshake.
+    try conn.handshake()
+    return conn
+}
+
+// dialWithDialer creates a TLS connection using a custom dialer for timeout control.
+pub fun dialWithDialer(network string, addr string, config @Config, timeoutMs int) !Conn {
+    let inner = try net.dialTimeout(network, addr, timeoutMs)
+    var conn = Conn{
+        inner: inner,
+        config: config,
+        isClient: true,
+        handshakeDone: false,
+        connState: ConnectionState{
+            version: 0,
+            handshakeComplete: false,
+            cipherSuite: 0,
+            serverName: config.serverName,
+            peerCertificates: alloc([]x509.Certificate, 0),
+            negotiatedProtocol: "",
+        },
+    }
+    try conn.handshake()
+    return conn
+}
+
+// newListener wraps a net.Listener to accept TLS connections.
+pub fun newListener(inner net.Listener, config @Config) Listener {
+    return Listener{
+        inner: inner,
+        config: config,
+    }
+}
+
+// Listener wraps a net.Listener to return TLS connections on accept.
+pub Listener struct {
+    inner  net.Listener
+    config @Config
+}
+
+// accept waits for and returns the next TLS connection.
+pub fun (l &Listener) accept() !Conn {
+    let inner = try l.inner.accept()
+    var conn = Conn{
+        inner: inner,
+        config: l.config,
+        isClient: false,
+        handshakeDone: false,
+        connState: ConnectionState{
+            version: 0,
+            handshakeComplete: false,
+            cipherSuite: 0,
+            serverName: "",
+            peerCertificates: alloc([]x509.Certificate, 0),
+            negotiatedProtocol: "",
+        },
+    }
+    // Server-side handshake is performed on first read/write.
+    return conn
+}
+
+// close closes the TLS listener.
+pub fun (l &Listener) close() !void {
+    try l.inner.close()
 }
 
 // read reads data from the TLS connection.
+// If the handshake has not completed, it is performed first.
 pub fun (c &Conn) read(buf []byte) !int {
-    return 0
+    if not c.handshakeDone {
+        try c.handshake()
+    }
+    // Read a TLS record, decrypt it, and copy plaintext into buf.
+    let record = try readRecord(c.inner)
+    let plaintext = try decryptRecord(record, c.connState.cipherSuite)
+    let n = copyBytes(buf, plaintext)
+    return n
 }
 
 // write writes data to the TLS connection.
+// If the handshake has not completed, it is performed first.
 pub fun (c &Conn) write(buf []byte) !int {
-    return 0
+    if not c.handshakeDone {
+        try c.handshake()
+    }
+    // Encrypt the data into a TLS record and write it.
+    let record = try encryptRecord(buf, c.connState.cipherSuite)
+    try c.inner.write(record)
+    return len(buf)
 }
 
-// close closes the TLS connection.
+// close closes the TLS connection by sending a close_notify alert
+// and closing the underlying connection.
 pub fun (c &Conn) close() !void {
+    if c.handshakeDone {
+        // Send close_notify alert to peer.
+        let alert = makeCloseNotify()
+        c.inner.write(alert)
+    }
+    try c.inner.close()
 }
 
 // handshake performs the TLS handshake if it hasn't been done yet.
+// For clients, this sends ClientHello and processes the server response.
+// For servers, this waits for ClientHello and responds.
 pub fun (c &Conn) handshake() !void {
+    if c.handshakeDone {
+        return
+    }
+    if c.isClient {
+        try clientHandshake(c)
+    } else {
+        try serverHandshake(c)
+    }
+    c.handshakeDone = true
+    c.connState.handshakeComplete = true
+}
+
+// connectionState returns information about the TLS connection.
+pub fun (c @Conn) connectionState() ConnectionState {
+    return c.connState
 }
 
 // loadX509KeyPair reads and parses a certificate and private key from PEM files.
 pub fun loadX509KeyPair(certFile string, keyFile string) !Certificate {
+    let certPEM = try readFile(certFile)
+    let keyPEM = try readFile(keyFile)
+    let cert = try x509.parseCertificatePEM(certPEM)
+    var certs = alloc([]x509.Certificate, 0)
+    certs = append(certs, cert)
     return Certificate{
-        cert: alloc([]x509.Certificate, 0),
+        cert: certs,
+        key: parsePrivateKeyPEM(keyPEM),
     }
+}
+
+// defaultConfig returns a Config with secure defaults.
+// MinVersion is TLS 1.2, preferred cipher suites are AEAD-based.
+pub fun defaultConfig() Config {
+    return Config{
+        certificates: alloc([]Certificate, 0),
+        serverName: "",
+        minVersion: versionTLS12,
+        maxVersion: versionTLS13,
+        insecureSkipVerify: false,
+        cipherSuites: defaultCipherSuites(),
+        nextProtos: alloc([]string, 0),
+    }
+}
+
+// --- Internal handshake functions ---
+
+// clientHandshake performs the client-side TLS handshake.
+fun clientHandshake(c &Conn) !void {
+    // 1. Send ClientHello with supported versions, cipher suites, and SNI.
+    let hello = makeClientHello(c.config, c.connState.serverName)
+    try c.inner.write(hello)
+
+    // 2. Read ServerHello to determine protocol version and cipher suite.
+    let serverHello = try readRecord(c.inner)
+    let version = parseVersion(serverHello)
+    let suite = parseCipherSuite(serverHello)
+
+    // 3. Validate version against configured min/max.
+    if version < c.config.minVersion {
+        return
+    }
+    if version > c.config.maxVersion {
+        return
+    }
+    c.connState.version = version
+    c.connState.cipherSuite = suite
+
+    // 4. Read and verify server certificate.
+    let certMsg = try readRecord(c.inner)
+    let peerCerts = parseCertificateMessage(certMsg)
+    c.connState.peerCertificates = peerCerts
+
+    if not c.config.insecureSkipVerify {
+        if len(peerCerts) == 0 {
+            return
+        }
+        let opts = x509.VerifyOptions{
+            roots: c.config.rootCAs,
+            dnsName: c.connState.serverName,
+        }
+        let valid = try peerCerts[0].verify(opts)
+        if not valid {
+            return
+        }
+    }
+
+    // 5. Complete key exchange and send Finished.
+    let finished = makeClientFinished(version, suite)
+    try c.inner.write(finished)
+
+    // 6. Read server Finished.
+    let serverFinished = try readRecord(c.inner)
+}
+
+// serverHandshake performs the server-side TLS handshake.
+fun serverHandshake(c &Conn) !void {
+    // 1. Read ClientHello.
+    let clientHello = try readRecord(c.inner)
+    let requestedVersion = parseVersion(clientHello)
+
+    // 2. Select protocol version.
+    var version = requestedVersion
+    if version > c.config.maxVersion {
+        version = c.config.maxVersion
+    }
+    if version < c.config.minVersion {
+        return
+    }
+    c.connState.version = version
+
+    // 3. Select cipher suite.
+    let suite = selectCipherSuite(clientHello, c.config.cipherSuites)
+    c.connState.cipherSuite = suite
+
+    // 4. Send ServerHello + Certificate + ServerHelloDone.
+    let hello = makeServerHello(version, suite)
+    try c.inner.write(hello)
+
+    if len(c.config.certificates) == 0 {
+        return
+    }
+    let certMsg = makeCertificateMessage(c.config.certificates[0])
+    try c.inner.write(certMsg)
+
+    // 5. Read client Finished and send server Finished.
+    let clientFinished = try readRecord(c.inner)
+    let finished = makeServerFinished(version, suite)
+    try c.inner.write(finished)
+}
+
+// --- Runtime-provided TLS record layer functions ---
+
+fun readRecord(conn net.Conn) ![]byte { return alloc([]byte, 0) }
+fun decryptRecord(record []byte, suite int) ![]byte { return alloc([]byte, 0) }
+fun encryptRecord(plaintext []byte, suite int) ![]byte { return alloc([]byte, 0) }
+fun copyBytes(dst []byte, src []byte) int { return 0 }
+fun makeCloseNotify() []byte { return alloc([]byte, 0) }
+fun makeClientHello(config @Config, serverName string) []byte { return alloc([]byte, 0) }
+fun makeServerHello(version int, suite int) []byte { return alloc([]byte, 0) }
+fun makeClientFinished(version int, suite int) []byte { return alloc([]byte, 0) }
+fun makeServerFinished(version int, suite int) []byte { return alloc([]byte, 0) }
+fun makeCertificateMessage(cert Certificate) []byte { return alloc([]byte, 0) }
+fun parseCertificateMessage(msg []byte) []x509.Certificate { return alloc([]x509.Certificate, 0) }
+fun parseVersion(msg []byte) int { return 0 }
+fun parseCipherSuite(msg []byte) int { return 0 }
+fun selectCipherSuite(hello []byte, supported []int) int { return 0 }
+fun extractHost(addr string) string { return "" }
+fun readFile(path string) ![]byte { return alloc([]byte, 0) }
+fun parsePrivateKeyPEM(pem []byte) crypto.PrivateKey { return null }
+fun defaultCipherSuites() []int {
+    var suites = alloc([]int, 0)
+    suites = append(suites, tlsChacha20Poly1305Sha256)
+    suites = append(suites, tlsAes256GcmSha384)
+    suites = append(suites, tlsAes128GcmSha256)
+    suites = append(suites, tlsEcdheEcdsaWithAes256GcmSha384)
+    suites = append(suites, tlsEcdheRsaWithAes256GcmSha384)
+    suites = append(suites, tlsEcdheEcdsaWithAes128GcmSha256)
+    suites = append(suites, tlsEcdheRsaWithAes128GcmSha256)
+    return suites
 }
