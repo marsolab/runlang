@@ -443,6 +443,10 @@ int run_poller_poll_blocking(int64_t timeout_ns) {
     return woken;
 }
 
+void run_poller_wakeup(void) {
+    /* Legacy poller: no-op. Ms are woken via pthread_cond_signal. */
+}
+
 bool run_poller_has_waiters(void) {
     return __atomic_load_n(&registered_fd_count, __ATOMIC_SEQ_CST) > 0;
 }
@@ -656,6 +660,10 @@ int run_poller_poll_blocking(int64_t timeout_ns) {
     return woken;
 }
 
+void run_poller_wakeup(void) {
+    /* Legacy poller: no-op. Ms are woken via pthread_cond_signal. */
+}
+
 bool run_poller_has_waiters(void) {
     return __atomic_load_n(&registered_fd_count, __ATOMIC_SEQ_CST) > 0;
 }
@@ -685,6 +693,9 @@ int run_poller_poll(void) {
 int run_poller_poll_blocking(int64_t timeout_ns) {
     (void)timeout_ns;
     return 0;
+}
+void run_poller_wakeup(void) {
+    /* Stub poller: no-op. */
 }
 bool run_poller_has_waiters(void) {
     return false;
