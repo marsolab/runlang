@@ -29,18 +29,41 @@ pub type ProtoError = .invalidWireType
     | .overflow
     | .requiredFieldMissing
 
+// wireTypeValue returns the numeric wire type value (0-5).
+fun wireTypeValue(wt WireType) int {
+    if wt == .varint { return 0 }
+    if wt == .fixed64 { return 1 }
+    if wt == .lengthDelimited { return 2 }
+    if wt == .startGroup { return 3 }
+    if wt == .endGroup { return 4 }
+    if wt == .fixed32 { return 5 }
+    return 0
+}
+
+// wireTypeFromValue returns a WireType from its numeric value.
+fun wireTypeFromValue(v int) !WireType {
+    if v == 0 { return .varint }
+    if v == 1 { return .fixed64 }
+    if v == 2 { return .lengthDelimited }
+    if v == 3 { return .startGroup }
+    if v == 4 { return .endGroup }
+    if v == 5 { return .fixed32 }
+    return ProtoError.invalidWireType
+}
+
 // marshal serializes a protocol buffer message.
 pub fun marshal(msg Message) ![]byte {
-    return alloc([]byte, 0)
+    return msg.proto_marshal()
 }
 
 // unmarshal deserializes a protocol buffer message.
 pub fun unmarshal(data []byte, msg &Message) !void {
+    try msg.proto_unmarshal(data)
 }
 
 // size returns the serialized size of a message without actually serializing it.
 pub fun size(msg Message) int {
-    return 0
+    return msg.proto_size()
 }
 
 // Buffer is a helper for encoding and decoding protobuf messages.
@@ -54,40 +77,187 @@ pub fun newBuffer(data []byte) Buffer {
     return Buffer{ data: data, pos: 0 }
 }
 
+// newEmptyBuffer creates an empty Buffer for encoding.
+pub fun newEmptyBuffer() Buffer {
+    return Buffer{ data: alloc([]byte, 0), pos: 0 }
+}
+
 // encodeVarint encodes a uint64 as a varint and appends it to the buffer.
+// Varint encoding uses 7 bits per byte with the high bit as a continuation flag.
 pub fun (b &Buffer) encodeVarint(v u64) {
+    var val = v
+    // Each iteration encodes 7 bits. High bit (128) means more bytes follow.
+    for val >= 128 {
+        // Low 7 bits OR'd with continuation bit: (val % 128) + 128.
+        b.data = append(b.data, val - (val / 128) * 128 + 128)
+        val = val / 128
+    }
+    // Final byte has high bit clear (value < 128).
+    b.data = append(b.data, val)
 }
 
 // decodeVarint decodes a varint from the buffer.
 pub fun (b &Buffer) decodeVarint() !u64 {
-    return 0
+    var result = 0
+    var shift = 0
+    var i = 0
+    for i < 10 {
+        if b.pos >= len(b.data) {
+            return ProtoError.truncatedMessage
+        }
+        var byt = b.data[b.pos]
+        b.pos = b.pos + 1
+
+        // Extract low 7 bits and shift into position.
+        var low7 = byt - (byt / 128) * 128
+        result = result + low7 * pow2(shift)
+        shift = shift + 7
+
+        // If high bit is clear, we're done.
+        if byt < 128 {
+            return result
+        }
+        i = i + 1
+    }
+    // More than 10 bytes means overflow for u64.
+    return ProtoError.overflow
 }
 
 // encodeFixed64 encodes a uint64 as a 64-bit little-endian value.
 pub fun (b &Buffer) encodeFixed64(v u64) {
+    var val = v
+    var i = 0
+    for i < 8 {
+        // Extract lowest byte: val % 256.
+        b.data = append(b.data, val - (val / 256) * 256)
+        val = val / 256
+        i = i + 1
+    }
 }
 
 // decodeFixed64 decodes a 64-bit little-endian value from the buffer.
 pub fun (b &Buffer) decodeFixed64() !u64 {
-    return 0
+    if b.pos + 8 > len(b.data) {
+        return ProtoError.truncatedMessage
+    }
+    var result = 0
+    var i = 0
+    for i < 8 {
+        result = result + b.data[b.pos] * pow2(i * 8)
+        b.pos = b.pos + 1
+        i = i + 1
+    }
+    return result
 }
 
 // encodeFixed32 encodes a uint32 as a 32-bit little-endian value.
 pub fun (b &Buffer) encodeFixed32(v u32) {
+    var val = v
+    var i = 0
+    for i < 4 {
+        // Extract lowest byte: val % 256.
+        b.data = append(b.data, val - (val / 256) * 256)
+        val = val / 256
+        i = i + 1
+    }
 }
 
 // decodeFixed32 decodes a 32-bit little-endian value from the buffer.
 pub fun (b &Buffer) decodeFixed32() !u32 {
-    return 0
+    if b.pos + 4 > len(b.data) {
+        return ProtoError.truncatedMessage
+    }
+    var result = 0
+    var i = 0
+    for i < 4 {
+        result = result + b.data[b.pos] * pow2(i * 8)
+        b.pos = b.pos + 1
+        i = i + 1
+    }
+    return result
 }
 
 // encodeBytes encodes a byte slice as a length-delimited field.
+// Writes the length as a varint followed by the raw bytes.
 pub fun (b &Buffer) encodeBytes(data []byte) {
+    b.encodeVarint(len(data))
+    var i = 0
+    for i < len(data) {
+        b.data = append(b.data, data[i])
+        i = i + 1
+    }
 }
 
 // decodeBytes decodes a length-delimited field from the buffer.
+// Reads a varint length prefix, then that many bytes.
 pub fun (b &Buffer) decodeBytes() ![]byte {
-    return alloc([]byte, 0)
+    var length = try b.decodeVarint()
+    if b.pos + length > len(b.data) {
+        return ProtoError.truncatedMessage
+    }
+    var result = alloc([]byte, 0)
+    var i = 0
+    for i < length {
+        result = append(result, b.data[b.pos])
+        b.pos = b.pos + 1
+        i = i + 1
+    }
+    return result
+}
+
+// encodeString encodes a string as a length-delimited field.
+pub fun (b &Buffer) encodeString(s string) {
+    var data = toBytes(s)
+    b.encodeBytes(data)
+}
+
+// decodeString decodes a length-delimited string from the buffer.
+pub fun (b &Buffer) decodeString() !string {
+    var data = try b.decodeBytes()
+    return toString(data)
+}
+
+// encodeTag encodes a protobuf field tag (field number + wire type).
+// Tag = (field_number << 3) | wire_type = field_number * 8 + wire_type.
+pub fun (b &Buffer) encodeTag(fieldNumber int, wt WireType) {
+    var tag = fieldNumber * 8 + wireTypeValue(wt)
+    b.encodeVarint(tag)
+}
+
+// decodeTag decodes a protobuf field tag into field number and wire type.
+pub fun (b &Buffer) decodeTag() !TagValue {
+    var tag = try b.decodeVarint()
+    // Wire type is the low 3 bits: tag % 8.
+    var wt = tag - (tag / 8) * 8
+    // Field number is the remaining bits: tag / 8.
+    var fieldNum = tag / 8
+    var wireType = try wireTypeFromValue(wt)
+    return TagValue{ fieldNumber: fieldNum, wireType: wireType }
+}
+
+// skipField skips over a field value of the given wire type.
+pub fun (b &Buffer) skipField(wt WireType) !void {
+    if wt == .varint {
+        try b.decodeVarint()
+    } else if wt == .fixed64 {
+        if b.pos + 8 > len(b.data) {
+            return ProtoError.truncatedMessage
+        }
+        b.pos = b.pos + 8
+    } else if wt == .lengthDelimited {
+        var length = try b.decodeVarint()
+        if b.pos + length > len(b.data) {
+            return ProtoError.truncatedMessage
+        }
+        b.pos = b.pos + length
+    } else if wt == .fixed32 {
+        if b.pos + 4 > len(b.data) {
+            return ProtoError.truncatedMessage
+        }
+        b.pos = b.pos + 4
+    } else {
+        return ProtoError.invalidWireType
+    }
 }
 
 // bytes returns the encoded data.
@@ -97,4 +267,145 @@ pub fun (b @Buffer) bytes() []byte {
 
 // reset resets the buffer for reuse.
 pub fun (b &Buffer) reset() {
+    b.data = alloc([]byte, 0)
+    b.pos = 0
+}
+
+// remaining returns the number of unread bytes in the buffer.
+pub fun (b @Buffer) remaining() int {
+    return len(b.data) - b.pos
+}
+
+// isFinished returns true if all bytes in the buffer have been consumed.
+pub fun (b @Buffer) isFinished() bool {
+    return b.pos >= len(b.data)
+}
+
+// TagValue holds a decoded protobuf field tag.
+pub TagValue struct {
+    fieldNumber int
+    wireType    WireType
+}
+
+// FieldDescriptor describes a single field in a protobuf message.
+pub FieldDescriptor struct {
+    number   int
+    name     string
+    wireType WireType
+    repeated bool
+}
+
+// newFieldDescriptor creates a new field descriptor.
+pub fun newFieldDescriptor(number int, name string, wt WireType, repeated bool) FieldDescriptor {
+    return FieldDescriptor{ number: number, name: name, wireType: wt, repeated: repeated }
+}
+
+// encodeVarintField encodes a complete varint field (tag + value).
+pub fun (b &Buffer) encodeVarintField(fieldNumber int, v u64) {
+    b.encodeTag(fieldNumber, .varint)
+    b.encodeVarint(v)
+}
+
+// encodeFixed32Field encodes a complete fixed32 field (tag + value).
+pub fun (b &Buffer) encodeFixed32Field(fieldNumber int, v u32) {
+    b.encodeTag(fieldNumber, .fixed32)
+    b.encodeFixed32(v)
+}
+
+// encodeFixed64Field encodes a complete fixed64 field (tag + value).
+pub fun (b &Buffer) encodeFixed64Field(fieldNumber int, v u64) {
+    b.encodeTag(fieldNumber, .fixed64)
+    b.encodeFixed64(v)
+}
+
+// encodeBytesField encodes a complete length-delimited bytes field (tag + value).
+pub fun (b &Buffer) encodeBytesField(fieldNumber int, data []byte) {
+    b.encodeTag(fieldNumber, .lengthDelimited)
+    b.encodeBytes(data)
+}
+
+// encodeStringField encodes a complete length-delimited string field (tag + value).
+pub fun (b &Buffer) encodeStringField(fieldNumber int, s string) {
+    b.encodeTag(fieldNumber, .lengthDelimited)
+    b.encodeString(s)
+}
+
+// zigzagEncode encodes a signed integer using ZigZag encoding.
+// Maps signed integers to unsigned: 0 -> 0, -1 -> 1, 1 -> 2, -2 -> 3, etc.
+pub fun zigzagEncode(v int) u64 {
+    // ZigZag: (v << 1) ^ (v >> 63) = (v * 2) ^ (v / 2^63 sign extension).
+    // For positive v: v * 2. For negative v: (-v) * 2 - 1.
+    if v >= 0 {
+        return v * 2
+    }
+    return (0 - v) * 2 - 1
+}
+
+// zigzagDecode decodes a ZigZag-encoded unsigned integer back to signed.
+// Maps unsigned back to signed: 0 -> 0, 1 -> -1, 2 -> 1, 3 -> -2, etc.
+pub fun zigzagDecode(v u64) int {
+    // (v >> 1) ^ -(v & 1) = v / 2 if even, -(v / 2 + 1) if odd.
+    var half = v / 2
+    // Check if v is odd: v - (v / 2) * 2.
+    var isOdd = v - (v / 2) * 2
+    if isOdd == 0 {
+        return half
+    }
+    return 0 - half - 1
+}
+
+// encodeSint32Field encodes a signed int32 field using ZigZag + varint encoding.
+pub fun (b &Buffer) encodeSint32Field(fieldNumber int, v int) {
+    b.encodeTag(fieldNumber, .varint)
+    b.encodeVarint(zigzagEncode(v))
+}
+
+// encodeSint64Field encodes a signed int64 field using ZigZag + varint encoding.
+pub fun (b &Buffer) encodeSint64Field(fieldNumber int, v int) {
+    b.encodeTag(fieldNumber, .varint)
+    b.encodeVarint(zigzagEncode(v))
+}
+
+// encodeBoolField encodes a boolean as a varint field (0 or 1).
+pub fun (b &Buffer) encodeBoolField(fieldNumber int, v bool) {
+    b.encodeTag(fieldNumber, .varint)
+    if v {
+        b.encodeVarint(1)
+    } else {
+        b.encodeVarint(0)
+    }
+}
+
+// varintSize returns the number of bytes needed to encode a varint.
+pub fun varintSize(v u64) int {
+    if v == 0 {
+        return 1
+    }
+    var val = v
+    var n = 0
+    for val > 0 {
+        val = val / 128
+        n = n + 1
+    }
+    return n
+}
+
+// tagSize returns the number of bytes needed to encode a field tag.
+pub fun tagSize(fieldNumber int) int {
+    return varintSize(fieldNumber * 8)
+}
+
+// Helper functions for type conversions.
+fun toBytes(s string) []byte { return s }
+fun toString(b []byte) string { return b }
+
+// pow2 returns 2 raised to the power of n.
+fun pow2(n int) int {
+    var result = 1
+    var i = 0
+    for i < n {
+        result = result * 2
+        i = i + 1
+    }
+    return result
 }
