@@ -4,7 +4,25 @@ package path
 // separating them with forward slashes. Empty elements are ignored.
 // This is OS-independent; for OS-specific path handling use os.joinPath.
 pub fun join(parts ...string) string {
-    return ""
+    var result = ""
+    for part in parts {
+        if len(part) == 0 {
+            continue
+        }
+        if len(result) == 0 {
+            result = part
+        } else {
+            if result[len(result) - 1] == 47 {
+                result = result + part
+            } else {
+                result = result + "/" + part
+            }
+        }
+    }
+    if len(result) == 0 {
+        return ""
+    }
+    return clean(result)
 }
 
 // base returns the last element of path.
@@ -12,58 +30,274 @@ pub fun join(parts ...string) string {
 // If the path is empty, base returns ".".
 // If the path consists entirely of slashes, base returns "/".
 pub fun base(p string) string {
-    return ""
+    if len(p) == 0 {
+        return "."
+    }
+    var end = len(p)
+    for end > 0 and p[end - 1] == 47 {
+        end = end - 1
+    }
+    if end == 0 {
+        return "/"
+    }
+    var i = end - 1
+    for i > 0 and p[i - 1] != 47 {
+        i = i - 1
+    }
+    return p[i..end]
 }
 
 // dir returns all but the last element of path, typically the path's directory.
 // Trailing slashes are removed before processing.
 // If the path is empty, dir returns ".".
 pub fun dir(p string) string {
-    return ""
+    if len(p) == 0 {
+        return "."
+    }
+    var end = len(p)
+    for end > 0 and p[end - 1] == 47 {
+        end = end - 1
+    }
+    if end == 0 {
+        return "/"
+    }
+    var i = end - 1
+    for i >= 0 and p[i] != 47 {
+        i = i - 1
+    }
+    if i < 0 {
+        return "."
+    }
+    for i > 0 and p[i - 1] == 47 {
+        i = i - 1
+    }
+    if i == 0 and p[0] == 47 {
+        return "/"
+    }
+    return p[0..i]
 }
 
 // ext returns the file name extension used by path.
 // The extension is the suffix beginning at the final dot
 // in the last element of path; it is empty if there is no dot.
 pub fun ext(p string) string {
+    if len(p) == 0 {
+        return ""
+    }
+    var i = len(p) - 1
+    for i >= 0 {
+        if p[i] == 46 {
+            return p[i..]
+        }
+        if p[i] == 47 {
+            break
+        }
+        i = i - 1
+    }
     return ""
 }
 
 // clean returns the shortest path name equivalent to path
-// by purely lexical processing. It applies the following rules
-// iteratively until no further processing can be done:
-//   1. Replace multiple slashes with a single slash.
-//   2. Eliminate each . path name element.
-//   3. Eliminate each inner .. path name element along with the
-//      non-.. element that precedes it.
-//   4. Eliminate .. elements that begin a rooted path.
+// by purely lexical processing.
 pub fun clean(p string) string {
-    return ""
+    if len(p) == 0 {
+        return "."
+    }
+    let rooted = p[0] == 47
+    var parts = alloc([]string, 0)
+    var start = 0
+    if rooted {
+        start = 1
+    }
+
+    var pos = start
+    for pos <= len(p) {
+        if pos == len(p) or p[pos] == 47 {
+            let seg = p[start..pos]
+            if seg == "." or len(seg) == 0 {
+                // skip
+            } else {
+                if seg == ".." {
+                    if len(parts) > 0 and parts[len(parts) - 1] != ".." {
+                        parts = parts[0..len(parts) - 1]
+                    } else {
+                        if not rooted {
+                            parts = append(parts, seg)
+                        }
+                    }
+                } else {
+                    parts = append(parts, seg)
+                }
+            }
+            start = pos + 1
+        }
+        pos = pos + 1
+    }
+
+    var result = ""
+    if rooted {
+        result = "/"
+    }
+    var idx = 0
+    for part in parts {
+        if idx > 0 {
+            result = result + "/"
+        }
+        result = result + part
+        idx = idx + 1
+    }
+
+    if len(result) == 0 {
+        return "."
+    }
+    return result
 }
 
 // isAbs reports whether the path is absolute.
 pub fun isAbs(p string) bool {
-    return false
+    return len(p) > 0 and p[0] == 47
 }
 
 // split splits path immediately following the final slash,
 // separating it into a directory and file name component.
 // If there is no slash in path, split returns ("", path).
-pub fun split(p string) string {
-    return ""
+pub fun split(p string) struct { dir string, file string } {
+    var d = dir(p)
+    if d == "." and not isAbs(p) {
+        d = ""
+    }
+    return .{ dir: d, file: base(p) }
+}
+
+fun matchSegment(pattern string, name string) bool {
+    var pi = 0
+    var ni = 0
+    var star = -1
+    var match = 0
+
+    for ni < len(name) {
+        if pi < len(pattern) {
+            if pattern[pi] == 63 {
+                pi = pi + 1
+                ni = ni + 1
+                continue
+            }
+            if pattern[pi] == name[ni] {
+                pi = pi + 1
+                ni = ni + 1
+                continue
+            }
+            if pattern[pi] == 42 {
+                star = pi
+                match = ni
+                pi = pi + 1
+                continue
+            }
+        }
+
+        if star != -1 {
+            pi = star + 1
+            match = match + 1
+            ni = match
+            continue
+        }
+
+        return false
+    }
+
+    for pi < len(pattern) and pattern[pi] == 42 {
+        pi = pi + 1
+    }
+    return pi == len(pattern)
 }
 
 // match reports whether name matches the shell file name pattern.
-// The pattern syntax is:
+// Supported syntax:
 //   *       matches any sequence of non-/ characters
 //   ?       matches any single non-/ character
-//   [...]   matches any character in the bracket set
 pub fun match(pattern string, name string) !bool {
-    return false
+    let pp = clean(pattern)
+    let nn = clean(name)
+    let pparts = splitParts(pp)
+    let nparts = splitParts(nn)
+
+    if len(pparts) != len(nparts) {
+        return false
+    }
+
+    var i = 0
+    for i < len(pparts) {
+        if not matchSegment(pparts[i], nparts[i]) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fun splitParts(p string) []string {
+    var parts = alloc([]string, 0)
+    var start = 0
+    if len(p) > 0 and p[0] == 47 {
+        start = 1
+    }
+
+    var pos = start
+    for pos <= len(p) {
+        if pos == len(p) or p[pos] == 47 {
+            if pos > start {
+                parts = append(parts, p[start..pos])
+            }
+            start = pos + 1
+        }
+        pos = pos + 1
+    }
+    return parts
 }
 
 // rel returns a relative path that is lexically equivalent to target
 // when joined to base with an intervening separator.
 pub fun rel(basePath string, target string) !string {
-    return ""
+    let baseClean = clean(basePath)
+    let targetClean = clean(target)
+
+    if baseClean == targetClean {
+        return "."
+    }
+
+    let baseParts = splitParts(baseClean)
+    let targetParts = splitParts(targetClean)
+
+    var common = 0
+    for common < len(baseParts) and common < len(targetParts) {
+        if baseParts[common] != targetParts[common] {
+            break
+        }
+        common = common + 1
+    }
+
+    var up = 0
+    var result = ""
+    up = common
+    for up < len(baseParts) {
+        if len(result) > 0 {
+            result = result + "/"
+        }
+        result = result + ".."
+        up = up + 1
+    }
+
+    var down = common
+    for down < len(targetParts) {
+        if len(result) > 0 {
+            result = result + "/"
+        }
+        result = result + targetParts[down]
+        down = down + 1
+    }
+
+    if len(result) == 0 {
+        return "."
+    }
+    return result
 }
