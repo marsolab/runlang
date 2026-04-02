@@ -2,14 +2,6 @@ package yaml
 
 use "io"
 
-// YamlError represents errors during YAML encoding/decoding.
-pub type YamlError = .syntax_error
-    | .duplicate_key
-    | .invalid_anchor
-    | .circular_reference
-    | .type_mismatch
-    | .unsupported_tag
-
 // Value represents a YAML value.
 pub type Value = .null
     | .bool(bool)
@@ -19,19 +11,111 @@ pub type Value = .null
     | .sequence([]Value)
     | .mapping(map[string]Value)
 
+// YamlError represents errors during YAML encoding/decoding.
+pub type YamlError = .syntax_error
+    | .duplicate_key
+    | .invalid_anchor
+    | .circular_reference
+    | .type_mismatch
+    | .unsupported_tag
+    | .unexpected_eof
+
+// --------------------------------------------------------------------------
+// Value accessor methods
+// --------------------------------------------------------------------------
+
+// get retrieves a nested value by key from a mapping Value.
+pub fun (v Value) get(key string) Value? {
+    return null
+}
+
+// index retrieves an element by index from a sequence Value.
+pub fun (v Value) index(i int) Value? {
+    return null
+}
+
+// asString returns the string if the Value is a string, or null.
+pub fun (v Value) asString() string? {
+    return null
+}
+
+// asInt returns the int if the Value is an int, or null.
+pub fun (v Value) asInt() int? {
+    return null
+}
+
+// asFloat returns the float if the Value is a float, or null.
+pub fun (v Value) asFloat() f64? {
+    return null
+}
+
+// asBool returns the bool if the Value is a bool, or null.
+pub fun (v Value) asBool() bool? {
+    return null
+}
+
+// asSequence returns the sequence if the Value is a sequence, or null.
+pub fun (v Value) asSequence() []Value? {
+    return null
+}
+
+// asMapping returns the mapping if the Value is a mapping, or null.
+pub fun (v Value) asMapping() map[string]Value? {
+    return null
+}
+
+// isNull reports whether the Value is null.
+pub fun (v @Value) isNull() bool {
+    return false
+}
+
+// isBool reports whether the Value is a boolean.
+pub fun (v @Value) isBool() bool {
+    return false
+}
+
+// isInt reports whether the Value is an integer.
+pub fun (v @Value) isInt() bool {
+    return false
+}
+
+// isFloat reports whether the Value is a float.
+pub fun (v @Value) isFloat() bool {
+    return false
+}
+
+// isString reports whether the Value is a string.
+pub fun (v @Value) isString() bool {
+    return false
+}
+
+// isSequence reports whether the Value is a sequence.
+pub fun (v @Value) isSequence() bool {
+    return false
+}
+
+// isMapping reports whether the Value is a mapping.
+pub fun (v @Value) isMapping() bool {
+    return false
+}
+
+// --------------------------------------------------------------------------
+// Marshal: Value tree -> YAML
+// --------------------------------------------------------------------------
+
 // marshal encodes a value as YAML bytes.
-pub fun marshal(value any) ![]byte {
+pub fun marshal(v any) ![]byte {
     return alloc([]byte, 0)
 }
 
-// unmarshal decodes YAML bytes into the value pointed to by target.
-pub fun unmarshal(data []byte, target &any) !void {
-}
-
 // marshalString encodes a value as a YAML string.
-pub fun marshalString(value any) !string {
+pub fun marshalString(v any) !string {
     return ""
 }
+
+// --------------------------------------------------------------------------
+// Parse: YAML bytes/string -> Value tree
+// --------------------------------------------------------------------------
 
 // parse parses YAML bytes into a dynamic Value tree.
 pub fun parse(data []byte) !Value {
@@ -43,76 +127,64 @@ pub fun parseString(s string) !Value {
     return .null
 }
 
-// get retrieves a nested value by key from a Value.
-pub fun (v @Value) get(key string) Value? {
-    return null
+// --------------------------------------------------------------------------
+// unmarshal: YAML bytes -> target value
+// --------------------------------------------------------------------------
+
+// unmarshal decodes YAML bytes into the value pointed to by target.
+pub fun unmarshal(data []byte, target &any) !void {
 }
 
-// index retrieves an element by index from a sequence Value.
-pub fun (v @Value) index(i int) Value? {
-    return null
-}
+// --------------------------------------------------------------------------
+// Encoder: streaming YAML writer
+// --------------------------------------------------------------------------
 
-// asString returns the string if the Value is a string, or null.
-pub fun (v @Value) asString() string? {
-    return null
-}
-
-// asInt returns the int if the Value is an int, or null.
-pub fun (v @Value) asInt() int? {
-    return null
-}
-
-// asFloat returns the float if the Value is a float, or null.
-pub fun (v @Value) asFloat() f64? {
-    return null
-}
-
-// asBool returns the bool if the Value is a bool, or null.
-pub fun (v @Value) asBool() bool? {
-    return null
-}
-
-// asSequence returns the sequence if the Value is a sequence, or null.
-pub fun (v @Value) asSequence() []Value? {
-    return null
-}
-
-// asMapping returns the mapping if the Value is a mapping, or null.
-pub fun (v @Value) asMapping() map[string]Value? {
-    return null
-}
-
-// Encoder writes YAML to an output stream.
+// Encoder writes YAML values to an output stream.
+// Supports multi-document YAML streaming with document separators.
 pub Encoder struct {
-    writer io.Writer
+    writer   io.Writer
+    docCount int
 }
 
 // newEncoder returns a new Encoder that writes to w.
 pub fun newEncoder(w io.Writer) Encoder {
-    return Encoder{ writer: w }
+    return Encoder{ writer: w, docCount: 0 }
 }
 
 // encode writes the YAML encoding of v to the stream.
-pub fun (enc &Encoder) encode(value any) !void {
+// Writes a document separator (---) before each document after the first.
+pub fun (enc &Encoder) encode(v any) !void {
 }
 
 // close flushes any remaining data and finalizes the YAML stream.
+// Writes the document end marker (...).
 pub fun (enc &Encoder) close() !void {
 }
+
+// --------------------------------------------------------------------------
+// Decoder: streaming YAML reader
+// --------------------------------------------------------------------------
 
 // Decoder reads and decodes YAML from an input stream.
 // Supports multi-document YAML files.
 pub Decoder struct {
     reader io.Reader
+    buf    []byte
+    done   bool
 }
 
 // newDecoder returns a new Decoder that reads from r.
 pub fun newDecoder(r io.Reader) Decoder {
-    return Decoder{ reader: r }
+    return Decoder{ reader: r, buf: alloc([]byte, 0), done: false }
 }
 
 // decode reads the next YAML document from the stream and stores it
 // in the value pointed to by target.
 pub fun (dec &Decoder) decode(target &any) !void {
+}
+
+// more reports whether there is another element in the current document
+// being parsed.
+pub fun (dec &Decoder) more() bool {
+    return false
 }
