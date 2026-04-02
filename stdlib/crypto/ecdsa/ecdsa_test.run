@@ -2,4 +2,161 @@ package ecdsa
 
 use "testing"
 
-// Tests for crypto/ecdsa will go here.
+test "curveKeySize returns correct sizes" (t &testing.T) {
+    t.assert(curveKeySize(Curve.p256) == 32)
+    t.assert(curveKeySize(Curve.p384) == 48)
+}
+
+test "generateKey produces valid P256 key" (t &testing.T) {
+    var priv = try generateKey(Curve.p256)
+
+    t.assert(len(priv.d) == p256KeySize)
+    t.assert(len(priv.publicKey.x) == p256KeySize)
+    t.assert(len(priv.publicKey.y) == p256KeySize)
+    t.assert(priv.publicKey.curve == Curve.p256)
+}
+
+test "generateKey produces valid P384 key" (t &testing.T) {
+    var priv = try generateKey(Curve.p384)
+
+    t.assert(len(priv.d) == p384KeySize)
+    t.assert(len(priv.publicKey.x) == p384KeySize)
+    t.assert(len(priv.publicKey.y) == p384KeySize)
+    t.assert(priv.publicKey.curve == Curve.p384)
+}
+
+test "public returns correct public key" (t &testing.T) {
+    var priv = try generateKey(Curve.p256)
+    var pub = priv.public()
+
+    t.assert(pub.curve == Curve.p256)
+    t.assert(len(pub.x) == p256KeySize)
+    t.assert(len(pub.y) == p256KeySize)
+}
+
+test "signASN1 produces valid ASN1 signature" (t &testing.T) {
+    var priv = try generateKey(Curve.p256)
+
+    var hash = alloc([]byte, 0)
+    var i = 0
+    for i < 32 {
+        hash = append(hash, byte(i))
+        i = i + 1
+    }
+
+    var sig = try signASN1(@priv, hash)
+
+    // ASN.1 SEQUENCE starts with 0x30.
+    t.assert(len(sig) > 6)
+    t.assert(sig[0] == 0x30)
+}
+
+test "signASN1 is deterministic" (t &testing.T) {
+    var priv = try generateKey(Curve.p256)
+
+    var hash = alloc([]byte, 0)
+    var i = 0
+    for i < 32 {
+        hash = append(hash, byte(i + 1))
+        i = i + 1
+    }
+
+    var sig1 = try signASN1(@priv, hash)
+    var sig2 = try signASN1(@priv, hash)
+
+    t.assert(len(sig1) == len(sig2))
+    i = 0
+    for i < len(sig1) {
+        t.assert(sig1[i] == sig2[i])
+        i = i + 1
+    }
+}
+
+test "verifyASN1 accepts valid signature" (t &testing.T) {
+    var priv = try generateKey(Curve.p256)
+    var pub = priv.public()
+
+    var hash = alloc([]byte, 0)
+    var i = 0
+    for i < 32 {
+        hash = append(hash, byte(i + 10))
+        i = i + 1
+    }
+
+    var sig = try signASN1(@priv, hash)
+    var valid = verifyASN1(@pub, hash, sig)
+    t.assert(valid)
+}
+
+test "verifyASN1 rejects malformed signature" (t &testing.T) {
+    var pub = PublicKey{
+        curve: Curve.p256,
+        x: alloc([]byte, 0),
+        y: alloc([]byte, 0),
+    }
+
+    var badSig = alloc([]byte, 0)
+    badSig = append(badSig, 0x00)
+    badSig = append(badSig, 0x01)
+
+    var valid = verifyASN1(@pub, alloc([]byte, 0), badSig)
+    t.assert(!valid)
+}
+
+test "encodeASN1Integer produces valid encoding" (t &testing.T) {
+    var value = alloc([]byte, 0)
+    value = append(value, 0x01)
+    value = append(value, 0x02)
+
+    var encoded = encodeASN1Integer(value)
+    // Tag 0x02, length, then data.
+    t.assert(encoded[0] == 0x02)
+    t.assert(len(encoded) >= 3)
+}
+
+test "encodeASN1Integer pads high bit" (t &testing.T) {
+    var value = alloc([]byte, 0)
+    value = append(value, 0x80)
+
+    var encoded = encodeASN1Integer(value)
+    // Should be 0x02 0x02 0x00 0x80 (padded for positive).
+    t.assert(encoded[0] == 0x02)
+    t.assert(encoded[1] == 2)
+    t.assert(encoded[2] == 0x00)
+    t.assert(encoded[3] == 0x80)
+}
+
+test "decodeASN1Signature round-trips" (t &testing.T) {
+    var priv = try generateKey(Curve.p256)
+
+    var hash = alloc([]byte, 0)
+    var i = 0
+    for i < 32 {
+        hash = append(hash, byte(i + 5))
+        i = i + 1
+    }
+
+    var sig = try signASN1(@priv, hash)
+    var decoded = decodeASN1Signature(sig)
+
+    t.assert(decoded.valid)
+    t.assert(len(decoded.r) > 0)
+    t.assert(len(decoded.s) > 0)
+}
+
+test "public key bytes starts with 0x04" (t &testing.T) {
+    var priv = try generateKey(Curve.p256)
+    var pub = priv.public()
+    var pubBytes = pub.bytes()
+
+    // Uncompressed point format.
+    t.assert(pubBytes[0] == 0x04)
+    t.assert(len(pubBytes) == 1 + p256KeySize + p256KeySize)
+}
+
+test "private key bytes returns d" (t &testing.T) {
+    var priv = try generateKey(Curve.p256)
+    var privBytes = priv.bytes()
+
+    t.assert(len(privBytes) == p256KeySize)
+}
