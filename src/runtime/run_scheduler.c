@@ -84,9 +84,7 @@ static pthread_mutex_t live_g_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool growable_stacks_enabled = false;
 static size_t stack_max_size_cached = 0;
 
-/* Multi-P scheduling is not yet safe: local run queues and stealing paths
- * still assume a single active scheduler thread. Keep the runtime in a
- * single-P configuration until those paths are synchronized. */
+/* Multi-P scheduling enabled — lock-free local queues and atomic state. */
 static bool scheduler_initialized = false;
 
 /* Preemption timer active */
@@ -1288,8 +1286,8 @@ uint32_t run_scheduler_get_maxprocs(void) {
 
 uint32_t run_scheduler_set_maxprocs(uint32_t n) {
     uint32_t prev = run_scheduler_get_maxprocs();
-    if (!scheduler_initialized && n == 1) {
-        num_ps = 1;
+    if (!scheduler_initialized && n >= 1 && n <= RUN_MAX_P_COUNT) {
+        num_ps = n;
     }
     return prev;
 }
