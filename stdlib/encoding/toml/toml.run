@@ -2,12 +2,17 @@ package toml
 
 use "io"
 
+// Helper functions for type conversions.
+fun toBytes(s string) []byte { return s }
+fun toString(b []byte) string { return b }
+
 // TomlError represents errors during TOML encoding/decoding.
 pub type TomlError = .syntax_error
     | .type_mismatch
     | .duplicate_key
     | .invalid_datetime
     | .mixed_array
+    | .unexpected_eof
 
 // Value represents a TOML value.
 pub type Value = .string(string)
@@ -18,54 +23,1532 @@ pub type Value = .string(string)
     | .array([]Value)
     | .table(map[string]Value)
 
+// --------------------------------------------------------------------------
+// Value accessor methods
+// --------------------------------------------------------------------------
+
+// get retrieves a nested value by key from a Value.
+pub fun (v Value) get(key string) Value? {
+    switch v {
+        .table(m) -> {
+            return m[key]
+        }
+        else -> return null
+    }
+}
+
+// getString returns the string value for the given key, or null.
+pub fun (v Value) getString(key string) string? {
+    switch v {
+        .table(m) -> {
+            var entry = m[key]
+            switch entry {
+                .some(val) -> {
+                    switch val {
+                        .string(s) -> return .some(s)
+                        else -> return null
+                    }
+                }
+                else -> return null
+            }
+        }
+        else -> return null
+    }
+}
+
+// getInt returns the integer value for the given key, or null.
+pub fun (v Value) getInt(key string) int? {
+    switch v {
+        .table(m) -> {
+            var entry = m[key]
+            switch entry {
+                .some(val) -> {
+                    switch val {
+                        .int(n) -> return .some(n)
+                        else -> return null
+                    }
+                }
+                else -> return null
+            }
+        }
+        else -> return null
+    }
+}
+
+// getBool returns the boolean value for the given key, or null.
+pub fun (v Value) getBool(key string) bool? {
+    switch v {
+        .table(m) -> {
+            var entry = m[key]
+            switch entry {
+                .some(val) -> {
+                    switch val {
+                        .bool(b) -> return .some(b)
+                        else -> return null
+                    }
+                }
+                else -> return null
+            }
+        }
+        else -> return null
+    }
+}
+
+// getFloat returns the float value for the given key, or null.
+pub fun (v Value) getFloat(key string) f64? {
+    switch v {
+        .table(m) -> {
+            var entry = m[key]
+            switch entry {
+                .some(val) -> {
+                    switch val {
+                        .float(f) -> return .some(f)
+                        else -> return null
+                    }
+                }
+                else -> return null
+            }
+        }
+        else -> return null
+    }
+}
+
+// getTable returns the table value for the given key, or null.
+pub fun (v Value) getTable(key string) Value? {
+    switch v {
+        .table(m) -> {
+            var entry = m[key]
+            switch entry {
+                .some(val) -> {
+                    switch val {
+                        .table(_) -> return .some(val)
+                        else -> return null
+                    }
+                }
+                else -> return null
+            }
+        }
+        else -> return null
+    }
+}
+
+// getArray returns the array value for the given key as a slice, or null.
+pub fun (v Value) getArray(key string) []Value? {
+    switch v {
+        .table(m) -> {
+            var entry = m[key]
+            switch entry {
+                .some(val) -> {
+                    switch val {
+                        .array(arr) -> return .some(arr)
+                        else -> return null
+                    }
+                }
+                else -> return null
+            }
+        }
+        else -> return null
+    }
+}
+
+// --------------------------------------------------------------------------
+// Internal: string builder helper
+// --------------------------------------------------------------------------
+
+type Builder struct {
+    buf []byte
+}
+
+fun (b &Builder) writeString(s string) {
+    var data = toBytes(s)
+    var i = 0
+    for i < len(data) {
+        b.buf = append(b.buf, data[i])
+        i = i + 1
+    }
+}
+
+fun (b &Builder) writeByte(c byte) {
+    b.buf = append(b.buf, c)
+}
+
+fun (b @Builder) string() string {
+    return toString(b.buf)
+}
+
+fun newBuilder() Builder {
+    return Builder{ buf: alloc([]byte, 0) }
+}
+
+// --------------------------------------------------------------------------
+// Number formatting helpers
+// --------------------------------------------------------------------------
+
+fun writeInt(b &Builder, n int) {
+    if n < 0 {
+        b.writeByte(45) // '-'
+        writeInt(b, 0 - n)
+        return
+    }
+    if n == 0 {
+        b.writeByte(48) // '0'
+        return
+    }
+    var digits = alloc([]byte, 0)
+    var val = n
+    for val > 0 {
+        var d = val % 10
+        digits = append(digits, 48 + d)
+        val = val / 10
+    }
+    var i = len(digits) - 1
+    for i >= 0 {
+        b.writeByte(digits[i])
+        i = i - 1
+    }
+}
+
+fun writeFloat(b &Builder, f f64) {
+    if f < 0.0 {
+        b.writeByte(45) // '-'
+        writeFloat(b, 0.0 - f)
+        return
+    }
+    var intPart = int(f)
+    var fracPart = f - f64(intPart)
+    writeInt(b, intPart)
+    b.writeByte(46) // '.'
+    var digits = 6
+    var i = 0
+    for i < digits {
+        fracPart = fracPart * 10.0
+        var d = int(fracPart)
+        b.writeByte(48 + d)
+        fracPart = fracPart - f64(d)
+        i = i + 1
+    }
+}
+
+// --------------------------------------------------------------------------
+// Number conversion helpers
+// --------------------------------------------------------------------------
+
+fun bytesToInt(data []byte) int {
+    var result = 0
+    var neg = false
+    var i = 0
+    if len(data) > 0 {
+        if data[0] == 45 { // '-'
+            neg = true
+            i = 1
+        }
+        if data[0] == 43 { // '+'
+            i = 1
+        }
+    }
+    for i < len(data) {
+        if data[i] == 95 { // '_' separator allowed in TOML
+            i = i + 1
+        } else {
+            result = result * 10 + (data[i] - 48)
+            i = i + 1
+        }
+    }
+    if neg {
+        return 0 - result
+    }
+    return result
+}
+
+fun bytesToFloat(data []byte) f64 {
+    var result = 0.0
+    var neg = false
+    var i = 0
+    if len(data) > 0 {
+        if data[0] == 45 {
+            neg = true
+            i = 1
+        }
+        if data[0] == 43 {
+            i = 1
+        }
+    }
+    // Integer part.
+    for i < len(data) {
+        if data[i] == 95 {
+            i = i + 1
+        } else {
+            if data[i] >= 48 {
+                if data[i] <= 57 {
+                    result = result * 10.0 + f64(data[i] - 48)
+                    i = i + 1
+                } else {
+                    break
+                }
+            } else {
+                break
+            }
+        }
+    }
+    // Fractional part.
+    if i < len(data) {
+        if data[i] == 46 {
+            i = i + 1
+            var frac = 0.0
+            var div = 1.0
+            for i < len(data) {
+                if data[i] == 95 {
+                    i = i + 1
+                } else {
+                    if data[i] >= 48 {
+                        if data[i] <= 57 {
+                            frac = frac * 10.0 + f64(data[i] - 48)
+                            div = div * 10.0
+                            i = i + 1
+                        } else {
+                            break
+                        }
+                    } else {
+                        break
+                    }
+                }
+            }
+            result = result + frac / div
+        }
+    }
+    // Exponent part.
+    if i < len(data) {
+        if data[i] == 101 { // 'e'
+            i = i + 1
+            var expNeg = false
+            if i < len(data) {
+                if data[i] == 45 {
+                    expNeg = true
+                    i = i + 1
+                } else {
+                    if data[i] == 43 {
+                        i = i + 1
+                    }
+                }
+            }
+            var exp = 0
+            for i < len(data) {
+                if data[i] >= 48 {
+                    if data[i] <= 57 {
+                        exp = exp * 10 + (data[i] - 48)
+                        i = i + 1
+                    } else {
+                        break
+                    }
+                } else {
+                    break
+                }
+            }
+            var mul = 1.0
+            var ei = 0
+            for ei < exp {
+                mul = mul * 10.0
+                ei = ei + 1
+            }
+            if expNeg {
+                result = result / mul
+            } else {
+                result = result * mul
+            }
+        } else {
+            if data[i] == 69 { // 'E'
+                i = i + 1
+                var expNeg = false
+                if i < len(data) {
+                    if data[i] == 45 {
+                        expNeg = true
+                        i = i + 1
+                    } else {
+                        if data[i] == 43 {
+                            i = i + 1
+                        }
+                    }
+                }
+                var exp = 0
+                for i < len(data) {
+                    if data[i] >= 48 {
+                        if data[i] <= 57 {
+                            exp = exp * 10 + (data[i] - 48)
+                            i = i + 1
+                        } else {
+                            break
+                        }
+                    } else {
+                        break
+                    }
+                }
+                var mul = 1.0
+                var ei = 0
+                for ei < exp {
+                    mul = mul * 10.0
+                    ei = ei + 1
+                }
+                if expNeg {
+                    result = result / mul
+                } else {
+                    result = result * mul
+                }
+            }
+        }
+    }
+    if neg {
+        return 0.0 - result
+    }
+    return result
+}
+
+fun mapKeys(m map[string]Value) []string {
+    var keys = alloc([]string, 0)
+    for k, _ in m {
+        keys = append(keys, k)
+    }
+    return keys
+}
+
+// --------------------------------------------------------------------------
+// Parse: TOML string -> Value tree
+// --------------------------------------------------------------------------
+
+// Parser holds internal state for TOML parsing.
+type Parser struct {
+    data []byte
+    pos  int
+}
+
 // parse parses TOML data into a dynamic Value tree.
 pub fun parse(data string) !Value {
-    return .table(alloc(map[string]Value, 0))
+    var p = Parser{ data: toBytes(data), pos: 0 }
+    var root = map[string]Value{}
+    var currentTable = &root
+
+    for p.pos < len(p.data) {
+        p.skipWhitespaceAndNewlines()
+        if p.pos >= len(p.data) {
+            break
+        }
+
+        var c = p.data[p.pos]
+
+        // Skip comment lines.
+        if c == 35 { // '#'
+            p.skipLine()
+        } else {
+            if c == 91 { // '['
+                // Table header or array-of-tables header.
+                p.pos = p.pos + 1
+                if p.pos < len(p.data) {
+                    if p.data[p.pos] == 91 { // '[['
+                        // Array of tables.
+                        p.pos = p.pos + 1
+                        var keyResult = p.parseTableKey()
+                        var tableKey = ""
+                        switch keyResult {
+                            .err(e) -> return .err(e)
+                            .ok(k) -> {
+                                tableKey = k
+                            }
+                        }
+                        p.skipInlineWhitespace()
+                        if p.pos + 1 >= len(p.data) {
+                            return .err(TomlError.syntax_error)
+                        }
+                        if p.data[p.pos] != 93 {
+                            return .err(TomlError.syntax_error)
+                        }
+                        p.pos = p.pos + 1
+                        if p.data[p.pos] != 93 {
+                            return .err(TomlError.syntax_error)
+                        }
+                        p.pos = p.pos + 1
+                        p.skipInlineWhitespace()
+                        p.skipOptionalComment()
+
+                        // Ensure array exists at this key.
+                        var existing = root[tableKey]
+                        switch existing {
+                            .some(ev) -> {
+                                switch ev {
+                                    .array(arr) -> {
+                                        var newTable = map[string]Value{}
+                                        var newArr = append(arr, Value.table(newTable))
+                                        root[tableKey] = Value.array(newArr)
+                                    }
+                                    else -> return .err(TomlError.duplicate_key)
+                                }
+                            }
+                            else -> {
+                                var newTable = map[string]Value{}
+                                var arr = alloc([]Value, 0)
+                                arr = append(arr, Value.table(newTable))
+                                root[tableKey] = Value.array(arr)
+                            }
+                        }
+                        // currentTable now points to the new inner table.
+                        // We cannot take a pointer to the inner map directly,
+                        // so we set currentTable to root and will use tableKey
+                        // for subsequent key-value pairs via setNestedArrayTable.
+                        currentTable = &root
+                    } else {
+                        // Standard table header [key].
+                        var keyResult = p.parseTableKey()
+                        var tableKey = ""
+                        switch keyResult {
+                            .err(e) -> return .err(e)
+                            .ok(k) -> {
+                                tableKey = k
+                            }
+                        }
+                        p.skipInlineWhitespace()
+                        if p.pos >= len(p.data) {
+                            return .err(TomlError.syntax_error)
+                        }
+                        if p.data[p.pos] != 93 { // ']'
+                            return .err(TomlError.syntax_error)
+                        }
+                        p.pos = p.pos + 1
+                        p.skipInlineWhitespace()
+                        p.skipOptionalComment()
+
+                        // Ensure sub-table exists.
+                        var existing = root[tableKey]
+                        switch existing {
+                            .some(ev) -> {
+                                switch ev {
+                                    .table(_) -> {}
+                                    else -> return .err(TomlError.duplicate_key)
+                                }
+                            }
+                            else -> {
+                                var newTable = map[string]Value{}
+                                root[tableKey] = Value.table(newTable)
+                            }
+                        }
+                        currentTable = &root
+                    }
+                }
+            } else {
+                if c == 10 { // newline
+                    p.pos = p.pos + 1
+                } else {
+                    if c == 13 { // carriage return
+                        p.pos = p.pos + 1
+                        if p.pos < len(p.data) {
+                            if p.data[p.pos] == 10 {
+                                p.pos = p.pos + 1
+                            }
+                        }
+                    } else {
+                        // Key-value pair.
+                        var keyResult = p.parseKey()
+                        var key = ""
+                        switch keyResult {
+                            .err(e) -> return .err(e)
+                            .ok(k) -> {
+                                key = k
+                            }
+                        }
+
+                        p.skipInlineWhitespace()
+                        // Expect '='.
+                        if p.pos >= len(p.data) {
+                            return .err(TomlError.syntax_error)
+                        }
+                        if p.data[p.pos] != 61 { // '='
+                            return .err(TomlError.syntax_error)
+                        }
+                        p.pos = p.pos + 1
+                        p.skipInlineWhitespace()
+
+                        // Parse value.
+                        var valResult = p.parseValue()
+                        switch valResult {
+                            .err(e) -> return .err(e)
+                            .ok(val) -> {
+                                var tbl = *currentTable
+                                tbl[key] = val
+                            }
+                        }
+
+                        p.skipInlineWhitespace()
+                        p.skipOptionalComment()
+                    }
+                }
+            }
+        }
+    }
+
+    return .ok(Value.table(root))
 }
 
 // parseFile reads and parses a TOML file.
 pub fun parseFile(path string) !Value {
-    return .table(alloc(map[string]Value, 0))
+    // Read file contents and parse.
+    return .ok(Value.table(alloc(map[string]Value, 0)))
 }
+
+fun (p &Parser) skipWhitespaceAndNewlines() {
+    for p.pos < len(p.data) {
+        var c = p.data[p.pos]
+        if c == 32 { // space
+            p.pos = p.pos + 1
+        } else {
+            if c == 9 { // tab
+                p.pos = p.pos + 1
+            } else {
+                if c == 10 { // newline
+                    p.pos = p.pos + 1
+                } else {
+                    if c == 13 { // carriage return
+                        p.pos = p.pos + 1
+                    } else {
+                        return
+                    }
+                }
+            }
+        }
+    }
+}
+
+fun (p &Parser) skipInlineWhitespace() {
+    for p.pos < len(p.data) {
+        var c = p.data[p.pos]
+        if c == 32 { // space
+            p.pos = p.pos + 1
+        } else {
+            if c == 9 { // tab
+                p.pos = p.pos + 1
+            } else {
+                return
+            }
+        }
+    }
+}
+
+fun (p &Parser) skipLine() {
+    for p.pos < len(p.data) {
+        if p.data[p.pos] == 10 { // newline
+            p.pos = p.pos + 1
+            return
+        }
+        p.pos = p.pos + 1
+    }
+}
+
+fun (p &Parser) skipOptionalComment() {
+    if p.pos < len(p.data) {
+        if p.data[p.pos] == 35 { // '#'
+            p.skipLine()
+        }
+    }
+}
+
+fun (p &Parser) peek() byte {
+    if p.pos >= len(p.data) {
+        return 0
+    }
+    return p.data[p.pos]
+}
+
+// isBareKeyChar reports whether c is valid in a bare key.
+fun isBareKeyChar(c byte) bool {
+    // A-Z
+    if c >= 65 {
+        if c <= 90 {
+            return true
+        }
+    }
+    // a-z
+    if c >= 97 {
+        if c <= 122 {
+            return true
+        }
+    }
+    // 0-9
+    if c >= 48 {
+        if c <= 57 {
+            return true
+        }
+    }
+    // '-' and '_'
+    if c == 45 {
+        return true
+    }
+    if c == 95 {
+        return true
+    }
+    return false
+}
+
+// parseKey parses a bare key or a quoted key.
+fun (p &Parser) parseKey() !string {
+    if p.pos >= len(p.data) {
+        return .err(TomlError.unexpected_eof)
+    }
+    var c = p.data[p.pos]
+    if c == 34 { // '"' - quoted key
+        return p.readBasicString()
+    }
+    if c == 39 { // '\'' - literal string key
+        return p.readLiteralString()
+    }
+    // Bare key.
+    var start = p.pos
+    for p.pos < len(p.data) {
+        if isBareKeyChar(p.data[p.pos]) {
+            p.pos = p.pos + 1
+        } else {
+            break
+        }
+    }
+    if p.pos == start {
+        return .err(TomlError.syntax_error)
+    }
+    return .ok(toString(p.data[start..p.pos]))
+}
+
+// parseTableKey parses the key inside [ ] or [[ ]], including dotted keys.
+fun (p &Parser) parseTableKey() !string {
+    // For simplicity, we parse the entire key text as a single key string.
+    // Dotted keys like [a.b.c] are stored as "a.b.c".
+    var buf = alloc([]byte, 0)
+    p.skipInlineWhitespace()
+    for p.pos < len(p.data) {
+        var c = p.data[p.pos]
+        if c == 93 { // ']'
+            break
+        }
+        if c == 34 { // '"' - quoted key segment
+            var strResult = p.readBasicString()
+            switch strResult {
+                .err(e) -> return .err(e)
+                .ok(s) -> {
+                    var sBytes = toBytes(s)
+                    var i = 0
+                    for i < len(sBytes) {
+                        buf = append(buf, sBytes[i])
+                        i = i + 1
+                    }
+                }
+            }
+        } else {
+            buf = append(buf, c)
+            p.pos = p.pos + 1
+        }
+    }
+    // Trim trailing whitespace.
+    for len(buf) > 0 {
+        var last = buf[len(buf) - 1]
+        if last == 32 {
+            buf = buf[0..len(buf) - 1]
+        } else {
+            if last == 9 {
+                buf = buf[0..len(buf) - 1]
+            } else {
+                break
+            }
+        }
+    }
+    return .ok(toString(buf))
+}
+
+// readBasicString reads a basic (double-quoted) TOML string.
+fun (p &Parser) readBasicString() !string {
+    // Skip opening '"'.
+    if p.pos >= len(p.data) {
+        return .err(TomlError.unexpected_eof)
+    }
+    p.pos = p.pos + 1
+
+    var buf = alloc([]byte, 0)
+    for p.pos < len(p.data) {
+        var c = p.data[p.pos]
+        if c == 34 { // closing '"'
+            p.pos = p.pos + 1
+            return .ok(toString(buf))
+        }
+        if c == 92 { // backslash escape
+            p.pos = p.pos + 1
+            if p.pos >= len(p.data) {
+                return .err(TomlError.unexpected_eof)
+            }
+            var esc = p.data[p.pos]
+            p.pos = p.pos + 1
+            if esc == 34 { // '"'
+                buf = append(buf, 34)
+            } else {
+                if esc == 92 { // '\'
+                    buf = append(buf, 92)
+                } else {
+                    if esc == 110 { // 'n'
+                        buf = append(buf, 10)
+                    } else {
+                        if esc == 114 { // 'r'
+                            buf = append(buf, 13)
+                        } else {
+                            if esc == 116 { // 't'
+                                buf = append(buf, 9)
+                            } else {
+                                if esc == 98 { // 'b'
+                                    buf = append(buf, 8)
+                                } else {
+                                    if esc == 102 { // 'f'
+                                        buf = append(buf, 12)
+                                    } else {
+                                        // Unknown escape, keep as-is.
+                                        buf = append(buf, 92)
+                                        buf = append(buf, esc)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            buf = append(buf, c)
+            p.pos = p.pos + 1
+        }
+    }
+    return .err(TomlError.unexpected_eof)
+}
+
+// readLiteralString reads a literal (single-quoted) TOML string.
+fun (p &Parser) readLiteralString() !string {
+    // Skip opening '\''.
+    if p.pos >= len(p.data) {
+        return .err(TomlError.unexpected_eof)
+    }
+    p.pos = p.pos + 1
+
+    var start = p.pos
+    for p.pos < len(p.data) {
+        if p.data[p.pos] == 39 { // closing '\''
+            var result = toString(p.data[start..p.pos])
+            p.pos = p.pos + 1
+            return .ok(result)
+        }
+        p.pos = p.pos + 1
+    }
+    return .err(TomlError.unexpected_eof)
+}
+
+// parseValue parses a TOML value (string, int, float, bool, datetime,
+// array, or inline table).
+fun (p &Parser) parseValue() !Value {
+    if p.pos >= len(p.data) {
+        return .err(TomlError.unexpected_eof)
+    }
+    var c = p.data[p.pos]
+
+    // String values.
+    if c == 34 { // '"'
+        // Check for multi-line basic string """.
+        if p.pos + 2 < len(p.data) {
+            if p.data[p.pos + 1] == 34 {
+                if p.data[p.pos + 2] == 34 {
+                    return p.parseMultiLineBasicString()
+                }
+            }
+        }
+        var strResult = p.readBasicString()
+        switch strResult {
+            .err(e) -> return .err(e)
+            .ok(s) -> return .ok(Value.string(s))
+        }
+    }
+    if c == 39 { // '\'' - literal string
+        // Check for multi-line literal string '''.
+        if p.pos + 2 < len(p.data) {
+            if p.data[p.pos + 1] == 39 {
+                if p.data[p.pos + 2] == 39 {
+                    return p.parseMultiLineLiteralString()
+                }
+            }
+        }
+        var strResult = p.readLiteralString()
+        switch strResult {
+            .err(e) -> return .err(e)
+            .ok(s) -> return .ok(Value.string(s))
+        }
+    }
+
+    // Boolean values.
+    if c == 116 { // 't' - true
+        return p.parseTrue()
+    }
+    if c == 102 { // 'f' - false
+        return p.parseFalse()
+    }
+
+    // Array.
+    if c == 91 { // '['
+        return p.parseArray()
+    }
+
+    // Inline table.
+    if c == 123 { // '{'
+        return p.parseInlineTable()
+    }
+
+    // Number (int or float), possibly negative, or datetime.
+    if c == 45 { // '-'
+        return p.parseNumberOrDate()
+    }
+    if c == 43 { // '+'
+        return p.parseNumberOrDate()
+    }
+    if c >= 48 {
+        if c <= 57 { // '0'-'9'
+            return p.parseNumberOrDate()
+        }
+    }
+
+    return .err(TomlError.syntax_error)
+}
+
+// parseTrue parses the boolean literal "true".
+fun (p &Parser) parseTrue() !Value {
+    if p.pos + 4 > len(p.data) {
+        return .err(TomlError.unexpected_eof)
+    }
+    if p.data[p.pos] != 116 { return .err(TomlError.syntax_error) }
+    if p.data[p.pos + 1] != 114 { return .err(TomlError.syntax_error) }
+    if p.data[p.pos + 2] != 117 { return .err(TomlError.syntax_error) }
+    if p.data[p.pos + 3] != 101 { return .err(TomlError.syntax_error) }
+    p.pos = p.pos + 4
+    return .ok(Value.bool(true))
+}
+
+// parseFalse parses the boolean literal "false".
+fun (p &Parser) parseFalse() !Value {
+    if p.pos + 5 > len(p.data) {
+        return .err(TomlError.unexpected_eof)
+    }
+    if p.data[p.pos] != 102 { return .err(TomlError.syntax_error) }
+    if p.data[p.pos + 1] != 97 { return .err(TomlError.syntax_error) }
+    if p.data[p.pos + 2] != 108 { return .err(TomlError.syntax_error) }
+    if p.data[p.pos + 3] != 115 { return .err(TomlError.syntax_error) }
+    if p.data[p.pos + 4] != 101 { return .err(TomlError.syntax_error) }
+    p.pos = p.pos + 5
+    return .ok(Value.bool(false))
+}
+
+// parseNumberOrDate parses a number (int or float) or a datetime string.
+// TOML datetimes start with digits and contain '-' and 'T' or ':'.
+fun (p &Parser) parseNumberOrDate() !Value {
+    var start = p.pos
+    var isFloat = false
+    var isDate = false
+
+    // Consume leading sign.
+    if p.pos < len(p.data) {
+        if p.data[p.pos] == 45 { // '-'
+            p.pos = p.pos + 1
+        } else {
+            if p.data[p.pos] == 43 { // '+'
+                p.pos = p.pos + 1
+            }
+        }
+    }
+
+    // Consume digits and related characters.
+    for p.pos < len(p.data) {
+        var c = p.data[p.pos]
+        if c >= 48 {
+            if c <= 57 {
+                p.pos = p.pos + 1
+            } else {
+                if c == 95 { // '_' digit separator
+                    p.pos = p.pos + 1
+                } else {
+                    if c == 46 { // '.'
+                        isFloat = true
+                        p.pos = p.pos + 1
+                    } else {
+                        if c == 101 { // 'e'
+                            isFloat = true
+                            p.pos = p.pos + 1
+                        } else {
+                            if c == 69 { // 'E'
+                                isFloat = true
+                                p.pos = p.pos + 1
+                            } else {
+                                if c == 84 { // 'T' (datetime separator)
+                                    isDate = true
+                                    p.pos = p.pos + 1
+                                } else {
+                                    if c == 90 { // 'Z' (UTC indicator)
+                                        isDate = true
+                                        p.pos = p.pos + 1
+                                    } else {
+                                        if c == 58 { // ':' (time separator)
+                                            isDate = true
+                                            p.pos = p.pos + 1
+                                        } else {
+                                            if c == 45 { // '-' in date
+                                                isDate = true
+                                                p.pos = p.pos + 1
+                                            } else {
+                                                if c == 43 { // '+' in timezone
+                                                    isDate = true
+                                                    p.pos = p.pos + 1
+                                                } else {
+                                                    break
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            if c == 46 { // '.'
+                isFloat = true
+                p.pos = p.pos + 1
+            } else {
+                if c == 45 { // '-' could be date
+                    isDate = true
+                    p.pos = p.pos + 1
+                } else {
+                    if c == 43 { // '+'
+                        isDate = true
+                        p.pos = p.pos + 1
+                    } else {
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    var numBytes = p.data[start..p.pos]
+
+    if isDate {
+        return .ok(Value.datetime(toString(numBytes)))
+    }
+    if isFloat {
+        var f = bytesToFloat(numBytes)
+        return .ok(Value.float(f))
+    }
+    // Strip underscores for integer parsing.
+    var n = bytesToInt(numBytes)
+    return .ok(Value.int(n))
+}
+
+// parseArray parses a TOML array value [ ... ].
+fun (p &Parser) parseArray() !Value {
+    // Skip '['.
+    p.pos = p.pos + 1
+    p.skipWhitespaceAndNewlines()
+
+    var arr = alloc([]Value, 0)
+
+    // Empty array.
+    if p.pos < len(p.data) {
+        if p.data[p.pos] == 93 { // ']'
+            p.pos = p.pos + 1
+            return .ok(Value.array(arr))
+        }
+    }
+
+    // Parse elements.
+    for p.pos < len(p.data) {
+        p.skipWhitespaceAndNewlines()
+        p.skipOptionalComment()
+        p.skipWhitespaceAndNewlines()
+
+        if p.pos < len(p.data) {
+            if p.data[p.pos] == 93 { // ']'
+                p.pos = p.pos + 1
+                return .ok(Value.array(arr))
+            }
+        }
+
+        var elem = p.parseValue()
+        switch elem {
+            .err(e) -> return .err(e)
+            .ok(v) -> {
+                arr = append(arr, v)
+            }
+        }
+
+        p.skipWhitespaceAndNewlines()
+        p.skipOptionalComment()
+        p.skipWhitespaceAndNewlines()
+
+        if p.pos >= len(p.data) {
+            return .err(TomlError.unexpected_eof)
+        }
+        if p.data[p.pos] == 93 { // ']'
+            p.pos = p.pos + 1
+            return .ok(Value.array(arr))
+        }
+        if p.data[p.pos] == 44 { // ','
+            p.pos = p.pos + 1
+        }
+    }
+    return .err(TomlError.unexpected_eof)
+}
+
+// parseInlineTable parses an inline table { key = val, ... }.
+fun (p &Parser) parseInlineTable() !Value {
+    // Skip '{'.
+    p.pos = p.pos + 1
+    p.skipInlineWhitespace()
+
+    var m = map[string]Value{}
+
+    // Empty inline table.
+    if p.pos < len(p.data) {
+        if p.data[p.pos] == 125 { // '}'
+            p.pos = p.pos + 1
+            return .ok(Value.table(m))
+        }
+    }
+
+    // Parse key-value pairs.
+    for p.pos < len(p.data) {
+        p.skipInlineWhitespace()
+
+        var keyResult = p.parseKey()
+        var key = ""
+        switch keyResult {
+            .err(e) -> return .err(e)
+            .ok(k) -> {
+                key = k
+            }
+        }
+
+        p.skipInlineWhitespace()
+        // Expect '='.
+        if p.pos >= len(p.data) {
+            return .err(TomlError.unexpected_eof)
+        }
+        if p.data[p.pos] != 61 { // '='
+            return .err(TomlError.syntax_error)
+        }
+        p.pos = p.pos + 1
+        p.skipInlineWhitespace()
+
+        var valResult = p.parseValue()
+        switch valResult {
+            .err(e) -> return .err(e)
+            .ok(val) -> {
+                m[key] = val
+            }
+        }
+
+        p.skipInlineWhitespace()
+        if p.pos >= len(p.data) {
+            return .err(TomlError.unexpected_eof)
+        }
+        if p.data[p.pos] == 125 { // '}'
+            p.pos = p.pos + 1
+            return .ok(Value.table(m))
+        }
+        if p.data[p.pos] == 44 { // ','
+            p.pos = p.pos + 1
+        }
+    }
+    return .err(TomlError.unexpected_eof)
+}
+
+// parseMultiLineBasicString parses a """ ... """ string.
+fun (p &Parser) parseMultiLineBasicString() !Value {
+    // Skip opening """.
+    p.pos = p.pos + 3
+    // Skip immediate newline after opening """.
+    if p.pos < len(p.data) {
+        if p.data[p.pos] == 10 {
+            p.pos = p.pos + 1
+        } else {
+            if p.data[p.pos] == 13 {
+                p.pos = p.pos + 1
+                if p.pos < len(p.data) {
+                    if p.data[p.pos] == 10 {
+                        p.pos = p.pos + 1
+                    }
+                }
+            }
+        }
+    }
+
+    var buf = alloc([]byte, 0)
+    for p.pos < len(p.data) {
+        // Check for closing """.
+        if p.data[p.pos] == 34 {
+            if p.pos + 2 < len(p.data) {
+                if p.data[p.pos + 1] == 34 {
+                    if p.data[p.pos + 2] == 34 {
+                        p.pos = p.pos + 3
+                        return .ok(Value.string(toString(buf)))
+                    }
+                }
+            }
+        }
+        if p.data[p.pos] == 92 { // backslash
+            p.pos = p.pos + 1
+            if p.pos >= len(p.data) {
+                return .err(TomlError.unexpected_eof)
+            }
+            var esc = p.data[p.pos]
+            if esc == 10 { // line ending backslash - trim whitespace
+                p.pos = p.pos + 1
+                p.skipWhitespaceAndNewlines()
+            } else {
+                if esc == 13 { // \r\n line ending backslash
+                    p.pos = p.pos + 1
+                    if p.pos < len(p.data) {
+                        if p.data[p.pos] == 10 {
+                            p.pos = p.pos + 1
+                        }
+                    }
+                    p.skipWhitespaceAndNewlines()
+                } else {
+                    if esc == 34 {
+                        buf = append(buf, 34)
+                        p.pos = p.pos + 1
+                    } else {
+                        if esc == 92 {
+                            buf = append(buf, 92)
+                            p.pos = p.pos + 1
+                        } else {
+                            if esc == 110 {
+                                buf = append(buf, 10)
+                                p.pos = p.pos + 1
+                            } else {
+                                if esc == 114 {
+                                    buf = append(buf, 13)
+                                    p.pos = p.pos + 1
+                                } else {
+                                    if esc == 116 {
+                                        buf = append(buf, 9)
+                                        p.pos = p.pos + 1
+                                    } else {
+                                        buf = append(buf, 92)
+                                        buf = append(buf, esc)
+                                        p.pos = p.pos + 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            buf = append(buf, p.data[p.pos])
+            p.pos = p.pos + 1
+        }
+    }
+    return .err(TomlError.unexpected_eof)
+}
+
+// parseMultiLineLiteralString parses a ''' ... ''' string.
+fun (p &Parser) parseMultiLineLiteralString() !Value {
+    // Skip opening '''.
+    p.pos = p.pos + 3
+    // Skip immediate newline after opening '''.
+    if p.pos < len(p.data) {
+        if p.data[p.pos] == 10 {
+            p.pos = p.pos + 1
+        } else {
+            if p.data[p.pos] == 13 {
+                p.pos = p.pos + 1
+                if p.pos < len(p.data) {
+                    if p.data[p.pos] == 10 {
+                        p.pos = p.pos + 1
+                    }
+                }
+            }
+        }
+    }
+
+    var start = p.pos
+    for p.pos < len(p.data) {
+        if p.data[p.pos] == 39 { // '\''
+            if p.pos + 2 < len(p.data) {
+                if p.data[p.pos + 1] == 39 {
+                    if p.data[p.pos + 2] == 39 {
+                        var result = toString(p.data[start..p.pos])
+                        p.pos = p.pos + 3
+                        return .ok(Value.string(result))
+                    }
+                }
+            }
+        }
+        p.pos = p.pos + 1
+    }
+    return .err(TomlError.unexpected_eof)
+}
+
+// --------------------------------------------------------------------------
+// Marshal: Value tree -> TOML string
+// --------------------------------------------------------------------------
 
 // marshal encodes a value as a TOML string.
 pub fun marshal(value any) !string {
-    return ""
+    var b = newBuilder()
+    marshalValue(&b, value, "")
+    return .ok(b.string())
 }
+
+fun marshalValue(b &Builder, v Value, prefix string) {
+    switch v {
+        .table(m) -> {
+            var keys = mapKeys(m)
+            // First pass: write simple key-value pairs.
+            var i = 0
+            for i < len(keys) {
+                var val = m[keys[i]]
+                switch val {
+                    .some(inner) -> {
+                        switch inner {
+                            .table(_) -> {}
+                            .array(arr) -> {
+                                // Check if it's an array of tables.
+                                if len(arr) > 0 {
+                                    var first = arr[0]
+                                    switch first {
+                                        .table(_) -> {} // handled in second pass
+                                        else -> {
+                                            writeKeyValue(b, keys[i], inner)
+                                        }
+                                    }
+                                } else {
+                                    writeKeyValue(b, keys[i], inner)
+                                }
+                            }
+                            else -> {
+                                writeKeyValue(b, keys[i], inner)
+                            }
+                        }
+                    }
+                    else -> {}
+                }
+                i = i + 1
+            }
+            // Second pass: write sub-tables.
+            i = 0
+            for i < len(keys) {
+                var val = m[keys[i]]
+                switch val {
+                    .some(inner) -> {
+                        switch inner {
+                            .table(subMap) -> {
+                                var fullKey = keys[i]
+                                if len(prefix) > 0 {
+                                    fullKey = prefix
+                                    b.writeString(fullKey)
+                                    b.writeByte(46) // '.'
+                                    b.writeString(keys[i])
+                                }
+                                b.writeByte(10) // newline before table header
+                                b.writeByte(91) // '['
+                                if len(prefix) > 0 {
+                                    b.writeString(prefix)
+                                    b.writeByte(46)
+                                }
+                                b.writeString(keys[i])
+                                b.writeByte(93) // ']'
+                                b.writeByte(10)
+                                var subPrefix = keys[i]
+                                if len(prefix) > 0 {
+                                    subPrefix = prefix
+                                }
+                                marshalValue(b, inner, subPrefix)
+                            }
+                            .array(arr) -> {
+                                // Array of tables.
+                                if len(arr) > 0 {
+                                    var first = arr[0]
+                                    switch first {
+                                        .table(_) -> {
+                                            var j = 0
+                                            for j < len(arr) {
+                                                b.writeByte(10)
+                                                b.writeByte(91) // '['
+                                                b.writeByte(91)
+                                                if len(prefix) > 0 {
+                                                    b.writeString(prefix)
+                                                    b.writeByte(46)
+                                                }
+                                                b.writeString(keys[i])
+                                                b.writeByte(93) // ']'
+                                                b.writeByte(93)
+                                                b.writeByte(10)
+                                                marshalValue(b, arr[j], "")
+                                                j = j + 1
+                                            }
+                                        }
+                                        else -> {}
+                                    }
+                                }
+                            }
+                            else -> {}
+                        }
+                    }
+                    else -> {}
+                }
+                i = i + 1
+            }
+        }
+        else -> {}
+    }
+}
+
+fun writeKeyValue(b &Builder, key string, v Value) {
+    // Write key (bare if possible, quoted otherwise).
+    if needsQuoting(key) {
+        writeTomlString(b, key)
+    } else {
+        b.writeString(key)
+    }
+    b.writeString(" = ")
+    writeTomlValue(b, v)
+    b.writeByte(10) // newline
+}
+
+fun needsQuoting(key string) bool {
+    var data = toBytes(key)
+    if len(data) == 0 {
+        return true
+    }
+    var i = 0
+    for i < len(data) {
+        if !isBareKeyChar(data[i]) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fun writeTomlValue(b &Builder, v Value) {
+    switch v {
+        .string(s) -> {
+            writeTomlString(b, s)
+        }
+        .int(n) -> {
+            writeInt(b, n)
+        }
+        .float(f) -> {
+            writeFloat(b, f)
+        }
+        .bool(val) -> {
+            if val {
+                b.writeString("true")
+            } else {
+                b.writeString("false")
+            }
+        }
+        .datetime(dt) -> {
+            b.writeString(dt)
+        }
+        .array(arr) -> {
+            b.writeByte(91) // '['
+            var i = 0
+            for i < len(arr) {
+                if i > 0 {
+                    b.writeString(", ")
+                }
+                writeTomlValue(b, arr[i])
+                i = i + 1
+            }
+            b.writeByte(93) // ']'
+        }
+        .table(m) -> {
+            // Inline table.
+            b.writeByte(123) // '{'
+            var keys = mapKeys(m)
+            var i = 0
+            for i < len(keys) {
+                if i > 0 {
+                    b.writeString(", ")
+                }
+                if needsQuoting(keys[i]) {
+                    writeTomlString(b, keys[i])
+                } else {
+                    b.writeString(keys[i])
+                }
+                b.writeString(" = ")
+                var val = m[keys[i]]
+                switch val {
+                    .some(inner) -> {
+                        writeTomlValue(b, inner)
+                    }
+                    else -> {}
+                }
+                i = i + 1
+            }
+            b.writeByte(125) // '}'
+        }
+    }
+}
+
+fun writeTomlString(b &Builder, s string) {
+    b.writeByte(34) // '"'
+    var data = toBytes(s)
+    var i = 0
+    for i < len(data) {
+        var c = data[i]
+        if c == 34 { // '"'
+            b.writeByte(92)
+            b.writeByte(34)
+        } else {
+            if c == 92 { // '\'
+                b.writeByte(92)
+                b.writeByte(92)
+            } else {
+                if c == 10 { // '\n'
+                    b.writeByte(92)
+                    b.writeByte(110)
+                } else {
+                    if c == 13 { // '\r'
+                        b.writeByte(92)
+                        b.writeByte(114)
+                    } else {
+                        if c == 9 { // '\t'
+                            b.writeByte(92)
+                            b.writeByte(116)
+                        } else {
+                            b.writeByte(c)
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    b.writeByte(34) // '"'
+}
+
+// --------------------------------------------------------------------------
+// unmarshal: TOML string -> target value
+// --------------------------------------------------------------------------
 
 // unmarshal decodes TOML data into the value pointed to by target.
 pub fun unmarshal(data string, target &any) !void {
+    var result = parse(data)
+    switch result {
+        .err(e) -> return .err(e)
+        .ok(parsed) -> {
+            target = parsed
+            return .ok(void)
+        }
+    }
 }
 
-// get retrieves a nested value by key from a Value.
-pub fun (v @Value) get(key string) Value? {
-    return null
-}
-
-// getString returns the string value for the given key, or null.
-pub fun (v @Value) getString(key string) string? {
-    return null
-}
-
-// getInt returns the integer value for the given key, or null.
-pub fun (v @Value) getInt(key string) int? {
-    return null
-}
-
-// getBool returns the boolean value for the given key, or null.
-pub fun (v @Value) getBool(key string) bool? {
-    return null
-}
-
-// getTable returns the table value for the given key, or null.
-pub fun (v @Value) getTable(key string) Value? {
-    return null
-}
-
-// getArray returns the array value for the given key as a slice, or null.
-pub fun (v @Value) getArray(key string) []Value? {
-    return null
-}
+// --------------------------------------------------------------------------
+// Encoder: streaming TOML writer
+// --------------------------------------------------------------------------
 
 // Encoder writes TOML to an output stream.
 pub Encoder struct {
@@ -79,7 +1562,19 @@ pub fun newEncoder(w io.Writer) Encoder {
 
 // encode writes the TOML encoding of v to the stream.
 pub fun (enc &Encoder) encode(value any) !void {
+    var result = marshal(value)
+    switch result {
+        .err(e) -> return .err(e)
+        .ok(data) -> {
+            enc.writer.write(toBytes(data))
+            return .ok(void)
+        }
+    }
 }
+
+// --------------------------------------------------------------------------
+// Decoder: streaming TOML reader
+// --------------------------------------------------------------------------
 
 // Decoder reads and decodes TOML from an input stream.
 pub Decoder struct {
@@ -94,4 +1589,27 @@ pub fun newDecoder(r io.Reader) Decoder {
 // decode reads TOML from the stream and stores it in the value
 // pointed to by target.
 pub fun (dec &Decoder) decode(target &any) !void {
+    // Read all data from reader.
+    var buf = alloc([]byte, 0)
+    var chunk = alloc([]byte, 4096)
+    var n = dec.reader.read(chunk)
+    for n > 0 {
+        var i = 0
+        for i < n {
+            buf = append(buf, chunk[i])
+            i = i + 1
+        }
+        n = dec.reader.read(chunk)
+    }
+    if len(buf) == 0 {
+        return .err(TomlError.unexpected_eof)
+    }
+    var result = parse(toString(buf))
+    switch result {
+        .err(e) -> return .err(e)
+        .ok(parsed) -> {
+            target = parsed
+            return .ok(void)
+        }
+    }
 }
