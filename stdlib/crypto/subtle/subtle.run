@@ -1,26 +1,107 @@
 package subtle
 
+// Helper: xorByte returns XOR of two byte values using arithmetic.
+// XOR(a, b) = a + b - 2 * (a AND b), computed bit by bit.
+fun xorByte(a int, b int) int {
+    var result = 0
+    var va = a % 256
+    var vb = b % 256
+    var bit = 1
+    var i = 0
+    for i < 8 {
+        var ba = (va / bit) % 2
+        var bb = (vb / bit) % 2
+        // XOR: ba + bb - 2 * ba * bb
+        result = result + (ba + bb - 2 * ba * bb) * bit
+        bit = bit * 2
+        i = i + 1
+    }
+    return result
+}
+
+// Helper: orByte returns OR of two byte values using arithmetic.
+fun orByte(a int, b int) int {
+    var result = 0
+    var va = a % 256
+    var vb = b % 256
+    var bit = 1
+    var i = 0
+    for i < 8 {
+        var ba = (va / bit) % 2
+        var bb = (vb / bit) % 2
+        // OR: ba + bb - ba * bb
+        result = result + (ba + bb - ba * bb) * bit
+        bit = bit * 2
+        i = i + 1
+    }
+    return result
+}
+
+// Helper: andByte returns AND of two byte values using arithmetic.
+fun andByte(a int, b int) int {
+    var result = 0
+    var va = a % 256
+    var vb = b % 256
+    var bit = 1
+    var i = 0
+    for i < 8 {
+        var ba = (va / bit) % 2
+        var bb = (vb / bit) % 2
+        result = result + ba * bb * bit
+        bit = bit * 2
+        i = i + 1
+    }
+    return result
+}
+
 // constantTimeCompare returns true if and only if the two slices x and y
 // have equal contents. The time taken is a function of the length of the
-// slices and is independent of the contents.
+// slices and is independent of the contents. If the lengths differ, it
+// returns false immediately (length is not secret).
 pub fun constantTimeCompare(x []byte, y []byte) bool {
-    return false
+    if len(x) != len(y) {
+        return false
+    }
+
+    var v = 0
+    var i = 0
+    for i < len(x) {
+        v = orByte(v, xorByte(x[i], y[i]))
+        i = i + 1
+    }
+
+    return v == 0
 }
 
 // constantTimeSelect returns x if v == 1 and y if v == 0.
 // Its behavior is undefined if v takes any other value.
 pub fun constantTimeSelect(v int, x int, y int) int {
-    return 0
+    return v * x + (1 - v) * y
 }
 
 // constantTimeByteEq returns 1 if x == y and 0 otherwise.
 pub fun constantTimeByteEq(x byte, y byte) int {
+    var d = xorByte(x, y)
+    if d == 0 {
+        return 1
+    }
+    return 0
+}
+
+// constantTimeEq returns 1 if x == y and 0 otherwise.
+pub fun constantTimeEq(x int, y int) int {
+    if x == y {
+        return 1
+    }
     return 0
 }
 
 // constantTimeLessOrEq returns 1 if x <= y and 0 otherwise.
 // Its behavior is undefined if x or y are negative.
 pub fun constantTimeLessOrEq(x int, y int) int {
+    if x <= y {
+        return 1
+    }
     return 0
 }
 
@@ -28,4 +109,32 @@ pub fun constantTimeLessOrEq(x int, y int) int {
 // If v == 0, x is left unchanged. Its behavior is undefined
 // if v takes any other value.
 pub fun constantTimeCopy(v int, x []byte, y []byte) {
+    var i = 0
+    for i < len(x) {
+        // x[i] = x[i] XOR (v * (x[i] XOR y[i]))
+        var diff = xorByte(x[i], y[i])
+        x[i] = xorByte(x[i], v * diff)
+        i = i + 1
+    }
+}
+
+// xorBytes XORs the bytes in a and b, storing the result in dst.
+// The length of the operation is the minimum of len(a) and len(b).
+// Returns the number of bytes XOR'd.
+pub fun xorBytes(dst []byte, a []byte, b []byte) int {
+    var n = len(a)
+    if len(b) < n {
+        n = len(b)
+    }
+    if len(dst) < n {
+        n = len(dst)
+    }
+
+    var i = 0
+    for i < n {
+        dst[i] = xorByte(a[i], b[i])
+        i = i + 1
+    }
+
+    return n
 }
