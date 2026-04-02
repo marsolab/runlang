@@ -2,4 +2,115 @@ package ecdh
 
 use "testing"
 
-// Tests for crypto/ecdh will go here.
+test "curveKeySize returns correct sizes" (t &testing.T) {
+    t.assert(curveKeySize(Curve.p256) == 32)
+    t.assert(curveKeySize(Curve.p384) == 48)
+    t.assert(curveKeySize(Curve.x25519) == 32)
+}
+
+test "generateKey produces valid P256 key" (t &testing.T) {
+    var priv = try generateKey(Curve.p256)
+
+    t.assert(len(priv.data) == p256KeySize)
+    t.assert(priv.curve == Curve.p256)
+    t.assert(len(priv.publicKey.data) == p256KeySize)
+    t.assert(priv.publicKey.curve == Curve.p256)
+}
+
+test "generateKey produces valid P384 key" (t &testing.T) {
+    var priv = try generateKey(Curve.p384)
+
+    t.assert(len(priv.data) == p384KeySize)
+    t.assert(priv.curve == Curve.p384)
+    t.assert(len(priv.publicKey.data) == p384KeySize)
+}
+
+test "generateKey produces valid X25519 key" (t &testing.T) {
+    var priv = try generateKey(Curve.x25519)
+
+    t.assert(len(priv.data) == x25519KeySize)
+    t.assert(priv.curve == Curve.x25519)
+    t.assert(len(priv.publicKey.data) == x25519KeySize)
+
+    // X25519 clamping: lowest 3 bits of first byte are zero.
+    t.assert(priv.data[0] % 8 == 0)
+}
+
+test "publicKey returns matching public key" (t &testing.T) {
+    var priv = try generateKey(Curve.p256)
+    var pub = priv.publicKey()
+
+    t.assert(pub.curve == Curve.p256)
+    t.assert(len(pub.data) == p256KeySize)
+}
+
+test "ecdh produces shared secret" (t &testing.T) {
+    var alice = try generateKey(Curve.p256)
+    var bob = try generateKey(Curve.p256)
+
+    var secretA = try alice.ecdh(@bob.publicKey)
+    t.assert(len(secretA) == p256KeySize)
+
+    var secretB = try bob.ecdh(@alice.publicKey)
+    t.assert(len(secretB) == p256KeySize)
+}
+
+test "ecdh rejects mismatched curves" (t &testing.T) {
+    var alice = try generateKey(Curve.p256)
+    var bob = try generateKey(Curve.p384)
+
+    var secret = try alice.ecdh(@bob.publicKey)
+    // Mismatched curves return empty result.
+    t.assert(len(secret) == 0)
+}
+
+test "ecdh rejects empty public key" (t &testing.T) {
+    var priv = try generateKey(Curve.p256)
+    var emptyPub = PublicKey{ curve: Curve.p256, data: alloc([]byte, 0) }
+
+    var secret = try priv.ecdh(@emptyPub)
+    t.assert(len(secret) == 0)
+}
+
+test "ecdh rejects all-zero public key" (t &testing.T) {
+    var priv = try generateKey(Curve.p256)
+
+    var zeroPub = alloc([]byte, 0)
+    var i = 0
+    for i < p256KeySize {
+        zeroPub = append(zeroPub, 0)
+        i = i + 1
+    }
+    var pub = PublicKey{ curve: Curve.p256, data: zeroPub }
+
+    var secret = try priv.ecdh(@pub)
+    t.assert(len(secret) == 0)
+}
+
+test "public key bytes returns raw data" (t &testing.T) {
+    var priv = try generateKey(Curve.p256)
+    var pub = priv.publicKey()
+
+    var pubBytes = pub.bytes()
+    t.assert(len(pubBytes) == p256KeySize)
+}
+
+test "private key bytes returns raw data" (t &testing.T) {
+    var priv = try generateKey(Curve.p256)
+
+    var privBytes = priv.bytes()
+    t.assert(len(privBytes) == p256KeySize)
+}
+
+test "isZero detects zero slice" (t &testing.T) {
+    var zeros = alloc([]byte, 0)
+    var i = 0
+    for i < 4 {
+        zeros = append(zeros, 0)
+        i = i + 1
+    }
+    t.assert(isZero(zeros))
+
+    zeros[2] = 1
+    t.assert(!isZero(zeros))
+}

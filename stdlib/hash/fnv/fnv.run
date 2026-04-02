@@ -3,31 +3,33 @@ package fnv
 use "hash"
 
 // new32 returns a new hash.Hash32 computing the FNV-1 32-bit hash.
-pub fun new32() hash.Hash32 {
-    return null
+pub fun new32() hash.Fnv32 {
+    return hash.fnv32()
 }
 
 // new32a returns a new hash.Hash32 computing the FNV-1a 32-bit hash.
-pub fun new32a() hash.Hash32 {
-    return null
+pub fun new32a() hash.Fnv32 {
+    return hash.fnv32a()
 }
 
 // new64 returns a new hash.Hash64 computing the FNV-1 64-bit hash.
-pub fun new64() hash.Hash64 {
-    return null
+pub fun new64() hash.Fnv64 {
+    return hash.fnv64()
 }
 
 // new64a returns a new hash.Hash64 computing the FNV-1a 64-bit hash.
-pub fun new64a() hash.Hash64 {
-    return null
+pub fun new64a() hash.Fnv64 {
+    return hash.fnv64a()
 }
 
 // new128 returns a new hash computing the FNV-1 128-bit hash.
-pub fun new128() hash.Hash64 {
-    return null
+// Note: Uses 64-bit FNV as a placeholder until 128-bit integers are supported.
+pub fun new128() hash.Fnv64 {
+    return hash.fnv64()
 }
 
 // new128a returns a new hash computing the FNV-1a 128-bit hash.
-pub fun new128a() hash.Hash64 {
-    return null
+// Note: Uses 64-bit FNV as a placeholder until 128-bit integers are supported.
+pub fun new128a() hash.Fnv64 {
+    return hash.fnv64a()
 }

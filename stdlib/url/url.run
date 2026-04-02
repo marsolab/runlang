@@ -1,5 +1,9 @@
 package url
 
+// Helper functions for type conversions.
+fun toBytes(s string) []byte { return s }
+fun toString(b []byte) string { return b }
+
 // Url represents a parsed URL.
 pub Url struct {
     scheme   string
@@ -22,53 +26,268 @@ pub type UrlError = .emptyUrl
 
 // parse parses a raw URL string into a Url struct.
 pub fun parse(raw string) !Url {
-    return Url{
-        scheme: "",
-        host: "",
-        port: "",
-        path: "",
-        rawPath: "",
-        query: "",
-        fragment: "",
-        user: "",
-        password: "",
+    if len(raw) == 0 {
+        return .err(UrlError.emptyUrl)
     }
+
+    var rest = raw
+    var scheme = ""
+    var user = ""
+    var password = ""
+    var host = ""
+    var port = ""
+    var path = ""
+    var rawPath = ""
+    var query = ""
+    var fragment = ""
+
+    // Extract fragment (after #).
+    var fragIdx = indexOfChar(rest, 35) // '#'
+    if fragIdx >= 0 {
+        fragment = rest[fragIdx + 1..]
+        rest = rest[0..fragIdx]
+    }
+
+    // Extract query (after ?).
+    var queryIdx = indexOfChar(rest, 63) // '?'
+    if queryIdx >= 0 {
+        query = rest[queryIdx + 1..]
+        rest = rest[0..queryIdx]
+    }
+
+    // Extract scheme (before ://).
+    var colonSlashSlash = indexOfStr(rest, "://")
+    if colonSlashSlash >= 0 {
+        scheme = rest[0..colonSlashSlash]
+        rest = rest[colonSlashSlash + 3..]
+    } else {
+        // Check for scheme without authority (e.g., mailto:user@host).
+        var colonIdx = indexOfChar(rest, 58) // ':'
+        if colonIdx >= 0 {
+            // Validate that everything before colon looks like a scheme (alpha chars).
+            var validScheme = true
+            var si = 0
+            for si < colonIdx {
+                var c = toBytes(rest)[si]
+                if not isAlpha(c) {
+                    if si > 0 {
+                        if not isDigit(c) {
+                            if c != 43 { // '+'
+                                if c != 45 { // '-'
+                                    if c != 46 { // '.'
+                                        validScheme = false
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        validScheme = false
+                    }
+                }
+                si = si + 1
+            }
+            if validScheme {
+                if colonIdx > 0 {
+                    scheme = rest[0..colonIdx]
+                    rest = rest[colonIdx + 1..]
+                }
+            }
+        }
+    }
+
+    // Extract userinfo and host from authority.
+    // At this point rest should be: [userinfo@]host[:port]/path
+    var pathStart = indexOfChar(rest, 47) // '/'
+    var authority = ""
+    if pathStart >= 0 {
+        authority = rest[0..pathStart]
+        rawPath = rest[pathStart..]
+        path = rawPath
+    } else {
+        authority = rest
+        rawPath = ""
+        path = ""
+    }
+
+    // Extract userinfo (before @).
+    var atIdx = indexOfChar(authority, 64) // '@'
+    if atIdx >= 0 {
+        var userInfo = authority[0..atIdx]
+        authority = authority[atIdx + 1..]
+        // Split userinfo into user:password.
+        var upColon = indexOfChar(userInfo, 58) // ':'
+        if upColon >= 0 {
+            user = userInfo[0..upColon]
+            password = userInfo[upColon + 1..]
+        } else {
+            user = userInfo
+        }
+    }
+
+    // Extract host and port from authority.
+    if len(authority) > 0 {
+        if toBytes(authority)[0] == 91 { // '[' — IPv6
+            var closeBracket = indexOfChar(authority, 93) // ']'
+            if closeBracket >= 0 {
+                host = authority[0..closeBracket + 1]
+                if closeBracket + 1 < len(authority) {
+                    if toBytes(authority)[closeBracket + 1] == 58 { // ':'
+                        port = authority[closeBracket + 2..]
+                    }
+                }
+            } else {
+                host = authority
+            }
+        } else {
+            var portColon = lastIndexOfChar(authority, 58) // ':'
+            if portColon >= 0 {
+                host = authority[0..portColon]
+                port = authority[portColon + 1..]
+            } else {
+                host = authority
+            }
+        }
+    }
+
+    return .ok(Url{
+        scheme: scheme,
+        host: host,
+        port: port,
+        path: path,
+        rawPath: rawPath,
+        query: query,
+        fragment: fragment,
+        user: user,
+        password: password,
+    })
 }
 
 // string reassembles the URL into a valid URL string.
 pub fun (u @Url) string() string {
-    return ""
+    var result = ""
+    if len(u.scheme) > 0 {
+        result = result + u.scheme + "://"
+    }
+    if len(u.user) > 0 {
+        result = result + u.user
+        if len(u.password) > 0 {
+            result = result + ":" + u.password
+        }
+        result = result + "@"
+    }
+    result = result + u.host
+    if len(u.port) > 0 {
+        result = result + ":" + u.port
+    }
+    if len(u.path) > 0 {
+        result = result + u.path
+    } else {
+        if len(u.host) > 0 {
+            if len(u.query) > 0 or len(u.fragment) > 0 {
+                // Ensure path separator before query/fragment if host is present.
+            }
+        }
+    }
+    if len(u.query) > 0 {
+        result = result + "?" + u.query
+    }
+    if len(u.fragment) > 0 {
+        result = result + "#" + u.fragment
+    }
+    return result
 }
 
 // hostname returns the host without the port number.
 pub fun (u @Url) hostname() string {
-    return ""
+    return u.host
 }
 
 // requestUri returns the encoded path?query or opaque?query string
 // suitable for use in an HTTP request.
 pub fun (u @Url) requestUri() string {
-    return ""
+    var result = u.path
+    if len(result) == 0 {
+        result = "/"
+    }
+    if len(u.query) > 0 {
+        result = result + "?" + u.query
+    }
+    return result
 }
 
 // isAbs reports whether the URL is absolute (has a scheme).
 pub fun (u @Url) isAbs() bool {
-    return false
+    return len(u.scheme) > 0
 }
 
 // resolveReference resolves a URI reference to an absolute URI from
 // an absolute base URI.
 pub fun (u @Url) resolveReference(ref @Url) Url {
+    // If the reference has a scheme, it is used as-is.
+    if len(ref.scheme) > 0 {
+        return Url{
+            scheme: ref.scheme,
+            host: ref.host,
+            port: ref.port,
+            path: ref.path,
+            rawPath: ref.rawPath,
+            query: ref.query,
+            fragment: ref.fragment,
+            user: ref.user,
+            password: ref.password,
+        }
+    }
+
+    // If the reference has an authority, use it with the base scheme.
+    if len(ref.host) > 0 {
+        return Url{
+            scheme: u.scheme,
+            host: ref.host,
+            port: ref.port,
+            path: ref.path,
+            rawPath: ref.rawPath,
+            query: ref.query,
+            fragment: ref.fragment,
+            user: ref.user,
+            password: ref.password,
+        }
+    }
+
+    // Use the base scheme and authority.
+    var resultPath = ""
+    var resultQuery = ref.query
+    if len(ref.path) == 0 {
+        resultPath = u.path
+        if len(ref.query) == 0 {
+            resultQuery = u.query
+        }
+    } else {
+        if len(ref.path) > 0 {
+            var refBytes = toBytes(ref.path)
+            if refBytes[0] == 47 { // '/'
+                resultPath = ref.path
+            } else {
+                // Merge: base path directory + reference path.
+                var lastSlash = lastIndexOfChar(u.path, 47) // '/'
+                if lastSlash >= 0 {
+                    resultPath = u.path[0..lastSlash + 1] + ref.path
+                } else {
+                    resultPath = ref.path
+                }
+            }
+        }
+    }
+
     return Url{
-        scheme: "",
-        host: "",
-        port: "",
-        path: "",
-        rawPath: "",
-        query: "",
-        fragment: "",
-        user: "",
-        password: "",
+        scheme: u.scheme,
+        host: u.host,
+        port: u.port,
+        path: resultPath,
+        rawPath: resultPath,
+        query: resultQuery,
+        fragment: ref.fragment,
+        user: u.user,
+        password: u.password,
     }
 }
 
@@ -80,47 +299,353 @@ pub Values struct {
 
 // parseQuery parses a URL query string into Values.
 pub fun parseQuery(query string) !Values {
-    return Values{ data: alloc(map[string][]string) }
+    var data = alloc(map[string][]string)
+    if len(query) == 0 {
+        return .ok(Values{ data: data })
+    }
+
+    var rest = query
+    for len(rest) > 0 {
+        var ampIdx = indexOfChar(rest, 38) // '&'
+        var pair = ""
+        if ampIdx >= 0 {
+            pair = rest[0..ampIdx]
+            rest = rest[ampIdx + 1..]
+        } else {
+            pair = rest
+            rest = ""
+        }
+
+        if len(pair) == 0 {
+            continue
+        }
+
+        var eqIdx = indexOfChar(pair, 61) // '='
+        var key = ""
+        var value = ""
+        if eqIdx >= 0 {
+            key = pair[0..eqIdx]
+            value = pair[eqIdx + 1..]
+        } else {
+            key = pair
+            value = ""
+        }
+
+        // Unescape + to space in both key and value.
+        key = unescapePlus(key)
+        value = unescapePlus(value)
+
+        // Percent-decode key and value.
+        var decodedKey = ""
+        var dkResult = percentDecode(key)
+        switch dkResult {
+            .ok(dk) :: { decodedKey = dk },
+            .err(e) :: { return .err(e) },
+        }
+        key = decodedKey
+        var decodedVal = ""
+        var dvResult = percentDecode(value)
+        switch dvResult {
+            .ok(dv) :: { decodedVal = dv },
+            .err(e) :: { return .err(e) },
+        }
+        value = decodedVal
+
+        var existing = data[key]
+        if existing == null {
+            var vals = alloc([]string, 0)
+            vals = append(vals, value)
+            data[key] = vals
+        } else {
+            existing = append(existing, value)
+            data[key] = existing
+        }
+    }
+
+    return .ok(Values{ data: data })
 }
 
 // get returns the first value associated with the given key, or "".
 pub fun (v @Values) get(key string) string {
-    return ""
+    var vals = v.data[key]
+    if vals == null {
+        return ""
+    }
+    if len(vals) == 0 {
+        return ""
+    }
+    return vals[0]
 }
 
 // set sets the key to a single value, replacing any existing values.
 pub fun (v &Values) set(key string, value string) {
+    var vals = alloc([]string, 0)
+    vals = append(vals, value)
+    v.data[key] = vals
 }
 
 // add adds the value to key. It appends to any existing values.
 pub fun (v &Values) add(key string, value string) {
+    var existing = v.data[key]
+    if existing == null {
+        var vals = alloc([]string, 0)
+        vals = append(vals, value)
+        v.data[key] = vals
+    } else {
+        existing = append(existing, value)
+        v.data[key] = existing
+    }
 }
 
 // del deletes the values associated with key.
 pub fun (v &Values) del(key string) {
+    delete(v.data, key)
 }
 
 // encode encodes the values into URL-encoded form ("foo=bar&baz=qux").
 pub fun (v @Values) encode() string {
-    return ""
+    var result = ""
+    var first = true
+    for key, vals in v.data {
+        var i = 0
+        for i < len(vals) {
+            if not first {
+                result = result + "&"
+            }
+            result = result + queryEscape(key) + "=" + queryEscape(vals[i])
+            first = false
+            i = i + 1
+        }
+    }
+    return result
 }
 
 // pathEscape escapes the string so it can be safely placed inside a URL path segment.
 pub fun pathEscape(s string) string {
-    return ""
+    return escape(s, false)
 }
 
 // pathUnescape does the inverse transformation of pathEscape.
 pub fun pathUnescape(s string) !string {
-    return ""
+    return percentDecode(s)
 }
 
 // queryEscape escapes the string so it can be safely placed inside a URL query.
 pub fun queryEscape(s string) string {
-    return ""
+    return escape(s, true)
 }
 
 // queryUnescape does the inverse transformation of queryEscape.
 pub fun queryUnescape(s string) !string {
-    return ""
+    var unplused = unescapePlus(s)
+    return percentDecode(unplused)
+}
+
+// --------------------------------------------------------------------------
+// Internal helpers
+// --------------------------------------------------------------------------
+
+// indexOfChar returns the index of the first occurrence of byte c in s, or -1.
+fun indexOfChar(s string, c byte) int {
+    var data = toBytes(s)
+    var i = 0
+    for i < len(data) {
+        if data[i] == c {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// lastIndexOfChar returns the index of the last occurrence of byte c in s, or -1.
+fun lastIndexOfChar(s string, c byte) int {
+    var data = toBytes(s)
+    var i = len(data) - 1
+    for i >= 0 {
+        if data[i] == c {
+            return i
+        }
+        i = i - 1
+    }
+    return -1
+}
+
+// indexOfStr returns the index of the first occurrence of substr in s, or -1.
+fun indexOfStr(s string, substr string) int {
+    var sb = toBytes(s)
+    var nb = toBytes(substr)
+    if len(nb) == 0 {
+        return 0
+    }
+    if len(nb) > len(sb) {
+        return -1
+    }
+    var i = 0
+    var limit = len(sb) - len(nb)
+    for i <= limit {
+        var j = 0
+        var match = true
+        for j < len(nb) {
+            if sb[i + j] != nb[j] {
+                match = false
+                break
+            }
+            j = j + 1
+        }
+        if match {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// isAlpha reports whether c is an ASCII letter.
+fun isAlpha(c byte) bool {
+    if c >= 65 {
+        if c <= 90 {
+            return true
+        }
+    }
+    if c >= 97 {
+        if c <= 122 {
+            return true
+        }
+    }
+    return false
+}
+
+// isDigit reports whether c is an ASCII digit.
+fun isDigit(c byte) bool {
+    return c >= 48 and c <= 57
+}
+
+// isHexDigit reports whether c is a hexadecimal digit.
+fun isHexDigit(c byte) bool {
+    if c >= 48 and c <= 57 {
+        return true
+    }
+    if c >= 65 and c <= 70 {
+        return true
+    }
+    if c >= 97 and c <= 102 {
+        return true
+    }
+    return false
+}
+
+// hexVal returns the numeric value of a hex digit.
+fun hexVal(c byte) byte {
+    if c >= 48 and c <= 57 {
+        return c - 48
+    }
+    if c >= 65 and c <= 70 {
+        return c - 65 + 10
+    }
+    if c >= 97 and c <= 102 {
+        return c - 97 + 10
+    }
+    return 0
+}
+
+// toUpperHex returns the uppercase hex character for a 4-bit value.
+fun toUpperHex(v byte) byte {
+    if v < 10 {
+        return v + 48
+    }
+    return v - 10 + 65
+}
+
+// shouldEscape reports whether the byte should be percent-encoded.
+// If isQuery is true, spaces are encoded as '+'.
+fun shouldEscape(c byte, isQuery bool) bool {
+    // Unreserved characters: ALPHA / DIGIT / "-" / "." / "_" / "~"
+    if isAlpha(c) or isDigit(c) {
+        return false
+    }
+    if c == 45 or c == 46 or c == 95 or c == 126 { // - . _ ~
+        return false
+    }
+    // In query mode, space is special (encoded as +).
+    if isQuery and c == 32 {
+        return true
+    }
+    // Path-safe characters that don't need escaping.
+    if not isQuery {
+        if c == 64 or c == 58 or c == 33 or c == 36 { // @ : ! $
+            return false
+        }
+        if c == 38 or c == 39 or c == 40 or c == 41 { // & ' ( )
+            return false
+        }
+        if c == 42 or c == 43 or c == 44 or c == 59 or c == 61 { // * + , ; =
+            return false
+        }
+    }
+    return true
+}
+
+// escape percent-encodes a string. If isQuery is true, spaces become '+'.
+fun escape(s string, isQuery bool) string {
+    var data = toBytes(s)
+    var buf = alloc([]byte, 0)
+    var i = 0
+    for i < len(data) {
+        var c = data[i]
+        if isQuery and c == 32 {
+            buf = append(buf, 43) // '+'
+        } else {
+            if shouldEscape(c, isQuery) {
+                buf = append(buf, 37) // '%'
+                buf = append(buf, toUpperHex(c / 16))
+                buf = append(buf, toUpperHex(c % 16))
+            } else {
+                buf = append(buf, c)
+            }
+        }
+        i = i + 1
+    }
+    return toString(buf)
+}
+
+// percentDecode decodes a percent-encoded string.
+fun percentDecode(s string) !string {
+    var data = toBytes(s)
+    var buf = alloc([]byte, 0)
+    var i = 0
+    for i < len(data) {
+        if data[i] == 37 { // '%'
+            if i + 2 >= len(data) {
+                return .err(UrlError.invalidEscapeSequence)
+            }
+            if not isHexDigit(data[i + 1]) or not isHexDigit(data[i + 2]) {
+                return .err(UrlError.invalidEscapeSequence)
+            }
+            var hi = hexVal(data[i + 1])
+            var lo = hexVal(data[i + 2])
+            buf = append(buf, hi * 16 + lo)
+            i = i + 3
+        } else {
+            buf = append(buf, data[i])
+            i = i + 1
+        }
+    }
+    return .ok(toString(buf))
+}
+
+// unescapePlus replaces '+' with ' ' in a string.
+fun unescapePlus(s string) string {
+    var data = toBytes(s)
+    var buf = alloc([]byte, 0)
+    var i = 0
+    for i < len(data) {
+        if data[i] == 43 { // '+'
+            buf = append(buf, 32) // ' '
+        } else {
+            buf = append(buf, data[i])
+        }
+        i = i + 1
+    }
+    return toString(buf)
 }

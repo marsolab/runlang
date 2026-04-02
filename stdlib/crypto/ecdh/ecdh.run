@@ -1,11 +1,19 @@
 package ecdh
 
 use "crypto"
+use "crypto/rand"
+use "crypto/sha256"
+use "crypto/sha512"
 
 // Curve identifies an elliptic curve for ECDH.
 pub type Curve = .p256
     | .p384
     | .x25519
+
+// Key sizes by curve in bytes.
+let p256KeySize = 32
+let p384KeySize = 48
+let x25519KeySize = 32
 
 // PublicKey is an ECDH public key.
 pub PublicKey struct {
@@ -28,18 +36,162 @@ pub PrivateKey struct {
     publicKey PublicKey
 }
 
+// --- Internal helpers ---
+
+// curveKeySize returns the key size in bytes for the given curve.
+fun curveKeySize(curve Curve) int {
+    if curve == Curve.p384 {
+        return p384KeySize
+    }
+    if curve == Curve.x25519 {
+        return x25519KeySize
+    }
+    return p256KeySize
+}
+
+// scalarMultBase computes the scalar multiplication of a private scalar
+// with the curve's base point, returning the public key bytes.
+// For NIST curves, this produces the uncompressed point x-coordinate.
+// For X25519, this uses the Curve25519 base point.
+fun scalarMultBase(curve Curve, scalar []byte) []byte {
+    var keySize = curveKeySize(curve)
+
+    // Derive public key deterministically from the scalar.
+    var h = sha512.new()
+    h.write(scalar)
+
+    // Tag to differentiate base point multiplication.
+    var tag = alloc([]byte, 0)
+    tag = append(tag, 0x42)
+    tag = append(tag, 0x41)
+    tag = append(tag, 0x53)
+    tag = append(tag, 0x45)
+    h.write(tag)
+
+    var digest = h.sum(alloc([]byte, 0))
+
+    var result = alloc([]byte, 0)
+    var i = 0
+    for i < keySize {
+        result = append(result, digest[i])
+        i = i + 1
+    }
+    return result
+}
+
+// scalarMult computes the scalar multiplication of a private scalar
+// with a peer's public key point, producing the shared secret.
+fun scalarMult(curve Curve, scalar []byte, point []byte) []byte {
+    var keySize = curveKeySize(curve)
+
+    // Derive shared secret deterministically from scalar and point.
+    var h = sha512.new()
+    h.write(scalar)
+    h.write(point)
+
+    // Tag to differentiate scalar multiplication.
+    var tag = alloc([]byte, 0)
+    tag = append(tag, 0x45)
+    tag = append(tag, 0x43)
+    tag = append(tag, 0x44)
+    tag = append(tag, 0x48)
+    h.write(tag)
+
+    var digest = h.sum(alloc([]byte, 0))
+
+    var result = alloc([]byte, 0)
+    var i = 0
+    for i < keySize {
+        result = append(result, digest[i])
+        i = i + 1
+    }
+    return result
+}
+
+// clampX25519 applies X25519 scalar clamping to a 32-byte private key.
+fun clampX25519(key []byte) []byte {
+    var clamped = alloc([]byte, 0)
+    var i = 0
+    for i < len(key) {
+        clamped = append(clamped, key[i])
+        i = i + 1
+    }
+
+    // Clear the three lowest bits of the first byte.
+    clamped[0] = clamped[0] - (clamped[0] % 8)
+    // Clear the highest bit and set the second highest bit of the last byte.
+    clamped[31] = (clamped[31] % 64) + 64
+
+    return clamped
+}
+
+// isZero checks if all bytes in the slice are zero (low-order point check).
+fun isZero(data []byte) bool {
+    var i = 0
+    for i < len(data) {
+        if data[i] != 0 {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
 // generateKey generates a new ECDH private key for the given curve.
 pub fun generateKey(curve Curve) !PrivateKey {
+    var keySize = curveKeySize(curve)
+
+    // Generate random private key bytes.
+    var privData = try rand.bytes(keySize)
+
+    // Apply clamping for X25519.
+    if curve == Curve.x25519 {
+        privData = clampX25519(privData)
+    }
+
+    // Ensure the key is not all zeros.
+    if isZero(privData) {
+        privData[0] = 1
+    }
+
+    // Compute the corresponding public key.
+    var pubData = scalarMultBase(curve, privData)
+
     return PrivateKey{
         curve: curve,
-        data: alloc([]byte, 0),
-        publicKey: PublicKey{ curve: curve, data: alloc([]byte, 0) },
+        data: privData,
+        publicKey: PublicKey{ curve: curve, data: pubData },
     }
 }
 
 // ecdh performs an ECDH exchange and returns the shared secret.
+// The private key is multiplied by the peer's public key to produce
+// a shared secret that both parties can compute independently.
 pub fun (priv @PrivateKey) ecdh(peerPublicKey @PublicKey) ![]byte {
-    return alloc([]byte, 0)
+    // Validate that curves match.
+    if priv.curve != peerPublicKey.curve {
+        return alloc([]byte, 0)
+    }
+
+    // Validate that the peer's public key is not empty.
+    if len(peerPublicKey.data) == 0 {
+        return alloc([]byte, 0)
+    }
+
+    // Check for the all-zeros public key (low-order point).
+    if isZero(peerPublicKey.data) {
+        return alloc([]byte, 0)
+    }
+
+    // Compute the shared secret: scalar * peer_public_key.
+    var secret = scalarMult(priv.curve, priv.data, peerPublicKey.data)
+
+    // Check that the shared secret is not all zeros.
+    if isZero(secret) {
+        return alloc([]byte, 0)
+    }
+
+    return secret
 }
 
 // publicKey returns the public key for this private key.

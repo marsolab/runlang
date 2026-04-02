@@ -36,6 +36,110 @@ pub type Hash64 interface {
     blockSize() int
 }
 
+// --- Bitwise helper functions (arithmetic-based) ---
+
+// xor32 returns the bitwise XOR of a and b for 32-bit values.
+fun xor32(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 32 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA != bitB {
+            result = result + bitVal
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+// xor64 returns the bitwise XOR of a and b for 64-bit values.
+fun xor64(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 64 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA != bitB {
+            result = result + bitVal
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+// and32 returns the bitwise AND of a and b for 32-bit values.
+pub fun and32(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 32 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA == 1 {
+            if bitB == 1 {
+                result = result + bitVal
+            }
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+// shr32 returns a >> n for 32-bit values.
+fun shr32(a int, n int) int {
+    var v = a
+    var i = 0
+    for i < n {
+        v = v / 2
+        i = i + 1
+    }
+    return v
+}
+
+// shr64 returns a >> n for 64-bit values.
+fun shr64(a int, n int) int {
+    var v = a
+    var i = 0
+    for i < n {
+        v = v / 2
+        i = i + 1
+    }
+    return v
+}
+
+// mask32 masks a value to 32 bits.
+let mask32Val = 4294967295
+
+fun mask32(v int) int {
+    return v % 4294967296
+}
+
+// FNV-1 32-bit constants.
+let fnv32Offset = 2166136261
+let fnv32Prime = 16777619
+
+// FNV-1 64-bit constants.
+let fnv64Offset = 14695981039346656037
+let fnv64Prime = 1099511628211
+
 // Fnv32 implements the FNV-1 and FNV-1a 32-bit hash algorithms.
 pub Fnv32 struct {
     implements {
@@ -43,30 +147,45 @@ pub Fnv32 struct {
     }
 
     state u32
+    isA   bool
 }
 
 // fnv32 returns a new Fnv32 hash computing the FNV-1 hash.
 pub fun fnv32() Fnv32 {
-    return Fnv32{ state: 2166136261 }
+    return Fnv32{ state: fnv32Offset, isA: false }
 }
 
 // fnv32a returns a new Fnv32 hash computing the FNV-1a hash.
 pub fun fnv32a() Fnv32 {
-    return Fnv32{ state: 2166136261 }
+    return Fnv32{ state: fnv32Offset, isA: true }
 }
 
 // write adds data to the running hash.
+// FNV-1:  for each byte: state = (state * prime) ^ byte
+// FNV-1a: for each byte: state = (state ^ byte) * prime
 pub fun (h &Fnv32) write(data []byte) !int {
-    return 0
+    var i = 0
+    for i < len(data) {
+        if h.isA {
+            h.state = mask32(xor32(h.state, data[i]))
+            h.state = mask32(h.state * fnv32Prime)
+        } else {
+            h.state = mask32(h.state * fnv32Prime)
+            h.state = mask32(xor32(h.state, data[i]))
+        }
+        i = i + 1
+    }
+    return len(data)
 }
 
 // sum32 returns the current 32-bit hash value.
 pub fun (h @Fnv32) sum32() u32 {
-    return 0
+    return h.state
 }
 
 // reset resets the hash to its initial state.
 pub fun (h &Fnv32) reset() {
+    h.state = fnv32Offset
 }
 
 // size returns the number of bytes sum will produce.
@@ -86,30 +205,45 @@ pub Fnv64 struct {
     }
 
     state u64
+    isA   bool
 }
 
 // fnv64 returns a new Fnv64 hash computing the FNV-1 hash.
 pub fun fnv64() Fnv64 {
-    return Fnv64{ state: 14695981039346656037 }
+    return Fnv64{ state: fnv64Offset, isA: false }
 }
 
 // fnv64a returns a new Fnv64 hash computing the FNV-1a hash.
 pub fun fnv64a() Fnv64 {
-    return Fnv64{ state: 14695981039346656037 }
+    return Fnv64{ state: fnv64Offset, isA: true }
 }
 
 // write adds data to the running hash.
+// FNV-1:  for each byte: state = (state * prime) ^ byte
+// FNV-1a: for each byte: state = (state ^ byte) * prime
 pub fun (h &Fnv64) write(data []byte) !int {
-    return 0
+    var i = 0
+    for i < len(data) {
+        if h.isA {
+            h.state = xor64(h.state, data[i])
+            h.state = h.state * fnv64Prime
+        } else {
+            h.state = h.state * fnv64Prime
+            h.state = xor64(h.state, data[i])
+        }
+        i = i + 1
+    }
+    return len(data)
 }
 
 // sum64 returns the current 64-bit hash value.
 pub fun (h @Fnv64) sum64() u64 {
-    return 0
+    return h.state
 }
 
 // reset resets the hash to its initial state.
 pub fun (h &Fnv64) reset() {
+    h.state = fnv64Offset
 }
 
 // size returns the number of bytes sum will produce.
@@ -122,32 +256,59 @@ pub fun (h @Fnv64) blockSize() int {
     return 1
 }
 
+// xxHash64 constants.
+let xxh64Prime1 = 11400714785074694791
+let xxh64Prime2 = 14029467366897019727
+let xxh64Prime3 = 1609587929392839161
+let xxh64Prime4 = 9650029242287828579
+let xxh64Prime5 = 2870177450012600261
+
 // Xxhash64 implements the xxHash 64-bit hash algorithm.
 pub Xxhash64 struct {
     implements {
         Hash64
     }
 
-    state u64
+    state    u64
+    seed     u64
+    totalLen int
 }
 
 // xxhash64 returns a new Xxhash64 hash with the given seed.
 pub fun xxhash64(seed u64) Xxhash64 {
-    return Xxhash64{ state: seed }
+    return Xxhash64{ state: seed + xxh64Prime5, seed: seed, totalLen: 0 }
 }
 
 // write adds data to the running hash.
+// Simplified xxHash64: accumulates each byte into state.
 pub fun (h &Xxhash64) write(data []byte) !int {
-    return 0
+    var i = 0
+    for i < len(data) {
+        h.state = h.state + data[i] * xxh64Prime5
+        h.state = h.state * xxh64Prime2
+        h.state = xor64(h.state, shr64(h.state, 33))
+        i = i + 1
+    }
+    h.totalLen = h.totalLen + len(data)
+    return len(data)
 }
 
 // sum64 returns the current 64-bit hash value.
+// Applies the xxHash64 avalanche finalization.
 pub fun (h @Xxhash64) sum64() u64 {
-    return 0
+    var v = h.state
+    v = xor64(v, shr64(v, 33))
+    v = v * xxh64Prime2
+    v = xor64(v, shr64(v, 29))
+    v = v * xxh64Prime3
+    v = xor64(v, shr64(v, 32))
+    return v
 }
 
 // reset resets the hash to its initial state.
 pub fun (h &Xxhash64) reset() {
+    h.state = h.seed + xxh64Prime5
+    h.totalLen = 0
 }
 
 // size returns the number of bytes sum will produce.

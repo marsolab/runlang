@@ -2,7 +2,7 @@ package crc32
 
 use "hash"
 
-// Predefined CRC-32 polynomial constants.
+// Predefined CRC-32 polynomial constants (reversed representation).
 pub let ieee = 0xedb88320
 pub let castagnoli = 0x82f63b78
 pub let koopman = 0xeb31d82e
@@ -24,28 +24,146 @@ pub var castagnoliTable = makeTable(0x82f63b78)
 // koopmanTable is the Table for the Koopman polynomial.
 pub var koopmanTable = makeTable(0xeb31d82e)
 
+// xor32 returns the bitwise XOR of a and b for 32-bit values.
+fun xor32(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 32 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA != bitB {
+            result = result + bitVal
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+// and32 returns the bitwise AND of a and b for 32-bit values.
+fun and32(a int, b int) int {
+    var result = 0
+    var bitVal = 1
+    var i = 0
+    var x = a
+    var y = b
+    for i < 32 {
+        var bitA = x % 2
+        var bitB = y % 2
+        if bitA == 1 {
+            if bitB == 1 {
+                result = result + bitVal
+            }
+        }
+        x = x / 2
+        y = y / 2
+        bitVal = bitVal * 2
+        i = i + 1
+    }
+    return result
+}
+
+// shr32 returns a >> n for 32-bit values (arithmetic right shift via division).
+fun shr32(a int, n int) int {
+    var v = a
+    var i = 0
+    for i < n {
+        v = v / 2
+        i = i + 1
+    }
+    return v
+}
+
 // makeTable returns a Table constructed from the specified polynomial.
+// Uses the standard bit-by-bit CRC table generation algorithm.
 pub fun makeTable(poly int) Table {
-    return Table{ entries: alloc([256]int, 0) }
+    var tab = Table{ entries: alloc([256]int, 0) }
+    var i = 0
+    for i < 256 {
+        var crc = i
+        var j = 0
+        for j < 8 {
+            if (crc % 2) == 1 {
+                crc = xor32(shr32(crc, 1), poly)
+            } else {
+                crc = shr32(crc, 1)
+            }
+            j = j + 1
+        }
+        tab.entries[i] = crc
+        i = i + 1
+    }
+    return tab
+}
+
+// Digest implements hash.Hash32 for CRC-32 computation.
+pub Digest struct {
+    implements {
+        hash.Hash32
+    }
+
+    crc int
+    tab @Table
 }
 
 // new creates a new hash.Hash32 computing the CRC-32 checksum
 // using the given polynomial table.
-pub fun new(tab @Table) hash.Hash32 {
-    return null
+pub fun new(tab @Table) Digest {
+    return Digest{ crc: 0xffffffff, tab: tab }
+}
+
+// write adds data to the running CRC-32 hash.
+pub fun (d &Digest) write(data []byte) !int {
+    d.crc = update(d.crc, d.tab, data)
+    return len(data)
+}
+
+// sum32 returns the current CRC-32 checksum value.
+pub fun (d @Digest) sum32() u32 {
+    return xor32(d.crc, 0xffffffff)
+}
+
+// reset resets the hash to its initial state.
+pub fun (d &Digest) reset() {
+    d.crc = 0xffffffff
+}
+
+// size returns the number of bytes sum will produce.
+pub fun (d @Digest) size() int {
+    return 4
+}
+
+// blockSize returns the hash's underlying block size.
+pub fun (d @Digest) blockSize() int {
+    return 1
+}
+
+// update adds data to the running CRC-32 checksum.
+// crc should be the current CRC value (pre-inverted).
+pub fun update(crc int, tab @Table, data []byte) int {
+    var c = crc
+    var i = 0
+    for i < len(data) {
+        var idx = and32(xor32(c, data[i]), 0xff)
+        c = xor32(tab.entries[idx], shr32(c, 8))
+        i = i + 1
+    }
+    return c
 }
 
 // checksum returns the CRC-32 checksum of data using the given table.
 pub fun checksum(data []byte, tab @Table) int {
-    return 0
+    var crc = 0xffffffff
+    crc = update(crc, tab, data)
+    return xor32(crc, 0xffffffff)
 }
 
 // checksumIeee returns the CRC-32 checksum of data using the IEEE polynomial.
 pub fun checksumIeee(data []byte) int {
-    return 0
-}
-
-// update adds data to the running CRC-32 checksum.
-pub fun update(crc int, tab @Table, data []byte) int {
-    return 0
+    return checksum(data, ieeeTable)
 }

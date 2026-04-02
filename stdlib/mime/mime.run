@@ -1,23 +1,12 @@
 package mime
 
-// typeByExtension returns the MIME type associated with the file extension ext.
-// The extension should begin with a leading dot, as in ".html".
-// Returns "" if the extension is not recognized.
-pub fun typeByExtension(ext string) string {
-    return ""
-}
+// Helper functions for type conversions.
+fun toBytes(s string) []byte { return s }
+fun toString(b []byte) string { return b }
 
-// extensionByType returns the preferred extension for the given MIME type.
-// The MIME type should be in the form "type/subtype".
-// Returns "" if the type is not recognized.
-pub fun extensionByType(mimeType string) string {
-    return ""
-}
-
-// extensionsByType returns all known extensions for the given MIME type.
-pub fun extensionsByType(mimeType string) []string {
-    return alloc([]string, 0)
-}
+// MimeError represents errors during MIME type parsing.
+pub type MimeError = .invalidMediaType
+    | .invalidParameter
 
 // MediaType represents a parsed media type with parameters.
 pub MediaType struct {
@@ -26,21 +15,593 @@ pub MediaType struct {
     params     map[string]string
 }
 
+// typeByExtension returns the MIME type associated with the file extension ext.
+// The extension should begin with a leading dot, as in ".html".
+// Returns "" if the extension is not recognized.
+pub fun typeByExtension(ext string) string {
+    // Text types.
+    if ext == ".html" or ext == ".htm" {
+        return "text/html"
+    }
+    if ext == ".css" {
+        return "text/css"
+    }
+    if ext == ".csv" {
+        return "text/csv"
+    }
+    if ext == ".txt" {
+        return "text/plain"
+    }
+    if ext == ".xml" {
+        return "text/xml"
+    }
+    if ext == ".md" {
+        return "text/markdown"
+    }
+    if ext == ".rtf" {
+        return "text/rtf"
+    }
+
+    // JavaScript / JSON / WASM.
+    if ext == ".js" or ext == ".mjs" {
+        return "application/javascript"
+    }
+    if ext == ".json" {
+        return "application/json"
+    }
+    if ext == ".wasm" {
+        return "application/wasm"
+    }
+
+    // Image types.
+    if ext == ".png" {
+        return "image/png"
+    }
+    if ext == ".jpg" or ext == ".jpeg" {
+        return "image/jpeg"
+    }
+    if ext == ".gif" {
+        return "image/gif"
+    }
+    if ext == ".webp" {
+        return "image/webp"
+    }
+    if ext == ".svg" {
+        return "image/svg+xml"
+    }
+    if ext == ".ico" {
+        return "image/x-icon"
+    }
+    if ext == ".bmp" {
+        return "image/bmp"
+    }
+    if ext == ".tiff" or ext == ".tif" {
+        return "image/tiff"
+    }
+    if ext == ".avif" {
+        return "image/avif"
+    }
+
+    // Audio types.
+    if ext == ".mp3" {
+        return "audio/mpeg"
+    }
+    if ext == ".wav" {
+        return "audio/wav"
+    }
+    if ext == ".ogg" {
+        return "audio/ogg"
+    }
+    if ext == ".flac" {
+        return "audio/flac"
+    }
+    if ext == ".aac" {
+        return "audio/aac"
+    }
+    if ext == ".weba" {
+        return "audio/webm"
+    }
+
+    // Video types.
+    if ext == ".mp4" {
+        return "video/mp4"
+    }
+    if ext == ".webm" {
+        return "video/webm"
+    }
+    if ext == ".avi" {
+        return "video/x-msvideo"
+    }
+    if ext == ".mov" {
+        return "video/quicktime"
+    }
+    if ext == ".mkv" {
+        return "video/x-matroska"
+    }
+
+    // Font types.
+    if ext == ".woff" {
+        return "font/woff"
+    }
+    if ext == ".woff2" {
+        return "font/woff2"
+    }
+    if ext == ".ttf" {
+        return "font/ttf"
+    }
+    if ext == ".otf" {
+        return "font/otf"
+    }
+    if ext == ".eot" {
+        return "application/vnd.ms-fontobject"
+    }
+
+    // Application types.
+    if ext == ".pdf" {
+        return "application/pdf"
+    }
+    if ext == ".zip" {
+        return "application/zip"
+    }
+    if ext == ".gz" or ext == ".gzip" {
+        return "application/gzip"
+    }
+    if ext == ".tar" {
+        return "application/x-tar"
+    }
+    if ext == ".rar" {
+        return "application/vnd.rar"
+    }
+    if ext == ".7z" {
+        return "application/x-7z-compressed"
+    }
+    if ext == ".bz2" {
+        return "application/x-bzip2"
+    }
+    if ext == ".xz" {
+        return "application/x-xz"
+    }
+    if ext == ".zst" {
+        return "application/zstd"
+    }
+    if ext == ".doc" {
+        return "application/msword"
+    }
+    if ext == ".docx" {
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    }
+    if ext == ".xls" {
+        return "application/vnd.ms-excel"
+    }
+    if ext == ".xlsx" {
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    }
+    if ext == ".ppt" {
+        return "application/vnd.ms-powerpoint"
+    }
+    if ext == ".pptx" {
+        return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    }
+    if ext == ".bin" {
+        return "application/octet-stream"
+    }
+    if ext == ".sh" {
+        return "application/x-sh"
+    }
+    if ext == ".yaml" or ext == ".yml" {
+        return "application/yaml"
+    }
+    if ext == ".toml" {
+        return "application/toml"
+    }
+    if ext == ".proto" {
+        return "application/protobuf"
+    }
+
+    return ""
+}
+
+// extensionByType returns the preferred extension for the given MIME type.
+// The MIME type should be in the form "type/subtype".
+// Returns "" if the type is not recognized.
+pub fun extensionByType(mimeType string) string {
+    // Normalize: strip any parameters.
+    var normalized = stripParams(mimeType)
+
+    // Text types.
+    if normalized == "text/html" {
+        return ".html"
+    }
+    if normalized == "text/css" {
+        return ".css"
+    }
+    if normalized == "text/csv" {
+        return ".csv"
+    }
+    if normalized == "text/plain" {
+        return ".txt"
+    }
+    if normalized == "text/xml" {
+        return ".xml"
+    }
+    if normalized == "text/markdown" {
+        return ".md"
+    }
+    if normalized == "text/rtf" {
+        return ".rtf"
+    }
+
+    // JavaScript / JSON / WASM.
+    if normalized == "application/javascript" {
+        return ".js"
+    }
+    if normalized == "application/json" {
+        return ".json"
+    }
+    if normalized == "application/wasm" {
+        return ".wasm"
+    }
+
+    // Image types.
+    if normalized == "image/png" {
+        return ".png"
+    }
+    if normalized == "image/jpeg" {
+        return ".jpg"
+    }
+    if normalized == "image/gif" {
+        return ".gif"
+    }
+    if normalized == "image/webp" {
+        return ".webp"
+    }
+    if normalized == "image/svg+xml" {
+        return ".svg"
+    }
+    if normalized == "image/x-icon" {
+        return ".ico"
+    }
+    if normalized == "image/bmp" {
+        return ".bmp"
+    }
+    if normalized == "image/tiff" {
+        return ".tiff"
+    }
+    if normalized == "image/avif" {
+        return ".avif"
+    }
+
+    // Audio types.
+    if normalized == "audio/mpeg" {
+        return ".mp3"
+    }
+    if normalized == "audio/wav" {
+        return ".wav"
+    }
+    if normalized == "audio/ogg" {
+        return ".ogg"
+    }
+    if normalized == "audio/flac" {
+        return ".flac"
+    }
+    if normalized == "audio/aac" {
+        return ".aac"
+    }
+    if normalized == "audio/webm" {
+        return ".weba"
+    }
+
+    // Video types.
+    if normalized == "video/mp4" {
+        return ".mp4"
+    }
+    if normalized == "video/webm" {
+        return ".webm"
+    }
+    if normalized == "video/x-msvideo" {
+        return ".avi"
+    }
+    if normalized == "video/quicktime" {
+        return ".mov"
+    }
+    if normalized == "video/x-matroska" {
+        return ".mkv"
+    }
+
+    // Font types.
+    if normalized == "font/woff" {
+        return ".woff"
+    }
+    if normalized == "font/woff2" {
+        return ".woff2"
+    }
+    if normalized == "font/ttf" {
+        return ".ttf"
+    }
+    if normalized == "font/otf" {
+        return ".otf"
+    }
+    if normalized == "application/vnd.ms-fontobject" {
+        return ".eot"
+    }
+
+    // Application types.
+    if normalized == "application/pdf" {
+        return ".pdf"
+    }
+    if normalized == "application/zip" {
+        return ".zip"
+    }
+    if normalized == "application/gzip" {
+        return ".gz"
+    }
+    if normalized == "application/x-tar" {
+        return ".tar"
+    }
+    if normalized == "application/vnd.rar" {
+        return ".rar"
+    }
+    if normalized == "application/x-7z-compressed" {
+        return ".7z"
+    }
+    if normalized == "application/x-bzip2" {
+        return ".bz2"
+    }
+    if normalized == "application/x-xz" {
+        return ".xz"
+    }
+    if normalized == "application/zstd" {
+        return ".zst"
+    }
+    if normalized == "application/msword" {
+        return ".doc"
+    }
+    if normalized == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" {
+        return ".docx"
+    }
+    if normalized == "application/vnd.ms-excel" {
+        return ".xls"
+    }
+    if normalized == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" {
+        return ".xlsx"
+    }
+    if normalized == "application/vnd.ms-powerpoint" {
+        return ".ppt"
+    }
+    if normalized == "application/vnd.openxmlformats-officedocument.presentationml.presentation" {
+        return ".pptx"
+    }
+    if normalized == "application/octet-stream" {
+        return ".bin"
+    }
+    if normalized == "application/x-sh" {
+        return ".sh"
+    }
+    if normalized == "application/yaml" {
+        return ".yaml"
+    }
+    if normalized == "application/toml" {
+        return ".toml"
+    }
+    if normalized == "application/protobuf" {
+        return ".proto"
+    }
+
+    return ""
+}
+
+// extensionsByType returns all known extensions for the given MIME type.
+pub fun extensionsByType(mimeType string) []string {
+    var result = alloc([]string, 0)
+    var normalized = stripParams(mimeType)
+
+    // Some MIME types have multiple extensions.
+    if normalized == "text/html" {
+        result = append(result, ".html")
+        result = append(result, ".htm")
+        return result
+    }
+    if normalized == "image/jpeg" {
+        result = append(result, ".jpg")
+        result = append(result, ".jpeg")
+        return result
+    }
+    if normalized == "image/tiff" {
+        result = append(result, ".tiff")
+        result = append(result, ".tif")
+        return result
+    }
+    if normalized == "application/javascript" {
+        result = append(result, ".js")
+        result = append(result, ".mjs")
+        return result
+    }
+    if normalized == "application/gzip" {
+        result = append(result, ".gz")
+        result = append(result, ".gzip")
+        return result
+    }
+    if normalized == "application/yaml" {
+        result = append(result, ".yaml")
+        result = append(result, ".yml")
+        return result
+    }
+
+    // For types with a single extension, use extensionByType.
+    var ext = extensionByType(normalized)
+    if len(ext) > 0 {
+        result = append(result, ext)
+    }
+    return result
+}
+
 // parseMediaType parses a media type value and any optional parameters,
 // per RFC 2045 and RFC 2616.
 pub fun parseMediaType(v string) !MediaType {
-    return MediaType{
-        typeName: "",
-        subType: "",
-        params: alloc(map[string]string),
+    if len(v) == 0 {
+        return .err(MimeError.invalidMediaType)
     }
+
+    var params = alloc(map[string]string)
+
+    // Split on first semicolon.
+    var semiIdx = indexOfChar(v, 59) // ';'
+    var mediaStr = ""
+    var paramStr = ""
+    if semiIdx >= 0 {
+        mediaStr = trimSpace(v[0..semiIdx])
+        paramStr = v[semiIdx + 1..]
+    } else {
+        mediaStr = trimSpace(v)
+        paramStr = ""
+    }
+
+    // Split media type into type/subtype.
+    var slashIdx = indexOfChar(mediaStr, 47) // '/'
+    if slashIdx < 0 {
+        return .err(MimeError.invalidMediaType)
+    }
+
+    var typeName = toLower(trimSpace(mediaStr[0..slashIdx]))
+    var subType = toLower(trimSpace(mediaStr[slashIdx + 1..]))
+
+    if len(typeName) == 0 or len(subType) == 0 {
+        return .err(MimeError.invalidMediaType)
+    }
+
+    // Parse parameters.
+    for len(paramStr) > 0 {
+        paramStr = trimSpace(paramStr)
+        if len(paramStr) == 0 {
+            break
+        }
+
+        var nextSemi = indexOfChar(paramStr, 59) // ';'
+        var thisPair = ""
+        if nextSemi >= 0 {
+            thisPair = trimSpace(paramStr[0..nextSemi])
+            paramStr = paramStr[nextSemi + 1..]
+        } else {
+            thisPair = trimSpace(paramStr)
+            paramStr = ""
+        }
+
+        if len(thisPair) == 0 {
+            continue
+        }
+
+        var eqIdx = indexOfChar(thisPair, 61) // '='
+        if eqIdx < 0 {
+            return .err(MimeError.invalidParameter)
+        }
+
+        var pkey = toLower(trimSpace(thisPair[0..eqIdx]))
+        var pval = trimSpace(thisPair[eqIdx + 1..])
+
+        // Strip surrounding quotes from value.
+        if len(pval) >= 2 {
+            var pvBytes = toBytes(pval)
+            if pvBytes[0] == 34 and pvBytes[len(pval) - 1] == 34 { // '"'
+                pval = pval[1..len(pval) - 1]
+            }
+        }
+
+        params[pkey] = pval
+    }
+
+    return .ok(MediaType{
+        typeName: typeName,
+        subType: subType,
+        params: params,
+    })
 }
 
 // formatMediaType serializes a MediaType back to its string representation.
 pub fun formatMediaType(t @MediaType) string {
-    return ""
+    var result = t.typeName + "/" + t.subType
+    for key, value in t.params {
+        result = result + "; " + key + "=" + value
+    }
+    return result
 }
 
 // addExtensionType sets the MIME type associated with the extension ext.
+// Note: This is a no-op in the current implementation since the extension
+// table is built into the source. A future version will support a mutable
+// registry.
 pub fun addExtensionType(ext string, mimeType string) {
+    // No-op: static extension table.
+}
+
+// --------------------------------------------------------------------------
+// Internal helpers
+// --------------------------------------------------------------------------
+
+// indexOfChar returns the index of the first occurrence of byte c in s, or -1.
+fun indexOfChar(s string, c byte) int {
+    var data = toBytes(s)
+    var i = 0
+    for i < len(data) {
+        if data[i] == c {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// stripParams strips parameters from a MIME type string (everything after ';').
+fun stripParams(mimeType string) string {
+    var semiIdx = indexOfChar(mimeType, 59) // ';'
+    if semiIdx >= 0 {
+        return trimSpace(mimeType[0..semiIdx])
+    }
+    return trimSpace(mimeType)
+}
+
+// trimSpace trims leading and trailing ASCII whitespace from s.
+fun trimSpace(s string) string {
+    var data = toBytes(s)
+    var start = 0
+    for start < len(data) {
+        if isSpace(data[start]) {
+            start = start + 1
+        } else {
+            break
+        }
+    }
+    var end = len(data)
+    for end > start {
+        if isSpace(data[end - 1]) {
+            end = end - 1
+        } else {
+            break
+        }
+    }
+    if start == 0 and end == len(data) {
+        return s
+    }
+    return s[start..end]
+}
+
+// isSpace reports whether c is ASCII whitespace.
+fun isSpace(c byte) bool {
+    return c == 32 or c == 9 or c == 10 or c == 13
+}
+
+// toLower converts an ASCII string to lowercase.
+fun toLower(s string) string {
+    var data = toBytes(s)
+    var buf = alloc([]byte, len(data))
+    var i = 0
+    for i < len(data) {
+        var c = data[i]
+        if c >= 65 and c <= 90 {
+            buf[i] = c + 32
+        } else {
+            buf[i] = c
+        }
+        i = i + 1
+    }
+    return toString(buf)
 }

@@ -2,4 +2,181 @@ package x25519
 
 use "testing"
 
-// Tests for crypto/x25519 will go here.
+test "point and scalar sizes are correct" (t &testing.T) {
+    t.assert(pointSize == 32)
+    t.assert(scalarSize == 32)
+}
+
+test "clampScalar sets correct bits" (t &testing.T) {
+    var scalar = alloc([]byte, 0)
+    var i = 0
+    for i < scalarSize {
+        scalar = append(scalar, 0xff)
+        i = i + 1
+    }
+
+    var clamped = clampScalar(scalar)
+    t.assert(len(clamped) == scalarSize)
+
+    // Lowest 3 bits of first byte must be zero.
+    t.assert(clamped[0] % 8 == 0)
+
+    // Highest bit of last byte must be zero, second highest must be one.
+    t.assert(clamped[31] < 128)
+    t.assert(clamped[31] >= 64)
+}
+
+test "basePoint starts with 9" (t &testing.T) {
+    var bp = basePoint()
+    t.assert(len(bp) == pointSize)
+    t.assert(bp[0] == 9)
+
+    var i = 1
+    for i < pointSize {
+        t.assert(bp[i] == 0)
+        i = i + 1
+    }
+}
+
+test "isZero detects zero and nonzero" (t &testing.T) {
+    var zeros = alloc([]byte, 0)
+    var i = 0
+    for i < 4 {
+        zeros = append(zeros, 0)
+        i = i + 1
+    }
+    t.assert(isZero(zeros))
+
+    zeros[1] = 0x01
+    t.assert(!isZero(zeros))
+}
+
+test "scalarMult produces 32-byte result" (t &testing.T) {
+    var scalar = alloc([]byte, 0)
+    var i = 0
+    for i < scalarSize {
+        scalar = append(scalar, byte(i + 1))
+        i = i + 1
+    }
+
+    var point = basePoint()
+    var result = try scalarMult(scalar, point)
+    t.assert(len(result) == pointSize)
+}
+
+test "scalarMult rejects wrong scalar size" (t &testing.T) {
+    var shortScalar = alloc([]byte, 0)
+    shortScalar = append(shortScalar, 0x01)
+
+    var point = basePoint()
+    var result = try scalarMult(shortScalar, point)
+    t.assert(len(result) == 0)
+}
+
+test "scalarMult rejects wrong point size" (t &testing.T) {
+    var scalar = alloc([]byte, 0)
+    var i = 0
+    for i < scalarSize {
+        scalar = append(scalar, byte(i + 1))
+        i = i + 1
+    }
+
+    var shortPoint = alloc([]byte, 0)
+    shortPoint = append(shortPoint, 0x01)
+
+    var result = try scalarMult(scalar, shortPoint)
+    t.assert(len(result) == 0)
+}
+
+test "scalarBaseMult produces 32-byte result" (t &testing.T) {
+    var scalar = alloc([]byte, 0)
+    var i = 0
+    for i < scalarSize {
+        scalar = append(scalar, byte(i + 5))
+        i = i + 1
+    }
+
+    var result = try scalarBaseMult(scalar)
+    t.assert(len(result) == pointSize)
+}
+
+test "scalarBaseMult rejects wrong scalar size" (t &testing.T) {
+    var shortScalar = alloc([]byte, 0)
+    shortScalar = append(shortScalar, 0x01)
+
+    var result = try scalarBaseMult(shortScalar)
+    t.assert(len(result) == 0)
+}
+
+test "ecdh produces shared secret" (t &testing.T) {
+    var aliceKeys = try generateKey()
+    var alicePub = aliceKeys.0
+    var alicePriv = aliceKeys.1
+
+    var bobKeys = try generateKey()
+    var bobPub = bobKeys.0
+    var bobPriv = bobKeys.1
+
+    var secretA = try alicePriv.ecdh(@bobPub)
+    t.assert(len(secretA) == pointSize)
+
+    var secretB = try bobPriv.ecdh(@alicePub)
+    t.assert(len(secretB) == pointSize)
+}
+
+test "ecdh rejects all-zero public key" (t &testing.T) {
+    var keys = try generateKey()
+    var priv = keys.1
+
+    var zeroPub = alloc([]byte, 0)
+    var i = 0
+    for i < pointSize {
+        zeroPub = append(zeroPub, 0)
+        i = i + 1
+    }
+    var pub = PublicKey{ data: zeroPub }
+
+    var secret = try priv.ecdh(@pub)
+    t.assert(len(secret) == 0)
+}
+
+test "publicKey returns valid public key" (t &testing.T) {
+    var keys = try generateKey()
+    var priv = keys.1
+
+    var pub = priv.publicKey()
+    t.assert(len(pub.data) == pointSize)
+}
+
+test "montgomeryLadder is deterministic" (t &testing.T) {
+    var scalar = alloc([]byte, 0)
+    var i = 0
+    for i < scalarSize {
+        scalar = append(scalar, byte(i + 10))
+        i = i + 1
+    }
+
+    var point = basePoint()
+    var r1 = montgomeryLadder(scalar, point)
+    var r2 = montgomeryLadder(scalar, point)
+
+    t.assert(len(r1) == pointSize)
+    i = 0
+    for i < pointSize {
+        t.assert(r1[i] == r2[i])
+        i = i + 1
+    }
+}
+
+test "montgomeryLadder high bit is clear" (t &testing.T) {
+    var scalar = alloc([]byte, 0)
+    var i = 0
+    for i < scalarSize {
+        scalar = append(scalar, 0xff)
+        i = i + 1
+    }
+
+    var result = montgomeryLadder(scalar, basePoint())
+    // High bit of last byte must be clear (result < 2^255).
+    t.assert(result[31] < 128)
+}
