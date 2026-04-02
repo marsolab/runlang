@@ -49,6 +49,8 @@ pub fun main() {
 }
 ```
 
+Equality operators (`==`, `!=`) work on any compatible pair of types. Ordering operators (`<`, `>`, `<=`, `>=`) require numeric operands — comparing strings or other non-numeric types with ordering operators is a compile-time error.
+
 ## Logical operators
 
 Logical operators work on `bool` values and short-circuit.

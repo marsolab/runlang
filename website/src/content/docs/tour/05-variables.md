@@ -34,7 +34,7 @@ let name string = "Run"
 let x = 42         // type inferred
 ```
 
-Attempting to reassign a `let` variable is a compile-time error.
+Attempting to reassign a `let` variable is a compile-time error. The compiler shows where the variable was originally defined and suggests using `var` instead.
 
 ## Short declarations
 

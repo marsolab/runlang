@@ -687,6 +687,10 @@ language-level support without requiring user-facing generics.
 - Compiler written in **Zig**
 - Native codegen via **Zig's own backend** (no LLVM dependency)
 - File extension: `.run`
+- Newlines are statement separators (no semicolons)
+- Rust-style diagnostics with source context, caret annotations, and contextual help
+- Ordering comparisons (`<`, `>`, `<=`, `>=`) require numeric operands
+- Equality comparisons (`==`, `!=`) work on any compatible type pair
 
 ## Testing
 

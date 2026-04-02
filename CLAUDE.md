@@ -22,18 +22,18 @@ Source (.run) → Lexer → Parser → Naming → Resolve → TypeCheck → Lowe
 ```
 
 **Frontend:**
-- **token.zig** — Token types (~90 variants) and compile-time keyword map
-- **lexer.zig** — Stateless single-pass scanner. `Lexer.init(source)` then `.next()` for streaming or `.tokenize(allocator)` for batch
+- **token.zig** — Token types (~90 variants), compile-time keyword map, and `Tag.displayName()` for human-readable error messages
+- **lexer.zig** — Stateless single-pass scanner. `Lexer.init(source)` then `.next()` for streaming or `.tokenize(allocator)` for batch. Detects unterminated strings/chars (returns `.invalid` token)
 - **parser.zig** — Single-pass recursive descent with precedence climbing for expressions. Collects errors without stopping (no panic mode)
 - **ast.zig** — Flat array design: `nodes: ArrayList(Node)` + `extra_data: ArrayList(NodeIndex)` for variable-length data. `null_node = 0` sentinel (node 0 is always `.root`)
 
 **Semantic analysis:**
-- **naming.zig** — Naming convention checker
-- **resolve.zig** — Name resolution and scope analysis
+- **naming.zig** — Naming convention checker with `suggestFix()` for corrected name suggestions
+- **resolve.zig** — Name resolution and scope analysis with "did you mean?" suggestions, "first defined here" annotations, and immutable reassignment help
 - **symbol.zig** — Symbol table with scope stack
-- **typecheck.zig** — Type checking pass (stub — needs real type inference)
+- **typecheck.zig** — Type checking pass with contextual error messages (type mismatch help, argument validation, ordering comparison checks)
 - **types.zig** — Type system definitions
-- **diagnostics.zig** — Structured error reporting
+- **diagnostics.zig** — Rust-style diagnostic reporting: `Diagnostic` with severity, `Annotation` (note/help/hint), `label` for caret lines, `editDistance`/`findClosestMatch` for fuzzy matching, rich rendering with source context and ANSI colors
 
 **Backend:**
 - **ir.zig** — Three-address code IR. Uses `local_set`/`local_get` for variables, `CallInfo` for named calls
@@ -86,7 +86,7 @@ These differ from older Zig versions and are critical to get right:
 
 ## Current Status
 
-Full pipeline working: Source → Lex → Parse → Naming → Resolve → TypeCheck → Lower → CodegenC → zig cc. Functions, let/var, assignments, if/else, for loops, literals, binary/unary ops, and calls all compile and run. Type checking is a stub (needs real type inference). Missing in lower.zig: for-in, switch, structs, defer, closures, channels, error handling.
+Full pipeline working: Source → Lex → Parse → Naming → Resolve → TypeCheck → Lower → CodegenC → zig cc. Functions, let/var, assignments, if/else, for loops, literals, binary/unary ops, and calls all compile and run. Type checking validates variable/assignment/return type mismatches, function argument counts and types, ordering comparison operands, and naming conventions. Diagnostics use Rust-style rich format with source context, caret annotations, notes/help/hints, "did you mean?" suggestions, and error count summaries. Missing in lower.zig: for-in, switch, structs, defer, closures, channels, error handling.
 
 ## Self-Improvement
 
