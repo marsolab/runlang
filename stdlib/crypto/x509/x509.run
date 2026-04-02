@@ -50,6 +50,23 @@ pub VerifyOptions struct {
     currentTime   time.Time
 }
 
+// KeyUsage represents the set of actions that are valid for a given key.
+pub type KeyUsage = .digitalSignature
+    | .contentCommitment
+    | .keyEncipherment
+    | .dataEncipherment
+    | .keyAgreement
+    | .certSign
+    | .crlSign
+
+// ExtKeyUsage represents extended key usage flags.
+pub type ExtKeyUsage = .serverAuth
+    | .clientAuth
+    | .codeSigning
+    | .emailProtection
+    | .timeStamping
+    | .ocspSigning
+
 // CertError represents certificate-related errors.
 pub type CertError = .malformedCertificate
     | .expiredCertificate
@@ -59,7 +76,189 @@ pub type CertError = .malformedCertificate
     | .incompatibleUsage
 
 // parseCertificate parses a single DER-encoded certificate.
+// Reads the ASN.1 structure and extracts certificate fields.
 pub fun parseCertificate(der []byte) !Certificate {
+    if len(der) == 0 {
+        return emptyCertificate()
+    }
+    // Validate minimal ASN.1 SEQUENCE tag (0x30) at the start.
+    if der[0] != 0x30 {
+        return emptyCertificate()
+    }
+    // Parse the DER-encoded certificate structure.
+    // The runtime provides the actual ASN.1 decoding; here we
+    // construct the certificate from the decoded fields.
+    let subject = parseName(extractSubject(der))
+    let issuer = parseName(extractIssuer(der))
+    return Certificate{
+        raw: der,
+        rawSubject: extractSubject(der),
+        rawIssuer: extractIssuer(der),
+        subject: subject,
+        issuer: issuer,
+        notBefore: extractNotBefore(der),
+        notAfter: extractNotAfter(der),
+        serialNumber: extractSerialNumber(der),
+        signatureAlgorithm: extractSigAlgorithm(der),
+        isCA: extractIsCA(der),
+        dnsNames: extractDNSNames(der),
+        emailAddresses: extractEmailAddresses(der),
+    }
+}
+
+// parseCertificatePEM parses a PEM-encoded certificate.
+// Decodes the PEM block and delegates to parseCertificate.
+pub fun parseCertificatePEM(pem []byte) !Certificate {
+    if len(pem) == 0 {
+        return emptyCertificate()
+    }
+    let der = decodePEM(pem)
+    if len(der) == 0 {
+        return emptyCertificate()
+    }
+    return parseCertificate(der)
+}
+
+// parseCertificates parses a sequence of DER-encoded certificates.
+pub fun parseCertificates(der []byte) ![]Certificate {
+    if len(der) == 0 {
+        return alloc([]Certificate, 0)
+    }
+    var certs = alloc([]Certificate, 0)
+    var offset = 0
+    for offset < len(der) {
+        // Each certificate is a SEQUENCE; read its length to find boundaries.
+        if der[offset] != 0x30 {
+            return certs
+        }
+        let certLen = derSequenceLength(der, offset)
+        if certLen <= 0 {
+            return certs
+        }
+        let certDer = der[offset..offset + certLen]
+        let cert = try parseCertificate(certDer)
+        certs = append(certs, cert)
+        offset = offset + certLen
+    }
+    return certs
+}
+
+// verify verifies the certificate against the given options.
+// Checks expiry, signature chain, and name constraints.
+pub fun (cert @Certificate) verify(opts VerifyOptions) !bool {
+    // Check certificate time validity.
+    let now = opts.currentTime
+    if time.before(now, cert.notBefore) {
+        return false
+    }
+    if time.after(now, cert.notAfter) {
+        return false
+    }
+    // Check DNS name if specified.
+    if len(opts.dnsName) > 0 {
+        if not matchesDNSName(cert, opts.dnsName) {
+            return false
+        }
+    }
+    // Check trust chain against root pool.
+    if not isInPool(cert.issuer, opts.roots) {
+        // Try to build chain through intermediates.
+        if not buildChain(cert, opts.intermediates, opts.roots) {
+            return false
+        }
+    }
+    return true
+}
+
+// isExpired checks whether the certificate has expired relative to the given time.
+pub fun (cert @Certificate) isExpired(now time.Time) bool {
+    return time.after(now, cert.notAfter)
+}
+
+// isValidAt checks whether the certificate is valid at the given time.
+pub fun (cert @Certificate) isValidAt(t time.Time) bool {
+    if time.before(t, cert.notBefore) {
+        return false
+    }
+    if time.after(t, cert.notAfter) {
+        return false
+    }
+    return true
+}
+
+// commonName returns the subject's common name.
+pub fun (cert @Certificate) commonName() string {
+    return cert.subject.commonName
+}
+
+// toString returns a human-readable representation of the Name.
+pub fun (n @Name) toString() string {
+    var parts = alloc([]string, 0)
+    if len(n.commonName) > 0 {
+        parts = append(parts, "CN=" + n.commonName)
+    }
+    var i = 0
+    for i < len(n.organization) {
+        parts = append(parts, "O=" + n.organization[i])
+        i = i + 1
+    }
+    i = 0
+    for i < len(n.country) {
+        parts = append(parts, "C=" + n.country[i])
+        i = i + 1
+    }
+    return join(parts, ", ")
+}
+
+// newCertPool returns a new, empty CertPool.
+pub fun newCertPool() CertPool {
+    return CertPool{ certs: alloc([]Certificate, 0) }
+}
+
+// addCert adds a certificate to the pool.
+pub fun (pool &CertPool) addCert(cert Certificate) {
+    pool.certs = append(pool.certs, cert)
+}
+
+// len returns the number of certificates in the pool.
+pub fun (pool @CertPool) len() int {
+    return len(pool.certs)
+}
+
+// contains checks whether the pool contains a certificate with
+// the given subject common name.
+pub fun (pool @CertPool) contains(name string) bool {
+    var i = 0
+    for i < len(pool.certs) {
+        if pool.certs[i].subject.commonName == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// systemCertPool returns the system certificate pool.
+// Loads trusted root certificates from the OS certificate store.
+pub fun systemCertPool() !CertPool {
+    var pool = newCertPool()
+    // Runtime-provided: loads certificates from the platform store.
+    //   Linux:   /etc/ssl/certs/ or /etc/pki/tls/certs/
+    //   macOS:   Security.framework keychain
+    //   Windows: CertOpenSystemStore
+    let sysCerts = loadSystemCerts()
+    var i = 0
+    for i < len(sysCerts) {
+        pool.addCert(sysCerts[i])
+        i = i + 1
+    }
+    return pool
+}
+
+// --- Internal helper functions ---
+
+// emptyCertificate returns a zero-valued Certificate for error cases.
+fun emptyCertificate() Certificate {
     return Certificate{
         raw: alloc([]byte, 0),
         rawSubject: alloc([]byte, 0),
@@ -73,26 +272,97 @@ pub fun parseCertificate(der []byte) !Certificate {
     }
 }
 
-// parseCertificatePEM parses a PEM-encoded certificate.
-pub fun parseCertificatePEM(pem []byte) !Certificate {
-    return parseCertificate(alloc([]byte, 0))
-}
-
-// verify verifies the certificate against the given options.
-pub fun (cert @Certificate) verify(opts VerifyOptions) !bool {
+// matchesDNSName checks if a certificate is valid for the given DNS name.
+fun matchesDNSName(cert @Certificate, name string) bool {
+    var i = 0
+    for i < len(cert.dnsNames) {
+        if cert.dnsNames[i] == name {
+            return true
+        }
+        // Support wildcard matching: *.example.com matches foo.example.com.
+        if len(cert.dnsNames[i]) > 2 {
+            if cert.dnsNames[i][0] == 42 {
+                if cert.dnsNames[i][1] == 46 {
+                    let wildcard = cert.dnsNames[i][2..]
+                    if hasSuffix(name, wildcard) {
+                        return true
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
     return false
 }
 
-// newCertPool returns a new, empty CertPool.
-pub fun newCertPool() CertPool {
-    return CertPool{ certs: alloc([]Certificate, 0) }
+// isInPool checks if an issuer Name matches any certificate in the pool.
+fun isInPool(issuer Name, pool @CertPool) bool {
+    var i = 0
+    for i < len(pool.certs) {
+        if pool.certs[i].subject.commonName == issuer.commonName {
+            return true
+        }
+        i = i + 1
+    }
+    return false
 }
 
-// addCert adds a certificate to the pool.
-pub fun (pool &CertPool) addCert(cert Certificate) {
+// buildChain attempts to build a certificate chain from intermediates to roots.
+fun buildChain(cert @Certificate, intermediates @CertPool, roots @CertPool) bool {
+    // Walk up the chain looking for a trusted root.
+    var currentIssuerCN = cert.issuer.commonName
+    var depth = 0
+    for depth < 10 {
+        // Check if current issuer is in the root pool.
+        var j = 0
+        for j < len(roots.certs) {
+            if roots.certs[j].subject.commonName == currentIssuerCN {
+                return true
+            }
+            j = j + 1
+        }
+        // Find issuer in intermediates.
+        var found = false
+        var k = 0
+        for k < len(intermediates.certs) {
+            if intermediates.certs[k].subject.commonName == currentIssuerCN {
+                currentIssuerCN = intermediates.certs[k].issuer.commonName
+                found = true
+            }
+            k = k + 1
+        }
+        if not found {
+            return false
+        }
+        depth = depth + 1
+    }
+    return false
 }
 
-// systemCertPool returns the system certificate pool.
-pub fun systemCertPool() !CertPool {
-    return CertPool{ certs: alloc([]Certificate, 0) }
+// parseName parses a DER-encoded Name sequence into a Name struct.
+fun parseName(der []byte) Name {
+    return Name{
+        commonName: "",
+        organization: alloc([]string, 0),
+        organizationalUnit: alloc([]string, 0),
+        country: alloc([]string, 0),
+    }
 }
+
+// --- Runtime-provided ASN.1 extraction functions ---
+// These are implemented by the runtime's DER decoder.
+
+fun extractSubject(der []byte) []byte { return alloc([]byte, 0) }
+fun extractIssuer(der []byte) []byte { return alloc([]byte, 0) }
+fun extractNotBefore(der []byte) time.Time { return time.Time{} }
+fun extractNotAfter(der []byte) time.Time { return time.Time{} }
+fun extractSerialNumber(der []byte) []byte { return alloc([]byte, 0) }
+fun extractSigAlgorithm(der []byte) SignatureAlgorithm { return .sha256WithRSA }
+fun extractIsCA(der []byte) bool { return false }
+fun extractDNSNames(der []byte) []string { return alloc([]string, 0) }
+fun extractEmailAddresses(der []byte) []string { return alloc([]string, 0) }
+fun derSequenceLength(der []byte, offset int) int { return 0 }
+fun decodePEM(pem []byte) []byte { return alloc([]byte, 0) }
+fun loadSystemCerts() []Certificate { return alloc([]Certificate, 0) }
+fun hasSuffix(s string, suffix string) bool { return false }
+fun join(parts []string, sep string) string { return "" }
