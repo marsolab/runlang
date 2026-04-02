@@ -1,4 +1,8 @@
-# Run Standard Project Layout
+---
+title: "Standard Project Layout"
+sidebar:
+  order: 0
+---
 
 This is the standard layout for a Run project. Even though you can put your code wherever you want, this is the recommended layout.
 

@@ -84,7 +84,7 @@ zig build test
 
 ## Learn the Language
 
-- **[Language Tour](docs/tour/)** — a 40-part progressive tutorial covering everything from hello world to concurrency and memory management
+- **[Language Tour](https://runlang.dev/tour/00-introduction/)** — a 40-part progressive tutorial covering everything from hello world to concurrency and memory management
 - **[Language Specification](SPEC.md)** — complete reference for Run's syntax, type system, memory model, and standard library design
 
 ## Current Status
@@ -103,7 +103,7 @@ Run is in **active development**. The compiler can compile and run simple progra
 | Runtime library | MVP |
 | Standard library | In progress |
 
-This is a great time to get involved — the language design is taking shape, and there are significant pieces to build. See [docs/runtime/](docs/runtime/) for the runtime design documentation.
+This is a great time to get involved — the language design is taking shape, and there are significant pieces to build. See the [runtime design documentation](https://runlang.dev/runtime/overview/) on the website.
 
 ## Project Structure
 

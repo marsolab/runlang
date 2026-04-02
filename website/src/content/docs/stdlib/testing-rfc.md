@@ -1,4 +1,9 @@
-# RFC: Testing Package Redesign
+---
+title: "Testing Package RFC"
+sidebar:
+  order: 2
+---
+
 
 ## Motivation
 

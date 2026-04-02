@@ -1,4 +1,8 @@
-# Debugging Run Programs in JetBrains IDEs
+---
+title: "Debugging in JetBrains IDEs"
+sidebar:
+  order: 1
+---
 
 This guide covers setting up debugging for Run programs in IntelliJ IDEA, CLion, GoLand, and other JetBrains IDEs.
 

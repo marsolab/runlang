@@ -1,4 +1,8 @@
-# Debugging Run Programs in Neovim
+---
+title: "Debugging in Neovim"
+sidebar:
+  order: 2
+---
 
 This guide covers setting up debugging for Run programs in Neovim using [nvim-dap](https://github.com/mfussenegger/nvim-dap).
 
