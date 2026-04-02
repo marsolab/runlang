@@ -511,6 +511,13 @@ pub fn invokeZigCC(
             const lib_path = try std.fs.path.join(allocator, &.{ info.lib_dir, "librunrt.a" });
             try args.append(allocator, lib_path);
 
+            // Link the libxev bridge (provides run_xev_* symbols)
+            const xev_lib_path = try std.fs.path.join(allocator, &.{ info.lib_dir, "librunxev.a" });
+            // Only link if the file exists (not present with legacy-poller builds)
+            if (std.fs.cwd().access(xev_lib_path, .{})) |_| {
+                try args.append(allocator, xev_lib_path);
+            } else |_| {}
+
             // Include path for installed runtime headers
             const include_flag = try std.fmt.allocPrint(allocator, "-I{s}", .{info.include_dir});
             try args.append(allocator, include_flag);

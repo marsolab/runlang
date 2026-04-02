@@ -2,8 +2,8 @@
 #define RUN_SCHEDULER_H
 
 #include <pthread.h>
-#include <stdbool.h>
 #include <stdatomic.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -14,18 +14,41 @@ typedef struct run_p run_p_t;
 /* ---------- Context (platform-specific) ---------- */
 #if defined(__aarch64__) || defined(__arm64__)
 typedef struct {
-    void *sp; void *lr;
-    void *x19; void *x20; void *x21; void *x22;
-    void *x23; void *x24; void *x25; void *x26;
-    void *x27; void *x28; void *fp; void *reserved;
-    uint64_t d8; uint64_t d9; uint64_t d10; uint64_t d11;
-    uint64_t d12; uint64_t d13; uint64_t d14; uint64_t d15;
+    void *sp;
+    void *lr;
+    void *x19;
+    void *x20;
+    void *x21;
+    void *x22;
+    void *x23;
+    void *x24;
+    void *x25;
+    void *x26;
+    void *x27;
+    void *x28;
+    void *fp;
+    void *reserved;
+    uint64_t d8;
+    uint64_t d9;
+    uint64_t d10;
+    uint64_t d11;
+    uint64_t d12;
+    uint64_t d13;
+    uint64_t d14;
+    uint64_t d15;
 } run_context_t;
 #elif defined(_WIN32) && defined(_M_X64)
 typedef struct {
-    void *rsp; void *rip; void *rbx; void *rbp;
-    void *rdi; void *rsi;
-    void *r12; void *r13; void *r14; void *r15;
+    void *rsp;
+    void *rip;
+    void *rbx;
+    void *rbp;
+    void *rdi;
+    void *rsi;
+    void *r12;
+    void *r13;
+    void *r14;
+    void *r15;
     __declspec(align(16)) unsigned char xmm6[16];
     __declspec(align(16)) unsigned char xmm7[16];
     __declspec(align(16)) unsigned char xmm8[16];
@@ -39,8 +62,14 @@ typedef struct {
 } run_context_t;
 #else
 typedef struct {
-    void *rsp; void *rip; void *rbx; void *rbp;
-    void *r12; void *r13; void *r14; void *r15;
+    void *rsp;
+    void *rip;
+    void *rbx;
+    void *rbp;
+    void *r12;
+    void *r13;
+    void *r14;
+    void *r15;
 } run_context_t;
 #endif
 
@@ -72,7 +101,11 @@ struct run_g {
 };
 
 /* ---------- G Queue (intrusive linked list, for global queue) ---------- */
-typedef struct { run_g_t *head; run_g_t *tail; uint32_t len; } run_g_queue_t;
+typedef struct {
+    run_g_t *head;
+    run_g_t *tail;
+    uint32_t len;
+} run_g_queue_t;
 void run_g_queue_init(run_g_queue_t *q);
 void run_g_queue_push(run_g_queue_t *q, run_g_t *g);
 run_g_t *run_g_queue_pop(run_g_queue_t *q);

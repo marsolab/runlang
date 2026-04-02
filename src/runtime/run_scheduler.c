@@ -197,8 +197,8 @@ run_g_t *run_local_queue_pop(run_local_queue_t *q) {
     run_g_t *g = q->buf[t % RUN_LOCAL_QUEUE_SIZE];
     if (t == h) {
         /* Last element — race with stealers */
-        if (!atomic_compare_exchange_strong_explicit(&q->head, &h, h + 1,
-                memory_order_seq_cst, memory_order_relaxed)) {
+        if (!atomic_compare_exchange_strong_explicit(&q->head, &h, h + 1, memory_order_seq_cst,
+                                                     memory_order_relaxed)) {
             g = NULL;
         }
         atomic_store_explicit(&q->tail, t + 1, memory_order_relaxed);
@@ -212,8 +212,8 @@ run_g_t *run_local_queue_steal(run_local_queue_t *src, run_local_queue_t *dst) {
     if ((int32_t)(t - h) <= 0)
         return NULL;
     run_g_t *g = src->buf[h % RUN_LOCAL_QUEUE_SIZE];
-    if (!atomic_compare_exchange_strong_explicit(&src->head, &h, h + 1,
-            memory_order_seq_cst, memory_order_relaxed))
+    if (!atomic_compare_exchange_strong_explicit(&src->head, &h, h + 1, memory_order_seq_cst,
+                                                 memory_order_relaxed))
         return NULL;
     (void)dst; /* single-item steal for simplicity */
     return g;
@@ -312,7 +312,6 @@ static void *stack_alloc(size_t *out_size, size_t *out_committed) {
 static void stack_free(void *base, size_t size) {
     run_vmem_free(base, size);
 }
-
 
 /* Push to a P's local queue with overflow to the global queue. */
 static void local_push_or_global(run_local_queue_t *lq, run_g_t *g) {
@@ -476,8 +475,8 @@ static run_g_t *steal_from_p(run_p_t *self_p, run_p_t *victim) {
     if (g) {
         atomic_fetch_add_explicit(&scheduler_metrics.steal_count, 1, memory_order_relaxed);
         if (trace_enabled) {
-            fprintf(stderr, "{\"event\":\"steal\",\"from_p\":%u,\"to_p\":%u}\n",
-                    victim->id, self_p->id);
+            fprintf(stderr, "{\"event\":\"steal\",\"from_p\":%u,\"to_p\":%u}\n", victim->id,
+                    self_p->id);
         }
     }
     return g;
@@ -705,7 +704,8 @@ static void schedule_loop(run_m_t *m) {
         /* Context switch from g0 to g */
         atomic_fetch_add_explicit(&scheduler_metrics.context_switches, 1, memory_order_relaxed);
         if (trace_enabled) {
-            fprintf(stderr, "{\"event\":\"context_switch\",\"g_id\":%llu}\n", (unsigned long long)g->id);
+            fprintf(stderr, "{\"event\":\"context_switch\",\"g_id\":%llu}\n",
+                    (unsigned long long)g->id);
         }
         run_context_switch(&m->g0->context, &g->context);
 
@@ -715,7 +715,8 @@ static void schedule_loop(run_m_t *m) {
         if (g->status == G_DEAD) {
             atomic_fetch_add_explicit(&scheduler_metrics.complete_count, 1, memory_order_relaxed);
             if (trace_enabled) {
-                fprintf(stderr, "{\"event\":\"complete\",\"g_id\":%llu}\n", (unsigned long long)g->id);
+                fprintf(stderr, "{\"event\":\"complete\",\"g_id\":%llu}\n",
+                        (unsigned long long)g->id);
             }
             atomic_fetch_sub_explicit(&live_g_count, 1, memory_order_release);
             g_free(g);
@@ -983,7 +984,7 @@ void run_g_ready(run_g_t *g) {
 wake:
     /* Wake an M if there are idle Ps. */
     if (idle_p_count > 0) {
-        run_poller_wakeup();  /* Unblock M in poll_blocking */
+        run_poller_wakeup(); /* Unblock M in poll_blocking */
         run_wake_m();
     }
 }
@@ -1034,7 +1035,7 @@ void run_spawn_on_node(void (*fn)(void *), void *arg, int32_t node_id) {
 wake:
     /* Wake an M if there are idle Ps. */
     if (idle_p_count > 0) {
-        run_poller_wakeup();  /* Unblock M in poll_blocking */
+        run_poller_wakeup(); /* Unblock M in poll_blocking */
         run_wake_m();
     }
 }
@@ -1183,17 +1184,17 @@ static void sigurg_handler(int sig, siginfo_t *info, void *uctx) {
     /* Rewrite PC to async preemption trampoline */
     ucontext_t *uc = (ucontext_t *)uctx;
 #if defined(__APPLE__)
-  #if defined(__aarch64__)
+#if defined(__aarch64__)
     uc->uc_mcontext->__ss.__pc = (uint64_t)run_async_preempt;
-  #else
+#else
     uc->uc_mcontext->__ss.__rip = (uint64_t)run_async_preempt;
-  #endif
+#endif
 #elif defined(__linux__)
-  #if defined(__aarch64__)
+#if defined(__aarch64__)
     uc->uc_mcontext.pc = (uint64_t)run_async_preempt;
-  #else
+#else
     uc->uc_mcontext.gregs[REG_RIP] = (uint64_t)run_async_preempt;
-  #endif
+#endif
 #endif
 }
 
@@ -1418,9 +1419,11 @@ uint32_t run_scheduler_set_maxprocs(uint32_t n) {
 run_metrics_t run_runtime_metrics(void) {
     run_metrics_t m;
     m.spawn_count = atomic_load_explicit(&scheduler_metrics.spawn_count, memory_order_relaxed);
-    m.complete_count = atomic_load_explicit(&scheduler_metrics.complete_count, memory_order_relaxed);
+    m.complete_count =
+        atomic_load_explicit(&scheduler_metrics.complete_count, memory_order_relaxed);
     m.steal_count = atomic_load_explicit(&scheduler_metrics.steal_count, memory_order_relaxed);
-    m.context_switches = atomic_load_explicit(&scheduler_metrics.context_switches, memory_order_relaxed);
+    m.context_switches =
+        atomic_load_explicit(&scheduler_metrics.context_switches, memory_order_relaxed);
     m.park_count = atomic_load_explicit(&scheduler_metrics.park_count, memory_order_relaxed);
     m.unpark_count = atomic_load_explicit(&scheduler_metrics.unpark_count, memory_order_relaxed);
     m.poll_count = atomic_load_explicit(&scheduler_metrics.poll_count, memory_order_relaxed);
