@@ -1,6 +1,7 @@
-#include "test_framework.h"
-#include "../run_scheduler.h"
 #include "../run_chan.h"
+#include "../run_scheduler.h"
+#include "test_framework.h"
+
 #include <stdatomic.h>
 #include <stdint.h>
 
@@ -147,7 +148,7 @@ static void test_stress_channel_pingpong(void) {
     run_chan_t *ping = run_chan_new(sizeof(int64_t), 0);
     run_chan_t *pong = run_chan_new(sizeof(int64_t), 0);
 
-    pingpong_ctx_t ctx = { .ping = ping, .pong = pong, .rounds = 500 };
+    pingpong_ctx_t ctx = {.ping = ping, .pong = pong, .rounds = 500};
 
     run_spawn(ping_fn, &ctx);
     run_spawn(pong_fn, &ctx);

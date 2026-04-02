@@ -160,6 +160,8 @@ pub fn build(b: *std.Build) void {
         xev_bridge.root_module.addImport("xev", libxev_dep.module("xev"));
         xev_bridge.linkLibC();
         runtime_lib.linkLibrary(xev_bridge);
+        // Install xev bridge alongside runtime for the driver to link
+        b.installArtifact(xev_bridge);
     }
     runtime_lib.linkLibC();
     runtime_lib.linkSystemLibrary("pthread");
@@ -298,6 +300,74 @@ pub fn build(b: *std.Build) void {
     run_runtime_tests.step.dependOn(&runtime_test_exe.step);
     const runtime_test_step = b.step("test-runtime", "Run runtime C tests");
     runtime_test_step.dependOn(&run_runtime_tests.step);
+
+    // Runtime benchmarks
+    const runtime_bench_exe = b.addExecutable(.{
+        .name = "runtime-bench",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = .ReleaseFast,
+        }),
+    });
+    const runtime_bench_sources = .{
+        "benchmarks/runtime/bench_main.c",
+        "benchmarks/runtime/bench_spawn.c",
+        "benchmarks/runtime/bench_context_switch.c",
+        "benchmarks/runtime/bench_channel.c",
+        "benchmarks/runtime/bench_scheduler.c",
+    };
+    inline for (runtime_bench_sources) |src| {
+        runtime_bench_exe.root_module.addCSourceFile(.{
+            .file = b.path(src),
+            .flags = &.{"-D_GNU_SOURCE"},
+        });
+    }
+    inline for (runtime_c_sources) |src| {
+        runtime_bench_exe.root_module.addCSourceFile(.{
+            .file = b.path(src),
+            .flags = &.{"-D_GNU_SOURCE"},
+        });
+    }
+    runtime_bench_exe.root_module.addCSourceFile(.{
+        .file = b.path(poller_source),
+        .flags = &.{"-D_GNU_SOURCE"},
+    });
+    // Note: run_main.c is NOT included in benchmarks — bench_main.c provides main()
+    if (target_info.cpu.arch == .x86_64) {
+        if (target_info.os.tag == .windows) {
+            runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_win64.S"));
+        } else {
+            runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
+            runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_amd64.S"));
+        }
+    } else if (target_info.cpu.arch == .aarch64) {
+        runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_arm64.S"));
+        runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_arm64.S"));
+    }
+    runtime_bench_exe.root_module.addIncludePath(b.path("src/runtime"));
+    runtime_bench_exe.root_module.addIncludePath(b.path("benchmarks/runtime"));
+    if (!legacy_poller) {
+        const xev_bench_bridge = b.addLibrary(.{
+            .name = "runxev-bench",
+            .linkage = .static,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/runtime/run_xev_bridge.zig"),
+                .target = target,
+                .optimize = .ReleaseFast,
+            }),
+        });
+        xev_bench_bridge.root_module.addImport("xev", libxev_dep.module("xev"));
+        xev_bench_bridge.linkLibC();
+        runtime_bench_exe.linkLibrary(xev_bench_bridge);
+    }
+    runtime_bench_exe.linkLibC();
+    runtime_bench_exe.linkSystemLibrary("pthread");
+    b.installArtifact(runtime_bench_exe);
+
+    const run_runtime_bench = b.addRunArtifact(runtime_bench_exe);
+    run_runtime_bench.step.dependOn(&runtime_bench_exe.step);
+    const runtime_bench_step = b.step("bench-runtime", "Run runtime benchmarks");
+    runtime_bench_step.dependOn(&run_runtime_bench.step);
 
     // Example build tests
     const examples_test_exe = b.addExecutable(.{

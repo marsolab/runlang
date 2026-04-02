@@ -1,6 +1,7 @@
-#include "test_framework.h"
 #include "../run_poller.h"
 #include "../run_scheduler.h"
+#include "test_framework.h"
+
 #include <string.h>
 #include <unistd.h>
 
