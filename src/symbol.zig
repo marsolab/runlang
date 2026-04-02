@@ -145,6 +145,21 @@ pub const SymbolTable = struct {
         return self.method_table.get(.{ .type_id = type_id, .name = name });
     }
 
+    /// Collect all visible symbol names (from all scopes, innermost first).
+    /// Caller owns the returned slice and must free it.
+    pub fn visibleNames(self: *const SymbolTable, allocator: std.mem.Allocator) ![]const []const u8 {
+        var names: std.ArrayList([]const u8) = .empty;
+        var i = self.scopes.items.len;
+        while (i > 0) {
+            i -= 1;
+            var iter = self.scopes.items[i].iterator();
+            while (iter.next()) |entry| {
+                try names.append(allocator, entry.key_ptr.*);
+            }
+        }
+        return try names.toOwnedSlice(allocator);
+    }
+
     /// Returns the current scope depth (0 = global).
     pub fn scopeDepth(self: *const SymbolTable) usize {
         return self.scopes.items.len - 1;

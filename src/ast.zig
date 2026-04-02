@@ -23,6 +23,7 @@ pub const Ast = struct {
         tag: ErrorTag,
         loc: Token.Loc,
         expected: ?Token.Tag = null,
+        found: ?Token.Tag = null,
     };
 
     pub const ErrorTag = enum {
@@ -39,6 +40,8 @@ pub const Ast = struct {
         expected_asm_register,
         expected_arrow_right,
         unexpected_eof,
+        unnecessary_semicolon,
+        keyword_suggestion,
     };
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Ast {

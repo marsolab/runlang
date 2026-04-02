@@ -1,0 +1,6 @@
+// compile-error: 'break' outside of loop
+package main
+
+pub fun main() {
+    break
+}

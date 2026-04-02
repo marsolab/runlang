@@ -1,0 +1,9 @@
+// compile-error: undefined reference
+package main
+
+pub fun helper() {
+}
+
+pub fun main() {
+    hlper()
+}

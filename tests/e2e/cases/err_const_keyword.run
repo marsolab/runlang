@@ -1,0 +1,6 @@
+// compile-error: unknown keyword 'const'
+package main
+
+pub fun main() {
+    const x = 42
+}

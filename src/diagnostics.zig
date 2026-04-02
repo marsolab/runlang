@@ -59,22 +59,42 @@ pub fn getSourceLine(source: []const u8, byte_offset: u32) SourceLine {
     };
 }
 
-pub const Diagnostic = struct {
-    severity: Severity,
+pub const AnnotationKind = enum {
+    note,
+    help,
+    hint,
+};
+
+pub const Annotation = struct {
+    kind: AnnotationKind,
+    /// Byte offset in source. 0 with end_offset 0 means text-only (no source location).
     byte_offset: u32,
     end_offset: u32,
     message: []const u8,
 };
 
+pub const Diagnostic = struct {
+    severity: Severity,
+    byte_offset: u32,
+    end_offset: u32,
+    message: []const u8,
+    /// Optional shorter label for the caret line. If null, message is used.
+    label: ?[]const u8 = null,
+    /// Chained annotations (notes, help, hints) rendered after this diagnostic.
+    annotations: []const Annotation = &.{},
+};
+
 pub const DiagnosticList = struct {
     diagnostics: std.ArrayList(Diagnostic),
     allocated_messages: std.ArrayList([]const u8),
+    allocated_annotations: std.ArrayList([]const Annotation),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) DiagnosticList {
         return .{
             .diagnostics = .empty,
             .allocated_messages = .empty,
+            .allocated_annotations = .empty,
             .allocator = allocator,
         };
     }
@@ -84,6 +104,10 @@ pub const DiagnosticList = struct {
             self.allocator.free(msg);
         }
         self.allocated_messages.deinit(self.allocator);
+        for (self.allocated_annotations.items) |ann| {
+            self.allocator.free(ann);
+        }
+        self.allocated_annotations.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
     }
 
@@ -126,6 +150,62 @@ pub const DiagnosticList = struct {
         errdefer self.allocator.free(msg);
         try self.allocated_messages.append(self.allocator, msg);
         try self.addWarning(byte_offset, end_offset, msg);
+    }
+
+    pub fn addErrorWithLabel(self: *DiagnosticList, byte_offset: u32, end_offset: u32, message: []const u8, label: []const u8) !void {
+        try self.diagnostics.append(self.allocator, .{
+            .severity = .@"error",
+            .byte_offset = byte_offset,
+            .end_offset = end_offset,
+            .message = message,
+            .label = label,
+        });
+    }
+
+    pub fn addErrorAnnotated(
+        self: *DiagnosticList,
+        byte_offset: u32,
+        end_offset: u32,
+        message: []const u8,
+        label: ?[]const u8,
+        annotations: []const Annotation,
+    ) !void {
+        const owned = try self.allocator.dupe(Annotation, annotations);
+        errdefer self.allocator.free(owned);
+        try self.allocated_annotations.append(self.allocator, owned);
+        try self.diagnostics.append(self.allocator, .{
+            .severity = .@"error",
+            .byte_offset = byte_offset,
+            .end_offset = end_offset,
+            .message = message,
+            .label = label,
+            .annotations = owned,
+        });
+    }
+
+    pub fn addErrorAnnotatedFmt(
+        self: *DiagnosticList,
+        byte_offset: u32,
+        end_offset: u32,
+        comptime fmt: []const u8,
+        args: anytype,
+        label: ?[]const u8,
+        annotations: []const Annotation,
+    ) !void {
+        const msg = try std.fmt.allocPrint(self.allocator, fmt, args);
+        errdefer self.allocator.free(msg);
+        try self.allocated_messages.append(self.allocator, msg);
+        const owned = try self.allocator.dupe(Annotation, annotations);
+        errdefer self.allocator.free(owned);
+        try self.allocated_annotations.append(self.allocator, owned);
+        try self.diagnostics.append(self.allocator, .{
+            .severity = .@"error",
+            .byte_offset = byte_offset,
+            .end_offset = end_offset,
+            .message = msg,
+            .label = label,
+            .annotations = owned,
+        });
     }
 
     pub fn hasErrors(self: *const DiagnosticList) bool {
@@ -222,11 +302,68 @@ pub fn renderOneDiagnostic(d: Diagnostic, source: []const u8, file_path: []const
     try writeSpaces(writer, col_offset);
     try writer.writeAll(sev_color);
     try writeChars(writer, '^', if (span_len == 0) 1 else span_len);
-    try writer.print(" {s}{s}\n", .{ d.message, reset });
+    const caret_label = d.label orelse d.message;
+    try writer.print(" {s}{s}\n", .{ caret_label, reset });
 
     // Line 6: empty gutter (trailing separator)
     try writeSpaces(writer, gutter_width + 1);
     try writer.print("{s}|{s}\n", .{ cyan, reset });
+
+    // Render chained annotations (notes, help, hints)
+    for (d.annotations) |ann| {
+        const ann_kind_str = switch (ann.kind) {
+            .note => "note",
+            .help => "help",
+            .hint => "hint",
+        };
+        const ann_color = if (use_color) switch (ann.kind) {
+            .note => Color.blue,
+            .help => Color.cyan,
+            .hint => Color.cyan,
+        } else "";
+
+        if (ann.byte_offset == 0 and ann.end_offset == 0) {
+            // Text-only annotation (no source location)
+            try writeSpaces(writer, gutter_width + 1);
+            try writer.print("{s}={s} {s}{s}{s}: {s}\n", .{
+                cyan, reset, ann_color, ann_kind_str, reset, ann.message,
+            });
+        } else {
+            // Annotation with source location
+            const ann_src = getSourceLine(source, ann.byte_offset);
+            const ann_col = ann_src.col - 1;
+            const ann_span = blk: {
+                if (ann.end_offset > ann.byte_offset) {
+                    const raw = ann.end_offset - ann.byte_offset;
+                    const remaining = ann_src.text.len - @min(ann_col, ann_src.text.len);
+                    break :blk @min(raw, remaining);
+                }
+                break :blk @as(usize, 1);
+            };
+
+            // Show annotation with source context
+            try writeSpaces(writer, gutter_width + 1);
+            try writer.print("{s}={s} {s}{s}{s}: {s}\n", .{
+                cyan, reset, ann_color, ann_kind_str, reset, ann.message,
+            });
+            try writer.print(" {s}-->{s} {s}:{d}:{d}\n", .{
+                cyan, reset, file_path, ann_src.line_number, ann_src.col,
+            });
+            try writeSpaces(writer, gutter_width + 1);
+            try writer.print("{s}|{s}\n", .{ cyan, reset });
+            try writer.print("{s}{d}{s} {s}|{s} {s}\n", .{
+                bold, ann_src.line_number, reset, cyan, reset, ann_src.text,
+            });
+            try writeSpaces(writer, gutter_width + 1);
+            try writer.print("{s}|{s} ", .{ cyan, reset });
+            try writeSpaces(writer, ann_col);
+            try writer.writeAll(ann_color);
+            try writeChars(writer, '-', if (ann_span == 0) 1 else ann_span);
+            try writer.print(" {s}{s}\n", .{ ann.message, reset });
+            try writeSpaces(writer, gutter_width + 1);
+            try writer.print("{s}|{s}\n", .{ cyan, reset });
+        }
+    }
 }
 
 fn writeSpaces(writer: anytype, count: usize) !void {
@@ -268,7 +405,86 @@ pub fn computeLineCol(source: []const u8, byte_offset: u32) struct { line: u32, 
     return .{ .line = line, .col = col };
 }
 
+/// Compute Levenshtein edit distance between two strings.
+/// Uses a stack-allocated buffer for strings up to 64 chars; returns null for longer strings.
+pub fn editDistance(a: []const u8, b: []const u8) ?u32 {
+    const max_len = 64;
+    if (a.len > max_len or b.len > max_len) return null;
+
+    var prev_row: [max_len + 1]u32 = undefined;
+    var curr_row: [max_len + 1]u32 = undefined;
+
+    for (0..b.len + 1) |j| {
+        prev_row[j] = @intCast(j);
+    }
+
+    for (a, 0..) |ca, i| {
+        curr_row[0] = @intCast(i + 1);
+        for (b, 0..) |cb, j| {
+            const cost: u32 = if (ca == cb) 0 else 1;
+            curr_row[j + 1] = @min(@min(
+                curr_row[j] + 1, // insertion
+                prev_row[j + 1] + 1, // deletion
+            ), prev_row[j] + cost); // substitution
+        }
+        @memcpy(prev_row[0 .. b.len + 1], curr_row[0 .. b.len + 1]);
+    }
+
+    return prev_row[b.len];
+}
+
+/// Find the closest match to `needle` in `haystack` within `max_distance`.
+/// Returns the best match, or null if none is close enough.
+pub fn findClosestMatch(needle: []const u8, haystack: []const []const u8, max_distance: u32) ?[]const u8 {
+    var best: ?[]const u8 = null;
+    var best_dist: u32 = max_distance + 1;
+
+    for (haystack) |candidate| {
+        if (editDistance(needle, candidate)) |dist| {
+            if (dist < best_dist) {
+                best_dist = dist;
+                best = candidate;
+            }
+        }
+    }
+
+    return best;
+}
+
 // Tests
+
+test "editDistance: identical strings" {
+    try std.testing.expectEqual(@as(?u32, 0), editDistance("hello", "hello"));
+}
+
+test "editDistance: single substitution" {
+    try std.testing.expectEqual(@as(?u32, 1), editDistance("hello", "hallo"));
+}
+
+test "editDistance: single insertion" {
+    try std.testing.expectEqual(@as(?u32, 1), editDistance("hell", "hello"));
+}
+
+test "editDistance: single deletion" {
+    try std.testing.expectEqual(@as(?u32, 1), editDistance("hello", "hell"));
+}
+
+test "editDistance: transposition" {
+    try std.testing.expectEqual(@as(?u32, 2), editDistance("pirntln", "println"));
+}
+
+test "findClosestMatch: finds closest" {
+    const haystack = [_][]const u8{ "println", "print", "printf" };
+    const result = findClosestMatch("pirntln", &haystack, 2);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("println", result.?);
+}
+
+test "findClosestMatch: no match within distance" {
+    const haystack = [_][]const u8{ "completely", "different" };
+    const result = findClosestMatch("println", &haystack, 2);
+    try std.testing.expect(result == null);
+}
 
 test "computeLineCol: first character" {
     const source = "hello\nworld";
@@ -505,6 +721,65 @@ test "renderRich: multiple diagnostics" {
     // Just check that both are present
     try std.testing.expect(std.mem.indexOf(u8, buf.items, "error: error here") != null);
     try std.testing.expect(std.mem.indexOf(u8, buf.items, "warning: warning here") != null);
+}
+
+test "renderRich: error with label shows label on caret line" {
+    var diags = DiagnosticList.init(std.testing.allocator);
+    defer diags.deinit();
+
+    const source = "var x i32 = \"hello\"";
+    try diags.addErrorWithLabel(12, 19, "type mismatch: expected 'i32', got 'string'", "expected 'i32'");
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(std.testing.allocator);
+    const writer = buf.writer(std.testing.allocator);
+
+    try diags.renderRich(source, "test.run", writer, false);
+
+    // Header should have full message
+    try std.testing.expect(std.mem.indexOf(u8, buf.items, "error: type mismatch: expected 'i32', got 'string'") != null);
+    // Caret line should have short label, not full message
+    try std.testing.expect(std.mem.indexOf(u8, buf.items, "^^^^^^^ expected 'i32'\n") != null);
+}
+
+test "renderRich: error with text-only annotation" {
+    var diags = DiagnosticList.init(std.testing.allocator);
+    defer diags.deinit();
+
+    const source = "let x = pirntln()";
+    const annotations = [_]Annotation{
+        .{ .kind = .help, .byte_offset = 0, .end_offset = 0, .message = "did you mean 'println'?" },
+    };
+    try diags.addErrorAnnotated(8, 15, "undefined reference to 'pirntln'", "not found in this scope", &annotations);
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(std.testing.allocator);
+    const writer = buf.writer(std.testing.allocator);
+
+    try diags.renderRich(source, "test.run", writer, false);
+
+    try std.testing.expect(std.mem.indexOf(u8, buf.items, "error: undefined reference to 'pirntln'") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buf.items, "^^^^^^^ not found in this scope") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buf.items, "= help: did you mean 'println'?") != null);
+}
+
+test "renderRich: error with note annotation" {
+    var diags = DiagnosticList.init(std.testing.allocator);
+    defer diags.deinit();
+
+    const source = "var x i32 = \"hello\"";
+    const annotations = [_]Annotation{
+        .{ .kind = .note, .byte_offset = 0, .end_offset = 0, .message = "string literals have type 'string'" },
+    };
+    try diags.addErrorAnnotated(12, 19, "type mismatch", null, &annotations);
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(std.testing.allocator);
+    const writer = buf.writer(std.testing.allocator);
+
+    try diags.renderRich(source, "test.run", writer, false);
+
+    try std.testing.expect(std.mem.indexOf(u8, buf.items, "= note: string literals have type 'string'") != null);
 }
 
 test "digitCount" {

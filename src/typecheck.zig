@@ -12,7 +12,8 @@ const symbol_mod = @import("symbol.zig");
 const Symbol = symbol_mod.Symbol;
 const SymbolId = symbol_mod.SymbolId;
 const SymbolTable = symbol_mod.SymbolTable;
-const DiagnosticList = @import("diagnostics.zig").DiagnosticList;
+const diag_mod = @import("diagnostics.zig");
+const DiagnosticList = diag_mod.DiagnosticList;
 const resolve = @import("resolve.zig");
 
 pub const TypeCheckResult = struct {
@@ -930,12 +931,31 @@ const TypeChecker = struct {
             if (expr_type != types.null_type and self.current_fn_return_type != types.null_type) {
                 if (!self.typesCompatible(self.current_fn_return_type, expr_type) and
                     !std.mem.eql(u8, self.typeName(self.current_fn_return_type), "<unknown>")) {
-                    try self.diagnostics.addErrorFmt(
-                        loc.start,
-                        loc.end,
-                        "return type mismatch: expected '{s}', got '{s}'",
-                        .{ self.typeName(self.current_fn_return_type), self.typeName(expr_type) },
-                    );
+                    const help = self.typeMismatchHelp(self.current_fn_return_type, expr_type);
+                    if (help) |help_msg| {
+                        var ann_buf = try self.allocator.alloc(diag_mod.Annotation, 1);
+                        try self.diagnostics.allocated_annotations.append(self.allocator, ann_buf);
+                        ann_buf[0] = .{ .kind = .note, .byte_offset = 0, .end_offset = 0, .message = help_msg };
+                        const msg = try std.fmt.allocPrint(self.allocator, "return type mismatch: expected '{s}', got '{s}'", .{ self.typeName(self.current_fn_return_type), self.typeName(expr_type) });
+                        try self.diagnostics.allocated_messages.append(self.allocator, msg);
+                        const ret_label = try std.fmt.allocPrint(self.allocator, "expected '{s}'", .{self.typeName(self.current_fn_return_type)});
+                        try self.diagnostics.allocated_messages.append(self.allocator, ret_label);
+                        try self.diagnostics.diagnostics.append(self.allocator, .{
+                            .severity = .@"error",
+                            .byte_offset = loc.start,
+                            .end_offset = loc.end,
+                            .message = msg,
+                            .label = ret_label,
+                            .annotations = ann_buf,
+                        });
+                    } else {
+                        try self.diagnostics.addErrorFmt(
+                            loc.start,
+                            loc.end,
+                            "return type mismatch: expected '{s}', got '{s}'",
+                            .{ self.typeName(self.current_fn_return_type), self.typeName(expr_type) },
+                        );
+                    }
                 }
             }
         } else {
@@ -1082,12 +1102,31 @@ const TypeChecker = struct {
             if (declared_type != types.null_type and init_type != types.null_type) {
                 if (!self.typesCompatible(declared_type, init_type)) {
                     const loc = self.tokenLoc(main_tok);
-                    try self.diagnostics.addErrorFmt(
-                        loc.start,
-                        loc.end,
-                        "type mismatch: expected '{s}', got '{s}'",
-                        .{ self.typeName(declared_type), self.typeName(init_type) },
-                    );
+                    const help = self.typeMismatchHelp(declared_type, init_type);
+                    if (help) |help_msg| {
+                        var ann_buf = try self.allocator.alloc(diag_mod.Annotation, 1);
+                        try self.diagnostics.allocated_annotations.append(self.allocator, ann_buf);
+                        ann_buf[0] = .{ .kind = .note, .byte_offset = 0, .end_offset = 0, .message = help_msg };
+                        const msg = try std.fmt.allocPrint(self.allocator, "type mismatch: expected '{s}', got '{s}'", .{ self.typeName(declared_type), self.typeName(init_type) });
+                        try self.diagnostics.allocated_messages.append(self.allocator, msg);
+                        const label = try std.fmt.allocPrint(self.allocator, "expected '{s}'", .{self.typeName(declared_type)});
+                        try self.diagnostics.allocated_messages.append(self.allocator, label);
+                        try self.diagnostics.diagnostics.append(self.allocator, .{
+                            .severity = .@"error",
+                            .byte_offset = loc.start,
+                            .end_offset = loc.end,
+                            .message = msg,
+                            .label = label,
+                            .annotations = ann_buf,
+                        });
+                    } else {
+                        try self.diagnostics.addErrorFmt(
+                            loc.start,
+                            loc.end,
+                            "type mismatch: expected '{s}', got '{s}'",
+                            .{ self.typeName(declared_type), self.typeName(init_type) },
+                        );
+                    }
                 }
             }
         }
@@ -1178,12 +1217,31 @@ const TypeChecker = struct {
         if (lhs_type != types.null_type and rhs_type != types.null_type) {
             if (!self.typesCompatible(lhs_type, rhs_type)) {
                 const loc = self.tokenLoc(self.nodeMainToken(node));
-                try self.diagnostics.addErrorFmt(
-                    loc.start,
-                    loc.end,
-                    "type mismatch in assignment: expected '{s}', got '{s}'",
-                    .{ self.typeName(lhs_type), self.typeName(rhs_type) },
-                );
+                const help = self.typeMismatchHelp(lhs_type, rhs_type);
+                if (help) |help_msg| {
+                    var ann_buf = try self.allocator.alloc(diag_mod.Annotation, 1);
+                    try self.diagnostics.allocated_annotations.append(self.allocator, ann_buf);
+                    ann_buf[0] = .{ .kind = .note, .byte_offset = 0, .end_offset = 0, .message = help_msg };
+                    const msg = try std.fmt.allocPrint(self.allocator, "type mismatch in assignment: expected '{s}', got '{s}'", .{ self.typeName(lhs_type), self.typeName(rhs_type) });
+                    try self.diagnostics.allocated_messages.append(self.allocator, msg);
+                    const label = try std.fmt.allocPrint(self.allocator, "expected '{s}'", .{self.typeName(lhs_type)});
+                    try self.diagnostics.allocated_messages.append(self.allocator, label);
+                    try self.diagnostics.diagnostics.append(self.allocator, .{
+                        .severity = .@"error",
+                        .byte_offset = loc.start,
+                        .end_offset = loc.end,
+                        .message = msg,
+                        .label = label,
+                        .annotations = ann_buf,
+                    });
+                } else {
+                    try self.diagnostics.addErrorFmt(
+                        loc.start,
+                        loc.end,
+                        "type mismatch in assignment: expected '{s}', got '{s}'",
+                        .{ self.typeName(lhs_type), self.typeName(rhs_type) },
+                    );
+                }
             }
         }
 
@@ -1520,12 +1578,18 @@ const TypeChecker = struct {
 
             if (missing_count > 0) {
                 const loc = self.tokenLoc(self.nodeMainToken(node));
-                try self.diagnostics.addErrorFmt(
-                    loc.start,
-                    loc.end,
-                    "non-exhaustive switch on '{s}': missing variants: {s}",
-                    .{ sum.name, missing.items },
-                );
+                const msg = try std.fmt.allocPrint(self.allocator, "non-exhaustive switch on '{s}': missing variants: {s}", .{ sum.name, missing.items });
+                try self.diagnostics.allocated_messages.append(self.allocator, msg);
+                var ann_buf = try self.allocator.alloc(diag_mod.Annotation, 1);
+                try self.diagnostics.allocated_annotations.append(self.allocator, ann_buf);
+                ann_buf[0] = .{ .kind = .help, .byte_offset = 0, .end_offset = 0, .message = "add the missing variants or use '_ ::' as a catch-all" };
+                try self.diagnostics.diagnostics.append(self.allocator, .{
+                    .severity = .@"error",
+                    .byte_offset = loc.start,
+                    .end_offset = loc.end,
+                    .message = msg,
+                    .annotations = ann_buf,
+                });
             }
         }
     }
@@ -2303,12 +2367,31 @@ const TypeChecker = struct {
                         const arg_node = arg_nodes[i];
                         const arg_tok = self.nodeMainToken(arg_node);
                         const loc = self.tokenLoc(arg_tok);
-                        try self.diagnostics.addErrorFmt(
-                            loc.start,
-                            loc.end,
-                            "argument {d} type mismatch: expected '{s}', got '{s}'",
-                            .{ i + 1, self.typeName(param_type), self.typeName(arg_type) },
-                        );
+                        const help = self.typeMismatchHelp(param_type, arg_type);
+                        if (help) |help_msg| {
+                            var ann_buf = try self.allocator.alloc(diag_mod.Annotation, 1);
+                            try self.diagnostics.allocated_annotations.append(self.allocator, ann_buf);
+                            ann_buf[0] = .{ .kind = .note, .byte_offset = 0, .end_offset = 0, .message = help_msg };
+                            const msg = try std.fmt.allocPrint(self.allocator, "argument {d} type mismatch: expected '{s}', got '{s}'", .{ i + 1, self.typeName(param_type), self.typeName(arg_type) });
+                            try self.diagnostics.allocated_messages.append(self.allocator, msg);
+                            const label = try std.fmt.allocPrint(self.allocator, "expected '{s}'", .{self.typeName(param_type)});
+                            try self.diagnostics.allocated_messages.append(self.allocator, label);
+                            try self.diagnostics.diagnostics.append(self.allocator, .{
+                                .severity = .@"error",
+                                .byte_offset = loc.start,
+                                .end_offset = loc.end,
+                                .message = msg,
+                                .label = label,
+                                .annotations = ann_buf,
+                            });
+                        } else {
+                            try self.diagnostics.addErrorFmt(
+                                loc.start,
+                                loc.end,
+                                "argument {d} type mismatch: expected '{s}', got '{s}'",
+                                .{ i + 1, self.typeName(param_type), self.typeName(arg_type) },
+                            );
+                        }
                     }
                 }
 
@@ -2451,19 +2534,63 @@ const TypeChecker = struct {
                     const loc = self.tokenLoc(field_name_tok);
                     const suggestion = self.findClosestField(st.fields, field_name);
                     if (suggestion) |s| {
-                        try self.diagnostics.addErrorFmt(
-                            loc.start,
-                            loc.end,
-                            "type '{s}' has no field '{s}'; did you mean '{s}'?",
-                            .{ st.name, field_name, s },
-                        );
+                        const msg = try std.fmt.allocPrint(self.allocator, "type '{s}' has no field '{s}'", .{ st.name, field_name });
+                        try self.diagnostics.allocated_messages.append(self.allocator, msg);
+                        const help_msg = try std.fmt.allocPrint(self.allocator, "did you mean '{s}'?", .{s});
+                        try self.diagnostics.allocated_messages.append(self.allocator, help_msg);
+                        var ann_buf = try self.allocator.alloc(diag_mod.Annotation, 1);
+                        try self.diagnostics.allocated_annotations.append(self.allocator, ann_buf);
+                        ann_buf[0] = .{ .kind = .help, .byte_offset = 0, .end_offset = 0, .message = help_msg };
+                        try self.diagnostics.diagnostics.append(self.allocator, .{
+                            .severity = .@"error",
+                            .byte_offset = loc.start,
+                            .end_offset = loc.end,
+                            .message = msg,
+                            .annotations = ann_buf,
+                        });
                     } else {
-                        try self.diagnostics.addErrorFmt(
-                            loc.start,
-                            loc.end,
-                            "type '{s}' has no field '{s}'",
-                            .{ st.name, field_name },
-                        );
+                        // No close match — show available fields
+                        const msg = try std.fmt.allocPrint(self.allocator, "type '{s}' has no field '{s}'", .{ st.name, field_name });
+                        try self.diagnostics.allocated_messages.append(self.allocator, msg);
+                        if (st.fields.len > 0 and st.fields.len <= 10) {
+                            // Build available fields list
+                            var fields_buf: [512]u8 = undefined;
+                            var fbs = std.io.fixedBufferStream(&fields_buf);
+                            const fbw = fbs.writer();
+                            for (st.fields, 0..) |f, fi| {
+                                if (fi > 0) fbw.writeAll(", ") catch break;
+                                fbw.writeAll(f.name) catch break;
+                            }
+                            const fields_list = fbs.getWritten();
+                            if (fields_list.len > 0) {
+                                const note_msg = try std.fmt.allocPrint(self.allocator, "available fields: {s}", .{fields_list});
+                                try self.diagnostics.allocated_messages.append(self.allocator, note_msg);
+                                var ann_buf = try self.allocator.alloc(diag_mod.Annotation, 1);
+                                try self.diagnostics.allocated_annotations.append(self.allocator, ann_buf);
+                                ann_buf[0] = .{ .kind = .note, .byte_offset = 0, .end_offset = 0, .message = note_msg };
+                                try self.diagnostics.diagnostics.append(self.allocator, .{
+                                    .severity = .@"error",
+                                    .byte_offset = loc.start,
+                                    .end_offset = loc.end,
+                                    .message = msg,
+                                    .annotations = ann_buf,
+                                });
+                            } else {
+                                try self.diagnostics.diagnostics.append(self.allocator, .{
+                                    .severity = .@"error",
+                                    .byte_offset = loc.start,
+                                    .end_offset = loc.end,
+                                    .message = msg,
+                                });
+                            }
+                        } else {
+                            try self.diagnostics.diagnostics.append(self.allocator, .{
+                                .severity = .@"error",
+                                .byte_offset = loc.start,
+                                .end_offset = loc.end,
+                                .message = msg,
+                            });
+                        }
                     }
                 }
                 return types.null_type;
@@ -2873,6 +3000,19 @@ const TypeChecker = struct {
                         .{ self.typeName(lhs_type), self.typeName(rhs_type) },
                     );
                 }
+                // Ordering comparisons (<, >, <=, >=) require numeric types
+                const op_tag = self.tokens[op_tok].tag;
+                if (op_tag == .less or op_tag == .greater or op_tag == .less_equal or op_tag == .greater_equal) {
+                    if (!self.type_pool.isNumeric(lhs_type) or !self.type_pool.isNumeric(rhs_type)) {
+                        const loc = self.tokenLoc(op_tok);
+                        try self.diagnostics.addErrorFmt(
+                            loc.start,
+                            loc.end,
+                            "ordering comparison '{s}' requires numeric operands, got '{s}' and '{s}'",
+                            .{ self.tokenSlice(op_tok), self.typeName(lhs_type), self.typeName(rhs_type) },
+                        );
+                    }
+                }
                 return types.primitives.bool_id;
             },
 
@@ -3090,6 +3230,45 @@ const TypeChecker = struct {
             .field_access => types.null_type,
             else => types.null_type,
         };
+    }
+
+    /// Returns a contextual help message for a type mismatch, or null if none applies.
+    fn typeMismatchHelp(self: *TypeChecker, expected: TypeId, got: TypeId) ?[]const u8 {
+        const exp_name = self.typeName(expected);
+        const got_name = self.typeName(got);
+
+        // int <- string
+        if (self.type_pool.isNumeric(expected) and std.mem.eql(u8, got_name, "string")) {
+            return "string and numeric types are not implicitly convertible";
+        }
+        // string <- int
+        if (std.mem.eql(u8, exp_name, "string") and self.type_pool.isNumeric(got)) {
+            return "numeric types are not implicitly convertible to string";
+        }
+        // bool <- int
+        if (std.mem.eql(u8, exp_name, "bool") and self.type_pool.isNumeric(got)) {
+            return "use a comparison like '!= 0' to convert a number to bool";
+        }
+        // int <- bool
+        if (self.type_pool.isNumeric(expected) and std.mem.eql(u8, got_name, "bool")) {
+            return "bool is not implicitly convertible to a numeric type";
+        }
+        // T? <- T (nullable wrapping should work, but T <- T? is different)
+        if (self.type_pool.unwrapNullable(got) != null and self.type_pool.unwrapNullable(expected) == null) {
+            return "nullable types must be unwrapped before use; handle the null case with a switch";
+        }
+        // !T <- T (error union)
+        if (self.type_pool.unwrapErrorUnion(got) != null and self.type_pool.unwrapErrorUnion(expected) == null) {
+            return "error union types must be unwrapped with 'try' or handled with a switch";
+        }
+        // Pointer vs non-pointer
+        if (self.type_pool.unwrapPointer(expected) != null and self.type_pool.unwrapPointer(got) == null) {
+            return "expected a pointer type; use '&' to take a reference";
+        }
+        if (self.type_pool.unwrapPointer(expected) == null and self.type_pool.unwrapPointer(got) != null) {
+            return "expected a value, not a pointer; dereference with '.*'";
+        }
+        return null;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -3398,6 +3577,10 @@ fn testTypeCheckHasErrorContaining(source: []const u8, needle: []const u8) !bool
     }
     for (tc_result.diagnostics.diagnostics.items) |d| {
         if (std.mem.indexOf(u8, d.message, needle) != null) return true;
+        // Also search annotations (notes, help, hints)
+        for (d.annotations) |ann| {
+            if (std.mem.indexOf(u8, ann.message, needle) != null) return true;
+        }
     }
     return false;
 }

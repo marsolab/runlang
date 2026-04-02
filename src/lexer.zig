@@ -135,10 +135,18 @@ pub const Lexer = struct {
         const start = self.pos;
         self.pos += 1; // skip opening "
         while (!self.isAtEnd() and self.peek() != '"') {
+            if (self.peek() == '\n') {
+                // Unterminated string (newline before closing quote)
+                return .{ .tag = .invalid, .loc = .{ .start = start, .end = self.pos } };
+            }
             if (self.peek() == '\\') self.pos += 1; // skip escape
             if (!self.isAtEnd()) self.pos += 1;
         }
-        if (!self.isAtEnd()) self.pos += 1; // skip closing "
+        if (self.isAtEnd()) {
+            // Unterminated string (EOF before closing quote)
+            return .{ .tag = .invalid, .loc = .{ .start = start, .end = self.pos } };
+        }
+        self.pos += 1; // skip closing "
         return .{ .tag = .string_literal, .loc = .{ .start = start, .end = self.pos } };
     }
 
@@ -147,7 +155,12 @@ pub const Lexer = struct {
         self.pos += 1; // skip opening '
         if (!self.isAtEnd() and self.peek() == '\\') self.pos += 1;
         if (!self.isAtEnd()) self.pos += 1;
-        if (!self.isAtEnd() and self.peek() == '\'') self.pos += 1;
+        if (!self.isAtEnd() and self.peek() == '\'') {
+            self.pos += 1;
+        } else {
+            // Unterminated character literal
+            return .{ .tag = .invalid, .loc = .{ .start = start, .end = self.pos } };
+        }
         return .{ .tag = .char_literal, .loc = .{ .start = start, .end = self.pos } };
     }
 

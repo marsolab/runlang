@@ -102,6 +102,99 @@ pub const Token = struct {
             return @intFromEnum(tag) >= @intFromEnum(Tag.kw_fun) and
                 @intFromEnum(tag) <= @intFromEnum(Tag.kw_syscall);
         }
+
+        /// Returns a human-readable name for this token tag, suitable for error messages.
+        pub fn displayName(tag: Tag) []const u8 {
+            return switch (tag) {
+                // Literals
+                .int_literal => "integer literal",
+                .float_literal => "float literal",
+                .string_literal => "string literal",
+                .char_literal => "character literal",
+
+                // Identifiers
+                .identifier => "identifier",
+
+                // Keywords
+                .kw_fun => "'fun'",
+                .kw_pub => "'pub'",
+                .kw_var => "'var'",
+                .kw_let => "'let'",
+                .kw_return => "'return'",
+                .kw_if => "'if'",
+                .kw_else => "'else'",
+                .kw_for => "'for'",
+                .kw_in => "'in'",
+                .kw_switch => "'switch'",
+                .kw_break => "'break'",
+                .kw_continue => "'continue'",
+                .kw_defer => "'defer'",
+                .kw_run => "'run'",
+                .kw_try => "'try'",
+                .kw_package => "'package'",
+                .kw_import => "'use'",
+                .kw_struct => "'struct'",
+                .kw_interface => "'interface'",
+                .kw_implements => "'implements'",
+                .kw_type => "'type'",
+                .kw_chan => "'chan'",
+                .kw_map => "'map'",
+                .kw_alloc => "'alloc'",
+                .kw_true => "'true'",
+                .kw_false => "'false'",
+                .kw_null => "'null'",
+                .kw_and => "'and'",
+                .kw_or => "'or'",
+                .kw_not => "'not'",
+                .kw_asm => "'asm'",
+                .kw_clobber => "'clobber'",
+                .kw_inline => "'inline'",
+                .kw_syscall => "'syscall'",
+
+                // Operators
+                .plus => "'+'",
+                .minus => "'-'",
+                .star => "'*'",
+                .slash => "'/'",
+                .percent => "'%'",
+                .equal => "'='",
+                .colon_equal => "':='",
+                .equal_equal => "'=='",
+                .bang_equal => "'!='",
+                .less => "'<'",
+                .greater => "'>'",
+                .less_equal => "'<='",
+                .greater_equal => "'>='",
+                .bang => "'!'",
+                .ampersand => "'&'",
+                .at => "'@'",
+                .arrow_left => "'<-'",
+                .arrow_right => "'->'",
+                .dot_dot => "'..'",
+                .ellipsis => "'...'",
+                .dot => "'.'",
+                .pipe => "'|'",
+                .hash => "'#'",
+                .semicolon => "';'",
+
+                // Delimiters
+                .l_paren => "'('",
+                .r_paren => "')'",
+                .l_brace => "'{'",
+                .r_brace => "'}'",
+                .l_bracket => "'['",
+                .r_bracket => "']'",
+                .comma => "','",
+                .colon => "':'",
+                .colon_colon => "'::'",
+                .question => "'?'",
+
+                // Special
+                .newline => "newline",
+                .eof => "end of file",
+                .invalid => "invalid token",
+            };
+        }
     };
 
     pub const keywords = std.StaticStringMap(Tag).initComptime(.{

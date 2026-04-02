@@ -1,0 +1,8 @@
+// compile-error: unknown keyword
+package main
+
+func helper() {
+}
+
+pub fun main() {
+}

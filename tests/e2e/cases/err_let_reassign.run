@@ -1,0 +1,7 @@
+// compile-error: cannot assign to immutable variable
+package main
+
+pub fun main() {
+    let x = 42
+    x = 10
+}
