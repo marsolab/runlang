@@ -1,0 +1,82 @@
+package hex
+
+use "testing"
+
+test "encode empty input" (t &testing.T) {
+    var src = toBytes("")
+    var result = encode(src)
+    t.assert_eq(result, "")
+}
+
+test "encode single byte" (t &testing.T) {
+    var src = alloc([]byte, 1)
+    src[0] = 255
+    var result = encode(src)
+    t.assert_eq(result, "ff")
+}
+
+test "encode string bytes" (t &testing.T) {
+    var result = encode(toBytes("Hello"))
+    t.assert_eq(result, "48656c6c6f")
+}
+
+test "encode zero byte" (t &testing.T) {
+    var src = alloc([]byte, 1)
+    src[0] = 0
+    var result = encode(src)
+    t.assert_eq(result, "00")
+}
+
+test "decode empty input" (t &testing.T) {
+    var result = decode("") or []byte{}
+    t.assert_eq(len(result), 0)
+}
+
+test "decode valid hex string" (t &testing.T) {
+    var result = decode("48656c6c6f") or []byte{}
+    t.assert_eq(toString(result), "Hello")
+}
+
+test "decode uppercase hex" (t &testing.T) {
+    var result = decode("48656C6C6F") or []byte{}
+    t.assert_eq(toString(result), "Hello")
+}
+
+test "roundtrip encode then decode" (t &testing.T) {
+    var original = "The quick brown fox"
+    var encoded = encode(toBytes(original))
+    var decoded = decode(encoded) or []byte{}
+    t.assert_eq(toString(decoded), original)
+}
+
+test "encodedLen" (t &testing.T) {
+    t.assert_eq(encodedLen(0), 0)
+    t.assert_eq(encodedLen(1), 2)
+    t.assert_eq(encodedLen(5), 10)
+    t.assert_eq(encodedLen(16), 32)
+}
+
+test "decodedLen" (t &testing.T) {
+    t.assert_eq(decodedLen(0), 0)
+    t.assert_eq(decodedLen(2), 1)
+    t.assert_eq(decodedLen(10), 5)
+    t.assert_eq(decodedLen(32), 16)
+}
+
+test "encodeToBytes writes correct output" (t &testing.T) {
+    var src = toBytes("AB")
+    var dst = alloc([]byte, 4)
+    var n = encodeToBytes(dst, src)
+    t.assert_eq(n, 4)
+    t.assert_eq(dst[0], 52)
+    t.assert_eq(dst[1], 49)
+    t.assert_eq(dst[2], 52)
+    t.assert_eq(dst[3], 50)
+}
+
+test "dump produces hex dump output" (t &testing.T) {
+    var data = toBytes("Hello")
+    var result = dump(data)
+    // dump output should not be empty for non-empty input.
+    t.assert(len(result) > 0)
+}

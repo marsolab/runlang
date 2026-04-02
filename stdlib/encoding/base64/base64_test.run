@@ -1,0 +1,121 @@
+package base64
+
+use "testing"
+
+test "encode empty input" (t &testing.T) {
+    var src = toBytes("")
+    var result = stdEncoding.encode(src)
+    t.assert_eq(result, "")
+}
+
+test "encode single byte" (t &testing.T) {
+    var src = toBytes("f")
+    var result = stdEncoding.encode(src)
+    t.assert_eq(result, "Zg==")
+}
+
+test "encode two bytes" (t &testing.T) {
+    var src = toBytes("fo")
+    var result = stdEncoding.encode(src)
+    t.assert_eq(result, "Zm8=")
+}
+
+test "encode three bytes" (t &testing.T) {
+    var src = toBytes("foo")
+    var result = stdEncoding.encode(src)
+    t.assert_eq(result, "Zm9v")
+}
+
+test "encode four bytes" (t &testing.T) {
+    var src = toBytes("foob")
+    var result = stdEncoding.encode(src)
+    t.assert_eq(result, "Zm9vYg==")
+}
+
+test "encode classic test vectors" (t &testing.T) {
+    t.assert_eq(stdEncoding.encode(toBytes("foobar")), "Zm9vYmFy")
+    t.assert_eq(stdEncoding.encode(toBytes("Hello")), "SGVsbG8=")
+}
+
+test "decode empty input" (t &testing.T) {
+    var result = stdEncoding.decode("") or []byte{}
+    t.assert_eq(len(result), 0)
+}
+
+test "decode single character group" (t &testing.T) {
+    var result = stdEncoding.decode("Zg==") or []byte{}
+    t.assert_eq(toString(result), "f")
+}
+
+test "decode two character group" (t &testing.T) {
+    var result = stdEncoding.decode("Zm8=") or []byte{}
+    t.assert_eq(toString(result), "fo")
+}
+
+test "decode three byte group" (t &testing.T) {
+    var result = stdEncoding.decode("Zm9v") or []byte{}
+    t.assert_eq(toString(result), "foo")
+}
+
+test "decode classic test vectors" (t &testing.T) {
+    var result = stdEncoding.decode("Zm9vYmFy") or []byte{}
+    t.assert_eq(toString(result), "foobar")
+}
+
+test "roundtrip encode then decode" (t &testing.T) {
+    var original = "The quick brown fox jumps over the lazy dog"
+    var encoded = stdEncoding.encode(toBytes(original))
+    var decoded = stdEncoding.decode(encoded) or []byte{}
+    t.assert_eq(toString(decoded), original)
+}
+
+test "url encoding uses url-safe alphabet" (t &testing.T) {
+    // Bytes that produce + and / in standard encoding should use - and _ in URL encoding.
+    var src = toBytes("subjects?_d")
+    var stdResult = stdEncoding.encode(src)
+    var urlResult = urlEncoding.encode(src)
+    // URL encoding should not contain + or /.
+    t.assert_ne(stdResult, urlResult)
+}
+
+test "raw encoding omits padding" (t &testing.T) {
+    var src = toBytes("f")
+    var result = rawStdEncoding.encode(src)
+    t.assert_eq(result, "Zg")
+}
+
+test "raw encoding roundtrip" (t &testing.T) {
+    var original = "Hello, World!"
+    var encoded = rawStdEncoding.encode(toBytes(original))
+    var decoded = rawStdEncoding.decode(encoded) or []byte{}
+    t.assert_eq(toString(decoded), original)
+}
+
+test "encodedLen with padding" (t &testing.T) {
+    t.assert_eq(stdEncoding.encodedLen(0), 0)
+    t.assert_eq(stdEncoding.encodedLen(1), 4)
+    t.assert_eq(stdEncoding.encodedLen(2), 4)
+    t.assert_eq(stdEncoding.encodedLen(3), 4)
+    t.assert_eq(stdEncoding.encodedLen(4), 8)
+    t.assert_eq(stdEncoding.encodedLen(6), 8)
+}
+
+test "encodedLen without padding" (t &testing.T) {
+    t.assert_eq(rawStdEncoding.encodedLen(0), 0)
+    t.assert_eq(rawStdEncoding.encodedLen(1), 2)
+    t.assert_eq(rawStdEncoding.encodedLen(2), 3)
+    t.assert_eq(rawStdEncoding.encodedLen(3), 4)
+}
+
+test "decodedLen with padding" (t &testing.T) {
+    t.assert_eq(stdEncoding.decodedLen(0), 0)
+    t.assert_eq(stdEncoding.decodedLen(4), 3)
+    t.assert_eq(stdEncoding.decodedLen(8), 6)
+}
+
+test "decodedLen without padding" (t &testing.T) {
+    t.assert_eq(rawStdEncoding.decodedLen(0), 0)
+    t.assert_eq(rawStdEncoding.decodedLen(2), 1)
+    t.assert_eq(rawStdEncoding.decodedLen(3), 2)
+    t.assert_eq(rawStdEncoding.decodedLen(4), 3)
+}
