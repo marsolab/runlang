@@ -52,22 +52,192 @@ pub var utc = Location{ name: "UTC", offset: 0 }
 // local is the system's local time zone.
 pub var local = Location{ name: "Local", offset: 0 }
 
+// Internal helper: convert a non-negative integer to a string.
+fun intToStr(n int) string {
+    if n == 0 {
+        return "0"
+    }
+    var val = n
+    var neg = false
+    if val < 0 {
+        neg = true
+        val = -val
+    }
+    // Build digits in reverse using a buffer approach.
+    // Maximum int64 has 19 digits, plus sign.
+    var buf = ""
+    for val > 0 {
+        var d = val - (val / 10) * 10
+        if d == 0 { buf = "0" + buf }
+        if d == 1 { buf = "1" + buf }
+        if d == 2 { buf = "2" + buf }
+        if d == 3 { buf = "3" + buf }
+        if d == 4 { buf = "4" + buf }
+        if d == 5 { buf = "5" + buf }
+        if d == 6 { buf = "6" + buf }
+        if d == 7 { buf = "7" + buf }
+        if d == 8 { buf = "8" + buf }
+        if d == 9 { buf = "9" + buf }
+        val = val / 10
+    }
+    if neg {
+        return "-" + buf
+    }
+    return buf
+}
+
+// Internal helper: pad an integer with leading zeros to width w.
+fun padInt(n int, w int) string {
+    var s = intToStr(n)
+    var slen = len(s)
+    for slen < w {
+        s = "0" + s
+        slen = slen + 1
+    }
+    return s
+}
+
+// Internal constants for date calculations.
+// Days from Unix epoch (1970-01-01) to the internal epoch (0001-01-01).
+// There are 719162 days from 0001-01-01 to 1970-01-01.
+let daysPerYear = 365
+let daysPer4Years = 1461
+let daysPer100Years = 36524
+let daysPer400Years = 146097
+let unixEpochDays = 719162
+
+// isLeapYear reports whether the given year is a leap year.
+fun isLeapYear(year int) bool {
+    if year - (year / 4) * 4 != 0 {
+        return false
+    }
+    if year - (year / 100) * 100 != 0 {
+        return true
+    }
+    if year - (year / 400) * 400 != 0 {
+        return false
+    }
+    return true
+}
+
+// daysInMonth returns the number of days in the given month of the given year.
+fun daysInMonth(year int, month int) int {
+    if month == 1 { return 31 }
+    if month == 2 {
+        if isLeapYear(year) { return 29 }
+        return 28
+    }
+    if month == 3 { return 31 }
+    if month == 4 { return 30 }
+    if month == 5 { return 31 }
+    if month == 6 { return 30 }
+    if month == 7 { return 31 }
+    if month == 8 { return 31 }
+    if month == 9 { return 30 }
+    if month == 10 { return 31 }
+    if month == 11 { return 30 }
+    if month == 12 { return 31 }
+    return 30
+}
+
+// civilFromDays computes (year, month, day) from the number of days since
+// Unix epoch (1970-01-01). Uses the algorithm from Howard Hinnant.
+// Returns year * 10000 + month * 100 + day packed into a single int for
+// simplicity; callers unpack with / and %.
+fun civilFromDays(epochDays int) int {
+    // Shift to March 1, year 0 epoch.
+    var z = epochDays + 719468
+    var era = z / 146097
+    if z < 0 {
+        era = (z - 146096) / 146097
+    }
+    var doe = z - era * 146097
+    var yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+    var y = yoe + era * 400
+    var doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+    var mp = (5 * doy + 2) / 153
+    var d = doy - (153 * mp + 2) / 5 + 1
+    var m = mp + 3
+    if mp >= 10 {
+        m = mp - 9
+    }
+    if m <= 2 {
+        y = y + 1
+    }
+    // Pack: year * 10000 + month * 100 + day.
+    return y * 10000 + m * 100 + d
+}
+
+// daysFromCivil converts (year, month, day) to days since Unix epoch.
+fun daysFromCivil(year int, month int, day int) int {
+    var y = year
+    var m = month
+    if m <= 2 {
+        y = y - 1
+    }
+    var era = y / 400
+    if y < 0 {
+        era = (y - 399) / 400
+    }
+    var yoe = y - era * 400
+    var mp = m - 3
+    if m <= 2 {
+        mp = m + 9
+    }
+    var doy = (153 * mp + 2) / 5 + day - 1
+    var doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+    return era * 146097 + doe - 719468
+}
+
+// monthName returns the English name of the month (1=January ... 12=December).
+fun monthName(m int) string {
+    if m == 1 { return "January" }
+    if m == 2 { return "February" }
+    if m == 3 { return "March" }
+    if m == 4 { return "April" }
+    if m == 5 { return "May" }
+    if m == 6 { return "June" }
+    if m == 7 { return "July" }
+    if m == 8 { return "August" }
+    if m == 9 { return "September" }
+    if m == 10 { return "October" }
+    if m == 11 { return "November" }
+    if m == 12 { return "December" }
+    return "Unknown"
+}
+
+// weekdayName returns the English name of the weekday (0=Sunday ... 6=Saturday).
+fun weekdayName(wd int) string {
+    if wd == 0 { return "Sunday" }
+    if wd == 1 { return "Monday" }
+    if wd == 2 { return "Tuesday" }
+    if wd == 3 { return "Wednesday" }
+    if wd == 4 { return "Thursday" }
+    if wd == 5 { return "Friday" }
+    if wd == 6 { return "Saturday" }
+    return "Unknown"
+}
+
 // now returns the current time.
+// Note: returns epoch zero until runtime provides a clock syscall binding.
 pub fun now() Time {
     return Time{ seconds: 0, nanoseconds: 0 }
 }
 
 // since returns the time elapsed since t.
 pub fun since(t Time) Duration {
-    return 0
+    var n = now()
+    return n.sub(t)
 }
 
 // until returns the duration until t.
 pub fun until(t Time) Duration {
-    return 0
+    var n = now()
+    return t.sub(n)
 }
 
 // sleep pauses the current green thread for the given duration.
+// Note: no-op until runtime provides a sleep syscall binding.
 pub fun sleep(d Duration) {
 }
 
@@ -79,126 +249,368 @@ pub fun after(d Duration) chan Time {
 // unix returns the Time corresponding to the given Unix time,
 // sec seconds and nsec nanoseconds since January 1, 1970 UTC.
 pub fun unix(sec int, nsec int) Time {
-    return Time{ seconds: sec, nanoseconds: nsec }
+    // Normalize nanoseconds into [0, 999999999].
+    var s = sec + nsec / 1000000000
+    var ns = nsec - (nsec / 1000000000) * 1000000000
+    if ns < 0 {
+        s = s - 1
+        ns = ns + 1000000000
+    }
+    return Time{ seconds: s, nanoseconds: ns }
 }
 
 // date returns the Time corresponding to the given date and time
 // in the given location.
 pub fun date(year int, month int, day int, hour int, min int, sec int, nsec int, loc @Location) Time {
-    return Time{ seconds: 0, nanoseconds: 0 }
+    var days = daysFromCivil(year, month, day)
+    var totalSec = days * 86400 + hour * 3600 + min * 60 + sec - loc.offset
+    return unix(totalSec, nsec)
 }
 
 // parse parses a formatted string and returns the time value it represents.
 // The layout defines the format by showing how the reference time
 // "2006-01-02 15:04:05" would be represented.
+// Supported layout tokens: 2006 (year), 01 (month), 02 (day),
+// 15 (hour), 04 (minute), 05 (second).
 pub fun parse(layout string, value string) !Time {
-    return Time{ seconds: 0, nanoseconds: 0 }
+    // Simple positional parser: walk layout and value in parallel,
+    // extracting numeric fields where reference tokens appear.
+    var ldata = layout
+    var vdata = value
+    var yr = 1970
+    var mo = 1
+    var dy = 1
+    var hr = 0
+    var mi = 0
+    var sc = 0
+    var li = 0
+    var vi = 0
+    var llen = len(ldata)
+    var vlen = len(vdata)
+
+    for li < llen {
+        // Try to match "2006" (year).
+        if li + 4 <= llen and ldata[li] == 50 and ldata[li + 1] == 48 and ldata[li + 2] == 48 and ldata[li + 3] == 54 {
+            if vi + 4 <= vlen {
+                yr = (vdata[vi] - 48) * 1000 + (vdata[vi + 1] - 48) * 100 + (vdata[vi + 2] - 48) * 10 + (vdata[vi + 3] - 48)
+                li = li + 4
+                vi = vi + 4
+            } else {
+                return Time{ seconds: 0, nanoseconds: 0 }
+            }
+        // Match "01" (month) — "0" is 48, "1" is 49.
+        } else if li + 2 <= llen and ldata[li] == 48 and ldata[li + 1] == 49 {
+            if vi + 2 <= vlen {
+                mo = (vdata[vi] - 48) * 10 + (vdata[vi + 1] - 48)
+                li = li + 2
+                vi = vi + 2
+            } else {
+                return Time{ seconds: 0, nanoseconds: 0 }
+            }
+        // Match "02" (day) — "0" is 48, "2" is 50.
+        } else if li + 2 <= llen and ldata[li] == 48 and ldata[li + 1] == 50 {
+            if vi + 2 <= vlen {
+                dy = (vdata[vi] - 48) * 10 + (vdata[vi + 1] - 48)
+                li = li + 2
+                vi = vi + 2
+            } else {
+                return Time{ seconds: 0, nanoseconds: 0 }
+            }
+        // Match "15" (hour) — "1" is 49, "5" is 53.
+        } else if li + 2 <= llen and ldata[li] == 49 and ldata[li + 1] == 53 {
+            if vi + 2 <= vlen {
+                hr = (vdata[vi] - 48) * 10 + (vdata[vi + 1] - 48)
+                li = li + 2
+                vi = vi + 2
+            } else {
+                return Time{ seconds: 0, nanoseconds: 0 }
+            }
+        // Match "04" (minute) — "0" is 48, "4" is 52.
+        } else if li + 2 <= llen and ldata[li] == 48 and ldata[li + 1] == 52 {
+            if vi + 2 <= vlen {
+                mi = (vdata[vi] - 48) * 10 + (vdata[vi + 1] - 48)
+                li = li + 2
+                vi = vi + 2
+            } else {
+                return Time{ seconds: 0, nanoseconds: 0 }
+            }
+        // Match "05" (second) — "0" is 48, "5" is 53.
+        } else if li + 2 <= llen and ldata[li] == 48 and ldata[li + 1] == 53 {
+            if vi + 2 <= vlen {
+                sc = (vdata[vi] - 48) * 10 + (vdata[vi + 1] - 48)
+                li = li + 2
+                vi = vi + 2
+            } else {
+                return Time{ seconds: 0, nanoseconds: 0 }
+            }
+        } else {
+            // Literal character — must match.
+            if vi < vlen and ldata[li] == vdata[vi] {
+                li = li + 1
+                vi = vi + 1
+            } else {
+                return Time{ seconds: 0, nanoseconds: 0 }
+            }
+        }
+    }
+
+    return date(yr, mo, dy, hr, mi, sc, 0, &utc)
 }
 
 // add returns the time t+d.
 pub fun (t Time) add(d Duration) Time {
-    return Time{ seconds: 0, nanoseconds: 0 }
+    var totalNs = t.nanoseconds + d
+    var extraSec = totalNs / 1000000000
+    var ns = totalNs - extraSec * 1000000000
+    if ns < 0 {
+        extraSec = extraSec - 1
+        ns = ns + 1000000000
+    }
+    return Time{ seconds: t.seconds + extraSec, nanoseconds: ns }
 }
 
 // sub returns the duration t-u.
 pub fun (t Time) sub(u Time) Duration {
-    return 0
+    var secDiff = t.seconds - u.seconds
+    var nsDiff = t.nanoseconds - u.nanoseconds
+    return secDiff * 1000000000 + nsDiff
 }
 
 // before reports whether the time instant t is before u.
 pub fun (t Time) before(u Time) bool {
+    if t.seconds < u.seconds {
+        return true
+    }
+    if t.seconds == u.seconds and t.nanoseconds < u.nanoseconds {
+        return true
+    }
     return false
 }
 
 // afterTime reports whether the time instant t is after u.
 pub fun (t Time) afterTime(u Time) bool {
+    if t.seconds > u.seconds {
+        return true
+    }
+    if t.seconds == u.seconds and t.nanoseconds > u.nanoseconds {
+        return true
+    }
     return false
 }
 
 // equal reports whether t and u represent the same time instant.
 pub fun (t Time) equal(u Time) bool {
-    return false
+    return t.seconds == u.seconds and t.nanoseconds == u.nanoseconds
 }
 
 // isZero reports whether t represents the zero time instant.
 pub fun (t Time) isZero() bool {
-    return false
+    return t.seconds == 0 and t.nanoseconds == 0
 }
 
 // unixSeconds returns the Unix time in seconds.
 pub fun (t Time) unixSeconds() int {
-    return 0
+    return t.seconds
 }
 
 // unixMilli returns the Unix time in milliseconds.
 pub fun (t Time) unixMilli() int {
-    return 0
+    return t.seconds * 1000 + t.nanoseconds / 1000000
 }
 
 // unixNano returns the Unix time in nanoseconds.
 pub fun (t Time) unixNano() int {
-    return 0
+    return t.seconds * 1000000000 + t.nanoseconds
 }
 
 // year returns the year.
 pub fun (t Time) year() int {
-    return 0
+    var days = t.seconds / 86400
+    if t.seconds < 0 and t.seconds - days * 86400 != 0 {
+        days = days - 1
+    }
+    var packed = civilFromDays(days)
+    return packed / 10000
 }
 
-// month returns the month of the year.
+// month returns the month of the year (1-12).
 pub fun (t Time) month() int {
-    return 0
+    var days = t.seconds / 86400
+    if t.seconds < 0 and t.seconds - days * 86400 != 0 {
+        days = days - 1
+    }
+    var packed = civilFromDays(days)
+    return (packed / 100) - (packed / 10000) * 100
 }
 
-// day returns the day of the month.
+// day returns the day of the month (1-31).
 pub fun (t Time) day() int {
-    return 0
+    var days = t.seconds / 86400
+    if t.seconds < 0 and t.seconds - days * 86400 != 0 {
+        days = days - 1
+    }
+    var packed = civilFromDays(days)
+    return packed - (packed / 100) * 100
 }
 
 // hour returns the hour within the day (0-23).
 pub fun (t Time) hour() int {
-    return 0
+    var daySeconds = t.seconds - (t.seconds / 86400) * 86400
+    if daySeconds < 0 {
+        daySeconds = daySeconds + 86400
+    }
+    return daySeconds / 3600
 }
 
 // minute returns the minute offset within the hour (0-59).
 pub fun (t Time) minute() int {
-    return 0
+    var daySeconds = t.seconds - (t.seconds / 86400) * 86400
+    if daySeconds < 0 {
+        daySeconds = daySeconds + 86400
+    }
+    return (daySeconds - (daySeconds / 3600) * 3600) / 60
 }
 
 // second returns the second offset within the minute (0-59).
 pub fun (t Time) second() int {
-    return 0
+    var daySeconds = t.seconds - (t.seconds / 86400) * 86400
+    if daySeconds < 0 {
+        daySeconds = daySeconds + 86400
+    }
+    return daySeconds - (daySeconds / 60) * 60
 }
 
-// weekday returns the day of the week.
+// weekday returns the day of the week (0=Sunday ... 6=Saturday).
 pub fun (t Time) weekday() int {
-    return 0
+    // January 1, 1970 was a Thursday (weekday 4).
+    var days = t.seconds / 86400
+    if t.seconds < 0 and t.seconds - days * 86400 != 0 {
+        days = days - 1
+    }
+    // (days + 4) mod 7, handling negative values.
+    var wd = (days + 4) - ((days + 4) / 7) * 7
+    if wd < 0 {
+        wd = wd + 7
+    }
+    return wd
 }
 
 // format returns a textual representation of the time value formatted
 // according to the layout defined by the reference time.
+// Supported tokens: 2006 (year), 01 (month), 02 (day),
+// 15 (hour), 04 (minute), 05 (second).
 pub fun (t Time) format(layout string) string {
-    return ""
+    var result = ""
+    var i = 0
+    var llen = len(layout)
+    var yr = t.year()
+    var mo = t.month()
+    var dy = t.day()
+    var hr = t.hour()
+    var mi = t.minute()
+    var sc = t.second()
+
+    for i < llen {
+        // Match "2006" (year).
+        if i + 4 <= llen and layout[i] == 50 and layout[i + 1] == 48 and layout[i + 2] == 48 and layout[i + 3] == 54 {
+            result = result + padInt(yr, 4)
+            i = i + 4
+        // Match "01" (month) — '0'=48, '1'=49.
+        } else if i + 2 <= llen and layout[i] == 48 and layout[i + 1] == 49 {
+            result = result + padInt(mo, 2)
+            i = i + 2
+        // Match "02" (day) — '0'=48, '2'=50.
+        } else if i + 2 <= llen and layout[i] == 48 and layout[i + 1] == 50 {
+            result = result + padInt(dy, 2)
+            i = i + 2
+        // Match "15" (hour) — '1'=49, '5'=53.
+        } else if i + 2 <= llen and layout[i] == 49 and layout[i + 1] == 53 {
+            result = result + padInt(hr, 2)
+            i = i + 2
+        // Match "04" (minute) — '0'=48, '4'=52.
+        } else if i + 2 <= llen and layout[i] == 48 and layout[i + 1] == 52 {
+            result = result + padInt(mi, 2)
+            i = i + 2
+        // Match "05" (second) — '0'=48, '5'=53.
+        } else if i + 2 <= llen and layout[i] == 48 and layout[i + 1] == 53 {
+            result = result + padInt(sc, 2)
+            i = i + 2
+        } else {
+            // Literal character: copy byte as single-char string.
+            var ch = layout[i]
+            if ch == 45 { result = result + "-" }
+            else if ch == 32 { result = result + " " }
+            else if ch == 58 { result = result + ":" }
+            else if ch == 84 { result = result + "T" }
+            else if ch == 90 { result = result + "Z" }
+            else if ch == 47 { result = result + "/" }
+            else if ch == 46 { result = result + "." }
+            else if ch == 44 { result = result + "," }
+            else if ch == 40 { result = result + "(" }
+            else if ch == 41 { result = result + ")" }
+            else if ch == 91 { result = result + "[" }
+            else if ch == 93 { result = result + "]" }
+            else if ch == 48 { result = result + "0" }
+            else if ch == 49 { result = result + "1" }
+            else if ch == 50 { result = result + "2" }
+            else if ch == 51 { result = result + "3" }
+            else if ch == 52 { result = result + "4" }
+            else if ch == 53 { result = result + "5" }
+            else if ch == 54 { result = result + "6" }
+            else if ch == 55 { result = result + "7" }
+            else if ch == 56 { result = result + "8" }
+            else if ch == 57 { result = result + "9" }
+            else { result = result + "?" }
+            i = i + 1
+        }
+    }
+    return result
 }
 
-// string returns the time formatted using the default layout.
+// string returns the time formatted using the default layout "2006-01-02 15:04:05".
 pub fun (t Time) string() string {
-    return ""
+    return t.format("2006-01-02 15:04:05")
 }
 
 // inLocation returns the same instant in time with the given location.
+// Adjusts the seconds by the location offset.
 pub fun (t Time) inLocation(loc @Location) Time {
-    return Time{ seconds: 0, nanoseconds: 0 }
+    return Time{ seconds: t.seconds + loc.offset, nanoseconds: t.nanoseconds }
 }
 
 // truncate returns the result of rounding t down to a multiple of d.
+// If d <= 0, returns t unchanged.
 pub fun (t Time) truncate(d Duration) Time {
-    return Time{ seconds: 0, nanoseconds: 0 }
+    if d <= 0 {
+        return t
+    }
+    var totalNs = t.seconds * 1000000000 + t.nanoseconds
+    var rem = totalNs - (totalNs / d) * d
+    if rem < 0 {
+        rem = rem + d
+    }
+    var truncNs = totalNs - rem
+    return Time{ seconds: truncNs / 1000000000, nanoseconds: truncNs - (truncNs / 1000000000) * 1000000000 }
 }
 
 // round returns the result of rounding t to the nearest multiple of d.
+// If d <= 0, returns t unchanged.
 pub fun (t Time) round(d Duration) Time {
-    return Time{ seconds: 0, nanoseconds: 0 }
+    if d <= 0 {
+        return t
+    }
+    var totalNs = t.seconds * 1000000000 + t.nanoseconds
+    var rem = totalNs - (totalNs / d) * d
+    if rem < 0 {
+        rem = rem + d
+    }
+    // Round to nearest: if remainder >= half of d, round up.
+    if rem * 2 >= d {
+        totalNs = totalNs + (d - rem)
+    } else {
+        totalNs = totalNs - rem
+    }
+    return Time{ seconds: totalNs / 1000000000, nanoseconds: totalNs - (totalNs / 1000000000) * 1000000000 }
 }
 
 // Timer fires once after a specified duration.
@@ -208,6 +620,7 @@ pub Timer struct {
 }
 
 // newTimer creates a new Timer that will fire after duration d.
+// Note: actual scheduling requires runtime support; creates the struct only.
 pub fun newTimer(d Duration) Timer {
     return Timer{ c: alloc(chan Time), done: false }
 }
@@ -215,11 +628,16 @@ pub fun newTimer(d Duration) Timer {
 // stop prevents the Timer from firing. Returns true if the call stops
 // the timer, false if the timer has already expired or been stopped.
 pub fun (t &Timer) stop() bool {
-    return false
+    if t.done {
+        return false
+    }
+    t.done = true
+    return true
 }
 
 // reset changes the timer to expire after duration d.
 pub fun (t &Timer) reset(d Duration) {
+    t.done = false
 }
 
 // Ticker holds a channel that delivers ticks at regular intervals.
@@ -230,10 +648,12 @@ pub Ticker struct {
 
 // newTicker returns a new Ticker containing a channel that will send
 // the current time on the channel after each tick.
+// Note: actual tick scheduling requires runtime support.
 pub fun newTicker(d Duration) Ticker {
     return Ticker{ c: alloc(chan Time), interval: d }
 }
 
 // stop turns off a ticker. After stop, no more ticks will be sent.
 pub fun (t &Ticker) stop() {
+    t.interval = 0
 }
