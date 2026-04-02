@@ -2,6 +2,16 @@ package template
 
 use "io"
 
+// Helper functions for type conversions.
+fun toBytes(s string) []byte { return s }
+fun toString(b []byte) string { return b }
+fun toStr(val any) string { return val }
+fun toInt(val any) int { return val }
+fun toBool(val any) bool { return val }
+fun toSlice(val any) []any { return val }
+fun toMap(val any) map[string]any { return val }
+fun toFunc(val any) fun(args ...any) any { return val }
+
 // TemplateError represents errors during template parsing or execution.
 pub type TemplateError = .parse_error
     | .exec_error
@@ -9,30 +19,72 @@ pub type TemplateError = .parse_error
     | .undefined_function
     | .wrong_arg_count
 
+// NodeKind identifies the kind of a parsed template node.
+type NodeKind = .text
+    | .action
+    | .field
+    | .if_node
+    | .else_node
+    | .end_node
+    | .range_node
+    | .pipe
+    | .template_node
+
+// Node represents a single element in the parsed template tree.
+Node struct {
+    kind     NodeKind
+    text     string
+    field    string
+    body     []Node
+    elseBody []Node
+    pipeFn   string
+    tmplName string
+}
+
 // Template is a parsed template that can be executed with data.
 // Template syntax:
-//   {{ .field }}              — field access
-//   {{ if .cond }}...{{ end }}  — conditional
-//   {{ range .items }}...{{ end }} — iteration
-//   {{ .value | func }}       — pipeline
-//   {{ template "name" . }}   — include sub-template
+//   {{ .field }}              - field access
+//   {{ if .cond }}...{{ end }}  - conditional
+//   {{ range .items }}...{{ end }} - iteration
+//   {{ .value | func }}       - pipeline
+//   {{ template "name" . }}   - include sub-template
 pub Template struct {
-    name string
+    name  string
+    nodes []Node
+    funcs map[string]any
+    subs  map[string]Template
 }
 
 // new creates a new, empty template with the given name.
 pub fun new(name string) Template {
-    return Template{ name: name }
+    return Template{
+        name: name,
+        nodes: alloc([]Node, 0),
+        funcs: alloc(map[string]any, 0),
+        subs: alloc(map[string]Template, 0),
+    }
 }
 
 // parse parses the template text and returns the resulting Template.
 pub fun parse(text string) !Template {
-    return Template{ name: "" }
+    var nodes = parseNodes(text)
+    return Template{
+        name: "",
+        nodes: nodes,
+        funcs: alloc(map[string]any, 0),
+        subs: alloc(map[string]Template, 0),
+    }
 }
 
 // parseFiles reads and parses the named files as templates.
 pub fun parseFiles(filenames ...string) !Template {
-    return Template{ name: "" }
+    // Stub: file reading requires os/io integration not yet available.
+    return Template{
+        name: "",
+        nodes: alloc([]Node, 0),
+        funcs: alloc(map[string]any, 0),
+        subs: alloc(map[string]Template, 0),
+    }
 }
 
 // must is a helper that panics if err is non-null, otherwise returns t.
@@ -43,15 +95,738 @@ pub fun must(t Template) Template {
 
 // execute applies the parsed template to the data and writes the output to wr.
 pub fun (t @Template) execute(wr io.Writer, data any) !void {
+    var dataMap = toMap(data)
+    executeNodes(wr, t.nodes, dataMap, t.funcs, t.subs)
 }
 
 // executeString applies the parsed template to the data and returns
 // the result as a string.
 pub fun (t @Template) executeString(data any) !string {
+    var buf = alloc([]byte, 0)
+    var dataMap = toMap(data)
+    var bw = BufWriter{ buf: &buf }
+    executeNodes(bw, t.nodes, dataMap, t.funcs, t.subs)
+    return toString(buf)
+}
+
+// getName returns the name of the template.
+pub fun (t @Template) getName() string {
+    return t.name
+}
+
+// addFuncs adds the template function map to the template.
+// Returns the template for chaining.
+pub fun (t &Template) addFuncs(fm map[string]any) Template {
+    for key, value in fm {
+        t.funcs[key] = value
+    }
+    return t
+}
+
+// addTemplate adds a named sub-template that can be invoked via
+// {{ template "name" . }}.
+pub fun (t &Template) addTemplate(name string, sub Template) Template {
+    t.subs[name] = sub
+    return t
+}
+
+// --- Internal buffer writer ---
+
+BufWriter struct {
+    implements {
+        io.Writer
+    }
+
+    buf &[]byte
+}
+
+fun (bw &BufWriter) write(data []byte) !int {
+    var i = 0
+    for i < len(data) {
+        bw.buf = append(bw.buf, data[i])
+        i = i + 1
+    }
+    return len(data)
+}
+
+// --- Parsing ---
+
+// BlockResult holds the result of parsing a block (if/range).
+BlockResult struct {
+    body     []Node
+    elseBody []Node
+    pos      int
+    ok       bool
+}
+
+// TemplateTagInfo holds parsed template inclusion info.
+TemplateTagInfo struct {
+    name string
+    dot  string
+}
+
+// parseNodes parses template text into a list of Nodes.
+// Handles nested if/range blocks via helper functions.
+fun parseNodes(text string) []Node {
+    var nodes = alloc([]Node, 0)
+    var src = toBytes(text)
+    var pos = 0
+
+    for pos < len(src) {
+        // Look for opening delimiter "{{".
+        var tagStart = findTag(src, pos)
+        if tagStart == -1 {
+            // No more tags; rest is literal text.
+            nodes = append(nodes, makeTextNode(toString(src[pos..len(src)])))
+            break
+        }
+
+        // Append literal text before the tag.
+        if tagStart > pos {
+            nodes = append(nodes, makeTextNode(toString(src[pos..tagStart])))
+        }
+
+        // Find closing delimiter "}}".
+        var tagEnd = findClose(src, tagStart + 2)
+        if tagEnd == -1 {
+            // Malformed: no closing }}. Treat remainder as text.
+            nodes = append(nodes, makeTextNode(toString(src[pos..len(src)])))
+            break
+        }
+
+        // Extract content between {{ and }}, trim whitespace.
+        var inner = trimBytes(src[tagStart + 2..tagEnd])
+        var innerStr = toString(inner)
+
+        if startsWith(innerStr, "if ") {
+            // Parse if block: collect body until {{ else }} or {{ end }}.
+            var result = parseIfBlock(src, tagEnd + 2)
+            var condField = trimString(innerStr[3..len(innerStr)])
+            nodes = append(nodes, Node{
+                kind: .if_node,
+                text: "",
+                field: condField,
+                body: result.body,
+                elseBody: result.elseBody,
+                pipeFn: "",
+                tmplName: "",
+            })
+            pos = result.pos
+        } else if startsWith(innerStr, "range ") {
+            // Parse range block: collect body until {{ end }}.
+            var result = parseRangeBlock(src, tagEnd + 2)
+            var rangeField = trimString(innerStr[6..len(innerStr)])
+            nodes = append(nodes, Node{
+                kind: .range_node,
+                text: "",
+                field: rangeField,
+                body: result.body,
+                elseBody: alloc([]Node, 0),
+                pipeFn: "",
+                tmplName: "",
+            })
+            pos = result.pos
+        } else if startsWith(innerStr, "template ") {
+            // {{ template "name" . }}
+            var tmplInfo = parseTemplateTag(innerStr[9..len(innerStr)])
+            nodes = append(nodes, Node{
+                kind: .template_node,
+                text: "",
+                field: tmplInfo.dot,
+                body: alloc([]Node, 0),
+                elseBody: alloc([]Node, 0),
+                pipeFn: "",
+                tmplName: tmplInfo.name,
+            })
+            pos = tagEnd + 2
+        } else if innerStr == "else" {
+            // Stray else at top level — treat as text.
+            nodes = append(nodes, makeTextNode(toString(src[tagStart..tagEnd + 2])))
+            pos = tagEnd + 2
+        } else if innerStr == "end" {
+            // Stray end at top level — treat as text.
+            nodes = append(nodes, makeTextNode(toString(src[tagStart..tagEnd + 2])))
+            pos = tagEnd + 2
+        } else {
+            // Field access, possibly with pipeline: {{ .field | func }}
+            var pipeIdx = findPipe(inner)
+            if pipeIdx != -1 {
+                var fieldPart = trimString(toString(inner[0..pipeIdx]))
+                var funcPart = trimString(toString(inner[pipeIdx + 1..len(inner)]))
+                nodes = append(nodes, Node{
+                    kind: .pipe,
+                    text: "",
+                    field: fieldPart,
+                    body: alloc([]Node, 0),
+                    elseBody: alloc([]Node, 0),
+                    pipeFn: funcPart,
+                    tmplName: "",
+                })
+            } else {
+                nodes = append(nodes, Node{
+                    kind: .field,
+                    text: "",
+                    field: innerStr,
+                    body: alloc([]Node, 0),
+                    elseBody: alloc([]Node, 0),
+                    pipeFn: "",
+                    tmplName: "",
+                })
+            }
+            pos = tagEnd + 2
+        }
+    }
+
+    return nodes
+}
+
+// makeTextNode creates a text Node with the given content.
+fun makeTextNode(text string) Node {
+    return Node{
+        kind: .text,
+        text: text,
+        field: "",
+        body: alloc([]Node, 0),
+        elseBody: alloc([]Node, 0),
+        pipeFn: "",
+        tmplName: "",
+    }
+}
+
+// parseIfBlock parses the body of an if block starting at pos.
+// Returns the body nodes, optional else body nodes, and the position after {{ end }}.
+fun parseIfBlock(src []byte, startPos int) BlockResult {
+    var body = alloc([]Node, 0)
+    var elseBody = alloc([]Node, 0)
+    var inElse = false
+    var pos = startPos
+    var depth = 0
+
+    for pos < len(src) {
+        var tagStart = findTag(src, pos)
+        if tagStart == -1 {
+            // Unterminated if block — append remaining text.
+            if pos < len(src) {
+                var textNode = makeTextNode(toString(src[pos..len(src)]))
+                if inElse {
+                    elseBody = append(elseBody, textNode)
+                } else {
+                    body = append(body, textNode)
+                }
+            }
+            return BlockResult{
+                body: body,
+                elseBody: elseBody,
+                pos: len(src),
+                ok: false,
+            }
+        }
+
+        // Collect literal text before this tag.
+        if tagStart > pos {
+            var textNode = makeTextNode(toString(src[pos..tagStart]))
+            if inElse {
+                elseBody = append(elseBody, textNode)
+            } else {
+                body = append(body, textNode)
+            }
+        }
+
+        var tagEnd = findClose(src, tagStart + 2)
+        if tagEnd == -1 {
+            return BlockResult{
+                body: body,
+                elseBody: elseBody,
+                pos: len(src),
+                ok: false,
+            }
+        }
+
+        var inner = trimBytes(src[tagStart + 2..tagEnd])
+        var innerStr = toString(inner)
+
+        if innerStr == "end" {
+            if depth == 0 {
+                return BlockResult{
+                    body: body,
+                    elseBody: elseBody,
+                    pos: tagEnd + 2,
+                    ok: true,
+                }
+            }
+            depth = depth - 1
+            var marker = makeTextNode(toString(src[tagStart..tagEnd + 2]))
+            if inElse {
+                elseBody = append(elseBody, marker)
+            } else {
+                body = append(body, marker)
+            }
+            pos = tagEnd + 2
+        } else if innerStr == "else" {
+            if depth == 0 {
+                inElse = true
+                pos = tagEnd + 2
+            } else {
+                var marker = makeTextNode(toString(src[tagStart..tagEnd + 2]))
+                if inElse {
+                    elseBody = append(elseBody, marker)
+                } else {
+                    body = append(body, marker)
+                }
+                pos = tagEnd + 2
+            }
+        } else if startsWith(innerStr, "if ") {
+            // Nested if — increase depth.
+            depth = depth + 1
+            var marker = makeTextNode(toString(src[tagStart..tagEnd + 2]))
+            if inElse {
+                elseBody = append(elseBody, marker)
+            } else {
+                body = append(body, marker)
+            }
+            pos = tagEnd + 2
+        } else if startsWith(innerStr, "range ") {
+            // Nested range — increase depth.
+            depth = depth + 1
+            var marker = makeTextNode(toString(src[tagStart..tagEnd + 2]))
+            if inElse {
+                elseBody = append(elseBody, marker)
+            } else {
+                body = append(body, marker)
+            }
+            pos = tagEnd + 2
+        } else {
+            // Regular action inside the block.
+            var node = parseActionNode(inner, innerStr)
+            if inElse {
+                elseBody = append(elseBody, node)
+            } else {
+                body = append(body, node)
+            }
+            pos = tagEnd + 2
+        }
+    }
+
+    return BlockResult{
+        body: body,
+        elseBody: elseBody,
+        pos: len(src),
+        ok: false,
+    }
+}
+
+// parseRangeBlock parses the body of a range block starting at pos.
+fun parseRangeBlock(src []byte, startPos int) BlockResult {
+    var body = alloc([]Node, 0)
+    var pos = startPos
+    var depth = 0
+
+    for pos < len(src) {
+        var tagStart = findTag(src, pos)
+        if tagStart == -1 {
+            if pos < len(src) {
+                body = append(body, makeTextNode(toString(src[pos..len(src)])))
+            }
+            return BlockResult{
+                body: body,
+                elseBody: alloc([]Node, 0),
+                pos: len(src),
+                ok: false,
+            }
+        }
+
+        if tagStart > pos {
+            body = append(body, makeTextNode(toString(src[pos..tagStart])))
+        }
+
+        var tagEnd = findClose(src, tagStart + 2)
+        if tagEnd == -1 {
+            return BlockResult{
+                body: body,
+                elseBody: alloc([]Node, 0),
+                pos: len(src),
+                ok: false,
+            }
+        }
+
+        var inner = trimBytes(src[tagStart + 2..tagEnd])
+        var innerStr = toString(inner)
+
+        if innerStr == "end" {
+            if depth == 0 {
+                return BlockResult{
+                    body: body,
+                    elseBody: alloc([]Node, 0),
+                    pos: tagEnd + 2,
+                    ok: true,
+                }
+            }
+            depth = depth - 1
+            body = append(body, makeTextNode(toString(src[tagStart..tagEnd + 2])))
+            pos = tagEnd + 2
+        } else if startsWith(innerStr, "if ") {
+            depth = depth + 1
+            body = append(body, makeTextNode(toString(src[tagStart..tagEnd + 2])))
+            pos = tagEnd + 2
+        } else if startsWith(innerStr, "range ") {
+            depth = depth + 1
+            body = append(body, makeTextNode(toString(src[tagStart..tagEnd + 2])))
+            pos = tagEnd + 2
+        } else {
+            // Regular action inside range body.
+            body = append(body, parseActionNode(inner, innerStr))
+            pos = tagEnd + 2
+        }
+    }
+
+    return BlockResult{
+        body: body,
+        elseBody: alloc([]Node, 0),
+        pos: len(src),
+        ok: false,
+    }
+}
+
+// parseActionNode parses a field or pipe action from tag content.
+fun parseActionNode(inner []byte, innerStr string) Node {
+    var pipeIdx = findPipe(inner)
+    if pipeIdx != -1 {
+        return Node{
+            kind: .pipe,
+            text: "",
+            field: trimString(toString(inner[0..pipeIdx])),
+            body: alloc([]Node, 0),
+            elseBody: alloc([]Node, 0),
+            pipeFn: trimString(toString(inner[pipeIdx + 1..len(inner)])),
+            tmplName: "",
+        }
+    }
+    return Node{
+        kind: .field,
+        text: "",
+        field: innerStr,
+        body: alloc([]Node, 0),
+        elseBody: alloc([]Node, 0),
+        pipeFn: "",
+        tmplName: "",
+    }
+}
+
+// parseTemplateTag parses the content after "template " in a tag.
+// Expected format: "name" . or "name"
+fun parseTemplateTag(s string) TemplateTagInfo {
+    var trimmed = trimString(s)
+    var b = toBytes(trimmed)
+    var name = ""
+    var dot = "."
+
+    // Extract quoted name.
+    if len(b) > 0 {
+        if b[0] == 34 {
+            var i = 1
+            for i < len(b) {
+                if b[i] == 34 {
+                    name = toString(b[1..i])
+                    // Check for dot context after closing quote.
+                    if i + 1 < len(b) {
+                        dot = trimString(toString(b[i + 1..len(b)]))
+                    }
+                    break
+                }
+                i = i + 1
+            }
+        }
+    }
+
+    return TemplateTagInfo{ name: name, dot: dot }
+}
+
+// --- Execution ---
+
+// executeNodes walks the parsed node list and writes output.
+fun executeNodes(wr io.Writer, nodes []Node, data map[string]any, funcs map[string]any, subs map[string]Template) {
+    var i = 0
+    for i < len(nodes) {
+        var node = nodes[i]
+        if node.kind == .text {
+            writeStr(wr, node.text)
+        } else if node.kind == .field {
+            var val = lookupField(node.field, data)
+            writeStr(wr, anyToString(val))
+        } else if node.kind == .pipe {
+            var val = lookupField(node.field, data)
+            var result = applyPipe(val, node.pipeFn, funcs)
+            writeStr(wr, anyToString(result))
+        } else if node.kind == .if_node {
+            var condVal = lookupField(node.field, data)
+            if isTruthy(condVal) {
+                executeNodes(wr, node.body, data, funcs, subs)
+            } else {
+                if len(node.elseBody) > 0 {
+                    executeNodes(wr, node.elseBody, data, funcs, subs)
+                }
+            }
+        } else if node.kind == .range_node {
+            var items = lookupField(node.field, data)
+            var list = toSlice(items)
+            var j = 0
+            for j < len(list) {
+                var itemData = toMap(list[j])
+                executeNodes(wr, node.body, itemData, funcs, subs)
+                j = j + 1
+            }
+        } else if node.kind == .template_node {
+            // Look up and execute sub-template.
+            var sub = subs[node.tmplName]
+            if sub != null {
+                executeNodes(wr, sub.nodes, data, funcs, subs)
+            }
+        }
+        i = i + 1
+    }
+}
+
+// lookupField resolves a dotted field reference against the data map.
+// Supports ".field", ".", and ".field1.field2" nested access.
+fun lookupField(field string, data map[string]any) any {
+    var f = trimString(field)
+    if f == "." {
+        return data
+    }
+    // Strip leading dot.
+    var b = toBytes(f)
+    var start = 0
+    if len(b) > 0 {
+        if b[0] == 46 {
+            start = 1
+        }
+    }
+    // Simple single-segment lookup (most common case).
+    var hasDot = false
+    var k = start
+    for k < len(b) {
+        if b[k] == 46 {
+            hasDot = true
+            break
+        }
+        k = k + 1
+    }
+    if !hasDot {
+        var key = toString(b[start..len(b)])
+        return data[key]
+    }
+    // Multi-segment nested lookup: split on dots.
+    var current = data
+    var segStart = start
+    var pos = start
+    for pos <= len(b) {
+        if pos == len(b) or b[pos] == 46 {
+            if pos > segStart {
+                var key = toString(b[segStart..pos])
+                var val = current[key]
+                if val == null {
+                    return ""
+                }
+                if pos < len(b) {
+                    // More segments to follow — val must be a map.
+                    current = toMap(val)
+                } else {
+                    return val
+                }
+            }
+            segStart = pos + 1
+        }
+        pos = pos + 1
+    }
     return ""
 }
 
-// name returns the name of the template.
-pub fun (t @Template) name() string {
-    return t.name
+// isTruthy determines whether a value is "truthy" for template conditionals.
+fun isTruthy(val any) bool {
+    // Treat empty string as falsy, non-empty as truthy.
+    // Treat 0 as falsy, non-zero as truthy.
+    // Treat false as falsy.
+    var s = anyToString(val)
+    if s == "" {
+        return false
+    }
+    if s == "0" {
+        return false
+    }
+    if s == "false" {
+        return false
+    }
+    return true
+}
+
+// applyPipe applies a pipeline function to a value.
+fun applyPipe(val any, funcName string, funcs map[string]any) any {
+    var name = trimString(funcName)
+    var f = funcs[name]
+    if f != null {
+        var callable = toFunc(f)
+        return callable(val)
+    }
+    // Built-in pipe functions.
+    if name == "len" {
+        var s = anyToString(val)
+        return len(toBytes(s))
+    }
+    if name == "upper" {
+        return toUpper(anyToString(val))
+    }
+    if name == "lower" {
+        return toLower(anyToString(val))
+    }
+    return val
+}
+
+// anyToString converts any value to its string representation.
+fun anyToString(val any) string {
+    return toStr(val)
+}
+
+// --- String/byte helpers ---
+
+// writeStr writes a string to the writer.
+fun writeStr(wr io.Writer, s string) {
+    var data = toBytes(s)
+    wr.write(data)
+}
+
+// findTag finds the position of the next "{{" in src starting at pos.
+// Returns -1 if not found.
+fun findTag(src []byte, pos int) int {
+    var i = pos
+    for i < len(src) - 1 {
+        if src[i] == 123 {
+            if src[i + 1] == 123 {
+                return i
+            }
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// findClose finds the position of the next "}}" in src starting at pos.
+// Returns -1 if not found.
+fun findClose(src []byte, pos int) int {
+    var i = pos
+    for i < len(src) - 1 {
+        if src[i] == 125 {
+            if src[i + 1] == 125 {
+                return i
+            }
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// findPipe finds the position of '|' in the byte slice.
+// Returns -1 if not found.
+fun findPipe(src []byte) int {
+    var i = 0
+    for i < len(src) {
+        if src[i] == 124 {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// trimBytes trims leading and trailing whitespace from a byte slice.
+fun trimBytes(src []byte) []byte {
+    var start = 0
+    for start < len(src) {
+        if !isWhitespace(src[start]) {
+            break
+        }
+        start = start + 1
+    }
+    var end = len(src)
+    for end > start {
+        if !isWhitespace(src[end - 1]) {
+            break
+        }
+        end = end - 1
+    }
+    return src[start..end]
+}
+
+// trimString trims leading and trailing whitespace from a string.
+fun trimString(s string) string {
+    return toString(trimBytes(toBytes(s)))
+}
+
+// isWhitespace checks if a byte is ASCII whitespace.
+fun isWhitespace(c byte) bool {
+    if c == 32 {
+        return true
+    }
+    if c == 9 {
+        return true
+    }
+    if c == 10 {
+        return true
+    }
+    if c == 13 {
+        return true
+    }
+    return false
+}
+
+// startsWith checks if s begins with prefix.
+fun startsWith(s string, prefix string) bool {
+    var sb = toBytes(s)
+    var pb = toBytes(prefix)
+    if len(pb) > len(sb) {
+        return false
+    }
+    var i = 0
+    for i < len(pb) {
+        if sb[i] != pb[i] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// toUpper returns s with all ASCII lowercase letters mapped to uppercase.
+fun toUpper(s string) string {
+    var sb = toBytes(s)
+    var result = alloc([]byte, len(sb))
+    var i = 0
+    for i < len(sb) {
+        var c = sb[i]
+        if c >= 97 {
+            if c <= 122 {
+                c = c - 32
+            }
+        }
+        result[i] = c
+        i = i + 1
+    }
+    return toString(result)
+}
+
+// toLower returns s with all ASCII uppercase letters mapped to lowercase.
+fun toLower(s string) string {
+    var sb = toBytes(s)
+    var result = alloc([]byte, len(sb))
+    var i = 0
+    for i < len(sb) {
+        var c = sb[i]
+        if c >= 65 {
+            if c <= 90 {
+                c = c + 32
+            }
+        }
+        result[i] = c
+        i = i + 1
+    }
+    return toString(result)
 }
