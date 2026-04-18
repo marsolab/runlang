@@ -1,4 +1,5 @@
 #include "run_poller.h"
+#include "run_xev.h"
 
 #include <pthread.h>
 #include <stdbool.h>
@@ -20,23 +21,6 @@
  * polling — only timers and async notifications. The Zig bridge uses
  * the full libxev Zig API (xev.File.poll) and exports C functions.
  * ======================================================================== */
-
-/* ---------- Zig bridge imports ---------- */
-
-typedef void (*run_xev_ready_cb)(int fd, uint32_t events, void *read_g, void *write_g);
-
-extern int run_xev_init(run_xev_ready_cb cb);
-extern void run_xev_close(void);
-extern int run_xev_open(int fd);
-extern void run_xev_close_fd(int fd);
-extern void run_xev_poll_read(int fd, void *g);
-extern void run_xev_poll_write(int fd, void *g);
-extern int run_xev_tick(void);
-extern int run_xev_tick_blocking(int64_t timeout_ms);
-extern int run_xev_async_init(void);
-extern int run_xev_async_notify(void);
-extern void run_xev_async_wait(void);
-extern bool run_xev_has_waiters(void);
 
 /* ---------- Internal state ---------- */
 
