@@ -437,20 +437,21 @@ uint64_t run_numa_memory_on_node(uint32_t node_id) {
  * NUMA Allocator Vtable
  * ======================================================================== */
 
-static void *numa_alloc_fn(void *ctx, size_t size) {
+static void *run_numa_alloc_fn(void *ctx, size_t size) {
     uint32_t node_id = (uint32_t)(uintptr_t)ctx;
     return run_numa_alloc_on_node(size, node_id);
 }
 
-static void numa_free_fn(void *ctx, void *ptr, size_t size) {
+static void run_numa_free_fn(void *ctx, void *ptr, size_t size) {
     (void)ctx;
     run_numa_free(ptr, size);
 }
 
 run_allocator_t run_numa_allocator(uint32_t node_id) {
     return (run_allocator_t){
-        .alloc_fn = numa_alloc_fn,
-        .free_fn = numa_free_fn,
+        .alloc_fn = run_numa_alloc_fn,
+        .free_fn = run_numa_free_fn,
+        // NOLINTNEXTLINE(performance-no-int-to-ptr): node_id packed into ctx pointer
         .ctx = (void *)(uintptr_t)node_id,
     };
 }

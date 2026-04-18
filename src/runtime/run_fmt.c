@@ -124,13 +124,13 @@ typedef struct {
     size_t cap;
 } fmt_buf_t;
 
-static void buf_init(fmt_buf_t *b) {
+static void run_fmt_buf_init(fmt_buf_t *b) {
     b->data = NULL;
     b->len = 0;
     b->cap = 0;
 }
 
-static void buf_grow(fmt_buf_t *b, size_t extra) {
+static void run_fmt_buf_grow(fmt_buf_t *b, size_t extra) {
     if (b->len + extra <= b->cap) {
         return;
     }
@@ -147,19 +147,19 @@ static void buf_grow(fmt_buf_t *b, size_t extra) {
     b->cap = new_cap;
 }
 
-static void buf_append(fmt_buf_t *b, const char *s, size_t n) {
+static void run_fmt_buf_append(fmt_buf_t *b, const char *s, size_t n) {
     if (n == 0)
         return;
-    buf_grow(b, n);
+    run_fmt_buf_grow(b, n);
     memcpy(b->data + b->len, s, n);
     b->len += n;
 }
 
-static void buf_append_cstr(fmt_buf_t *b, const char *s) {
-    buf_append(b, s, strlen(s));
+static void run_fmt_run_fmt_buf_append_cstr(fmt_buf_t *b, const char *s) {
+    run_fmt_buf_append(b, s, strlen(s));
 }
 
-static run_string_t buf_to_string(fmt_buf_t *b) {
+static run_string_t run_fmt_buf_to_string(fmt_buf_t *b) {
     if (b->len == 0) {
         free(b->data);
         return (run_string_t){.ptr = NULL, .len = 0};
@@ -173,26 +173,26 @@ static run_string_t buf_to_string(fmt_buf_t *b) {
 
 // ── Default formatting of any value ─────────────────────────────────────────
 
-static void fmt_any_default(fmt_buf_t *b, const run_any_t *a) {
+static void run_fmt_any_default(fmt_buf_t *b, const run_any_t *a) {
     char tmp[64];
     switch (a->tag) {
     case RUN_ANY_INT: {
         int n = snprintf(tmp, sizeof(tmp), "%" PRId64, a->val.i);
         if (n > 0)
-            buf_append(b, tmp, (size_t)n);
+            run_fmt_buf_append(b, tmp, (size_t)n);
         break;
     }
     case RUN_ANY_FLOAT: {
         int n = snprintf(tmp, sizeof(tmp), "%g", a->val.f);
         if (n > 0)
-            buf_append(b, tmp, (size_t)n);
+            run_fmt_buf_append(b, tmp, (size_t)n);
         break;
     }
     case RUN_ANY_STRING:
-        buf_append(b, a->val.s.ptr, a->val.s.len);
+        run_fmt_buf_append(b, a->val.s.ptr, a->val.s.len);
         break;
     case RUN_ANY_BOOL:
-        buf_append_cstr(b, a->val.b ? "true" : "false");
+        run_fmt_run_fmt_buf_append_cstr(b, a->val.b ? "true" : "false");
         break;
     }
 }
@@ -202,10 +202,10 @@ static void fmt_any_default(fmt_buf_t *b, const run_any_t *a) {
 // Parse a format verb starting after '%'. Returns the number of chars consumed
 // from fmt (not counting the '%'). Appends formatted output to buf.
 // If arg_idx >= nargs, appends %!(MISSING) instead.
-static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, const run_any_t *args,
+static size_t run_fmt_process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, const run_any_t *args,
                            size_t nargs, size_t *arg_idx) {
     if (fmt_len == 0) {
-        buf_append_cstr(buf, "%!(NOVERB)");
+        run_fmt_run_fmt_buf_append_cstr(buf, "%!(NOVERB)");
         return 0;
     }
 
@@ -248,7 +248,7 @@ static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, cons
     }
 
     if (pos >= fmt_len) {
-        buf_append_cstr(buf, "%!(NOVERB)");
+        run_fmt_run_fmt_buf_append_cstr(buf, "%!(NOVERB)");
         return pos;
     }
 
@@ -257,13 +257,13 @@ static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, cons
 
     // %% is a literal %
     if (verb == '%') {
-        buf_append(buf, "%", 1);
+        run_fmt_buf_append(buf, "%", 1);
         return pos;
     }
 
     // All other verbs consume an argument
     if (*arg_idx >= nargs) {
-        buf_append_cstr(buf, "%!(MISSING)");
+        run_fmt_run_fmt_buf_append_cstr(buf, "%!(MISSING)");
         return pos;
     }
 
@@ -275,7 +275,7 @@ static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, cons
     switch (verb) {
     case 'v': {
         // %v: default format — ignore width/precision for simplicity on v
-        fmt_any_default(buf, a);
+        run_fmt_any_default(buf, a);
         break;
     }
     case 'd': {
@@ -291,7 +291,7 @@ static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, cons
                                                   : 0;
         int n = snprintf(tmp, sizeof(tmp), spec, val);
         if (n > 0)
-            buf_append(buf, tmp, (size_t)n);
+            run_fmt_buf_append(buf, tmp, (size_t)n);
         break;
     }
     case 's': {
@@ -312,19 +312,19 @@ static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, cons
             if (width > 0 && (size_t)width > a->val.s.len) {
                 size_t pad = (size_t)width - a->val.s.len;
                 if (left_align) {
-                    buf_append(buf, a->val.s.ptr, a->val.s.len);
+                    run_fmt_buf_append(buf, a->val.s.ptr, a->val.s.len);
                     for (size_t p = 0; p < pad; p++)
-                        buf_append(buf, " ", 1);
+                        run_fmt_buf_append(buf, " ", 1);
                 } else {
                     for (size_t p = 0; p < pad; p++)
-                        buf_append(buf, " ", 1);
-                    buf_append(buf, a->val.s.ptr, a->val.s.len);
+                        run_fmt_buf_append(buf, " ", 1);
+                    run_fmt_buf_append(buf, a->val.s.ptr, a->val.s.len);
                 }
             } else {
-                buf_append(buf, a->val.s.ptr, a->val.s.len);
+                run_fmt_buf_append(buf, a->val.s.ptr, a->val.s.len);
             }
         } else {
-            fmt_any_default(buf, a);
+            run_fmt_any_default(buf, a);
         }
         break;
     }
@@ -336,7 +336,7 @@ static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, cons
                                                : 0.0;
         int n = snprintf(tmp, sizeof(tmp), spec, val);
         if (n > 0)
-            buf_append(buf, tmp, (size_t)n);
+            run_fmt_buf_append(buf, tmp, (size_t)n);
         break;
     }
     case 'e': {
@@ -347,7 +347,7 @@ static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, cons
                                                : 0.0;
         int n = snprintf(tmp, sizeof(tmp), spec, val);
         if (n > 0)
-            buf_append(buf, tmp, (size_t)n);
+            run_fmt_buf_append(buf, tmp, (size_t)n);
         break;
     }
     case 'g': {
@@ -358,14 +358,14 @@ static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, cons
                                                : 0.0;
         int n = snprintf(tmp, sizeof(tmp), spec, val);
         if (n > 0)
-            buf_append(buf, tmp, (size_t)n);
+            run_fmt_buf_append(buf, tmp, (size_t)n);
         break;
     }
     case 't': {
         bool val = (a->tag == RUN_ANY_BOOL)  ? a->val.b
                    : (a->tag == RUN_ANY_INT) ? (a->val.i != 0)
                                              : false;
-        buf_append_cstr(buf, val ? "true" : "false");
+        run_fmt_run_fmt_buf_append_cstr(buf, val ? "true" : "false");
         break;
     }
     case 'x': {
@@ -380,7 +380,7 @@ static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, cons
                                                   : 0;
         int n = snprintf(tmp, sizeof(tmp), spec, val);
         if (n > 0)
-            buf_append(buf, tmp, (size_t)n);
+            run_fmt_buf_append(buf, tmp, (size_t)n);
         break;
     }
     case 'o': {
@@ -395,7 +395,7 @@ static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, cons
                                                   : 0;
         int n = snprintf(tmp, sizeof(tmp), spec, val);
         if (n > 0)
-            buf_append(buf, tmp, (size_t)n);
+            run_fmt_buf_append(buf, tmp, (size_t)n);
         break;
     }
     case 'b': {
@@ -404,7 +404,7 @@ static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, cons
                        : (a->tag == RUN_ANY_FLOAT) ? (uint64_t)a->val.f
                                                    : 0;
         if (val == 0) {
-            buf_append(buf, "0", 1);
+            run_fmt_buf_append(buf, "0", 1);
         } else {
             char bin[65];
             int bi = 64;
@@ -413,7 +413,7 @@ static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, cons
                 bin[--bi] = (val & 1) ? '1' : '0';
                 val >>= 1;
             }
-            buf_append_cstr(buf, &bin[bi]);
+            run_fmt_run_fmt_buf_append_cstr(buf, &bin[bi]);
         }
         break;
     }
@@ -421,15 +421,15 @@ static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, cons
         int64_t val = (a->tag == RUN_ANY_INT) ? a->val.i : 0;
         if (val >= 0 && val <= 127) {
             char ch = (char)val;
-            buf_append(buf, &ch, 1);
+            run_fmt_buf_append(buf, &ch, 1);
         }
         break;
     }
     default: {
         // Unknown verb
-        buf_append(buf, "%!", 2);
-        buf_append(buf, &verb, 1);
-        buf_append(buf, "(BAD)", 5);
+        run_fmt_buf_append(buf, "%!", 2);
+        run_fmt_buf_append(buf, &verb, 1);
+        run_fmt_buf_append(buf, "(BAD)", 5);
         break;
     }
     }
@@ -438,7 +438,7 @@ static size_t process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, cons
 }
 
 // Core format function: parses Go-style format string and writes to buffer.
-static void fmt_format_to_buf(fmt_buf_t *buf, const char *fmt, size_t fmt_len,
+static void run_fmt_format_to_buf(fmt_buf_t *buf, const char *fmt, size_t fmt_len,
                               const run_any_t *args, size_t nargs) {
     size_t arg_idx = 0;
     size_t i = 0;
@@ -448,10 +448,10 @@ static void fmt_format_to_buf(fmt_buf_t *buf, const char *fmt, size_t fmt_len,
         if (fmt[i] == '%') {
             // Flush literal segment
             if (i > literal_start) {
-                buf_append(buf, fmt + literal_start, i - literal_start);
+                run_fmt_buf_append(buf, fmt + literal_start, i - literal_start);
             }
             i++; // skip '%'
-            size_t consumed = process_verb(buf, fmt + i, fmt_len - i, args, nargs, &arg_idx);
+            size_t consumed = run_fmt_process_verb(buf, fmt + i, fmt_len - i, args, nargs, &arg_idx);
             i += consumed;
             literal_start = i;
         } else {
@@ -461,22 +461,22 @@ static void fmt_format_to_buf(fmt_buf_t *buf, const char *fmt, size_t fmt_len,
 
     // Flush remaining literal
     if (i > literal_start) {
-        buf_append(buf, fmt + literal_start, i - literal_start);
+        run_fmt_buf_append(buf, fmt + literal_start, i - literal_start);
     }
 
     // Extra args
     while (arg_idx < nargs) {
-        buf_append_cstr(buf, "%!(EXTRA ");
-        fmt_any_default(buf, &args[arg_idx]);
-        buf_append(buf, ")", 1);
+        run_fmt_run_fmt_buf_append_cstr(buf, "%!(EXTRA ");
+        run_fmt_any_default(buf, &args[arg_idx]);
+        run_fmt_buf_append(buf, ")", 1);
         arg_idx++;
     }
 }
 
 void run_fmt_printf_args(run_string_t format, const run_any_t *args, size_t nargs) {
     fmt_buf_t buf;
-    buf_init(&buf);
-    fmt_format_to_buf(&buf, format.ptr, format.len, args, nargs);
+    run_fmt_buf_init(&buf);
+    run_fmt_format_to_buf(&buf, format.ptr, format.len, args, nargs);
     if (buf.len > 0) {
         fwrite(buf.data, 1, buf.len, stdout);
     }
@@ -485,9 +485,9 @@ void run_fmt_printf_args(run_string_t format, const run_any_t *args, size_t narg
 
 run_string_t run_fmt_sprintf_args(run_string_t format, const run_any_t *args, size_t nargs) {
     fmt_buf_t buf;
-    buf_init(&buf);
-    fmt_format_to_buf(&buf, format.ptr, format.len, args, nargs);
-    return buf_to_string(&buf);
+    run_fmt_buf_init(&buf);
+    run_fmt_format_to_buf(&buf, format.ptr, format.len, args, nargs);
+    return run_fmt_buf_to_string(&buf);
 }
 
 void run_fmt_println_args(const run_any_t *args, size_t nargs) {
@@ -495,8 +495,8 @@ void run_fmt_println_args(const run_any_t *args, size_t nargs) {
         if (i > 0)
             putchar(' ');
         fmt_buf_t buf;
-        buf_init(&buf);
-        fmt_any_default(&buf, &args[i]);
+        run_fmt_buf_init(&buf);
+        run_fmt_any_default(&buf, &args[i]);
         if (buf.len > 0)
             fwrite(buf.data, 1, buf.len, stdout);
         free(buf.data);
@@ -507,8 +507,8 @@ void run_fmt_println_args(const run_any_t *args, size_t nargs) {
 void run_fmt_print_args(const run_any_t *args, size_t nargs) {
     for (size_t i = 0; i < nargs; i++) {
         fmt_buf_t buf;
-        buf_init(&buf);
-        fmt_any_default(&buf, &args[i]);
+        run_fmt_buf_init(&buf);
+        run_fmt_any_default(&buf, &args[i]);
         if (buf.len > 0)
             fwrite(buf.data, 1, buf.len, stdout);
         free(buf.data);
@@ -517,21 +517,21 @@ void run_fmt_print_args(const run_any_t *args, size_t nargs) {
 
 run_string_t run_fmt_sprint_args(const run_any_t *args, size_t nargs) {
     fmt_buf_t buf;
-    buf_init(&buf);
+    run_fmt_buf_init(&buf);
     for (size_t i = 0; i < nargs; i++) {
-        fmt_any_default(&buf, &args[i]);
+        run_fmt_any_default(&buf, &args[i]);
     }
-    return buf_to_string(&buf);
+    return run_fmt_buf_to_string(&buf);
 }
 
 run_string_t run_fmt_sprintln_args(const run_any_t *args, size_t nargs) {
     fmt_buf_t buf;
-    buf_init(&buf);
+    run_fmt_buf_init(&buf);
     for (size_t i = 0; i < nargs; i++) {
         if (i > 0)
-            buf_append(&buf, " ", 1);
-        fmt_any_default(&buf, &args[i]);
+            run_fmt_buf_append(&buf, " ", 1);
+        run_fmt_any_default(&buf, &args[i]);
     }
-    buf_append(&buf, "\n", 1);
-    return buf_to_string(&buf);
+    run_fmt_buf_append(&buf, "\n", 1);
+    return run_fmt_buf_to_string(&buf);
 }

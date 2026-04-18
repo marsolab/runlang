@@ -32,7 +32,7 @@ static volatile int32_t woken_count = 0;
 
 /* Called from the Zig bridge when an fd becomes ready.
  * events bitmask: 1=read, 2=write, 3=both/error. */
-static void on_fd_ready(int fd, uint32_t events, void *read_g, void *write_g) {
+static void run_on_fd_ready(int fd, uint32_t events, void *read_g, void *write_g) {
     (void)fd;
 
     if ((events & 1) && read_g) {
@@ -48,7 +48,7 @@ static void on_fd_ready(int fd, uint32_t events, void *read_g, void *write_g) {
 /* ---------- Public API (run_poller.h) ---------- */
 
 void run_poller_init(void) {
-    if (run_xev_init(on_fd_ready) < 0) {
+    if (run_xev_init(run_on_fd_ready) < 0) {
         fprintf(stderr, "run: libxev init failed\n");
         abort();
     }

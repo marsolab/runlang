@@ -563,7 +563,7 @@ void run_poll_wait(run_poll_desc_t *pd, run_poll_event_t events) {
 }
 
 /* Reap kqueue events and wake associated Gs. */
-static int kq_reap(const struct timespec *timeout) {
+static int run_kq_reap(const struct timespec *timeout) {
     struct kevent events[KQ_MAX_EVENTS];
     int n = kevent(kq_fd, NULL, 0, events, KQ_MAX_EVENTS, timeout);
     if (n <= 0)
@@ -631,7 +631,7 @@ int run_poller_poll(void) {
 
     pthread_mutex_lock(&poller_lock);
     struct timespec ts = {0, 0}; /* non-blocking */
-    int woken = kq_reap(&ts);
+    int woken = run_kq_reap(&ts);
     pthread_mutex_unlock(&poller_lock);
     return woken;
 }
@@ -655,7 +655,7 @@ int run_poller_poll_blocking(int64_t timeout_ns) {
     }
     /* timeout_ns == -1: ts_ptr remains NULL, kevent blocks indefinitely */
 
-    int woken = kq_reap(ts_ptr);
+    int woken = run_kq_reap(ts_ptr);
     pthread_mutex_unlock(&poller_lock);
     return woken;
 }
