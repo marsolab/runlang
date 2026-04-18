@@ -143,6 +143,7 @@ void run_map_free(run_map_t *map) {
  * Resize
  * ======================================================================== */
 
+// NOLINTNEXTLINE(misc-no-recursion): resize re-inserts via run_map_set (guarded by load factor)
 static void run_map_resize(run_map_t *map, size_t new_cap) {
     run_map_bucket_t *old_buckets = map->buckets;
     char *old_entries = map->entries;
@@ -174,6 +175,7 @@ static void run_map_resize(run_map_t *map, size_t new_cap) {
  * Set (Insert / Update)
  * ======================================================================== */
 
+// NOLINTNEXTLINE(misc-no-recursion): may call run_map_resize which re-inserts via this function
 void run_map_set(run_map_t *map, const void *key, const void *val) {
     /* Check load factor */
     if (map->count * 100 >= map->capacity * RUN_MAP_LOAD_FACTOR) {

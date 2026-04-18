@@ -119,6 +119,7 @@ run_string_t run_runtime_stack(void) {
     free((void *)symbols);
 
     /* Return as run_string_t — caller owns the memory */
+    // NOLINTNEXTLINE(clang-analyzer-unix.Malloc): ownership transfers to returned run_string_t
     return run_string_from_parts(buf, pos);
 #else
     return run_string_from_cstr("<stack trace not supported on this platform>");
