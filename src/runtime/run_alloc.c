@@ -22,7 +22,7 @@ typedef struct {
     void *base_ptr;
 } run_alloc_header_t;
 
-static run_alloc_header_t *get_header(void *ptr) {
+static run_alloc_header_t *run_get_header(void *ptr) {
     return (run_alloc_header_t *)((char *)ptr - sizeof(run_alloc_header_t));
 }
 
@@ -54,11 +54,13 @@ void *run_gen_alloc_aligned(size_t size, size_t alignment) {
     uintptr_t user_addr = (uintptr_t)raw + sizeof(run_alloc_header_t);
     user_addr = (user_addr + alignment - 1) & ~(uintptr_t)(alignment - 1);
 
+    // NOLINTNEXTLINE(performance-no-int-to-ptr): alignment math requires uintptr_t round-trip
     run_alloc_header_t *block = (run_alloc_header_t *)(user_addr - sizeof(run_alloc_header_t));
     block->generation = 0;
     block->alloc_size = size;
     block->base_ptr = raw;
 
+    // NOLINTNEXTLINE(performance-no-int-to-ptr): alignment math requires uintptr_t round-trip
     void *user_ptr = (void *)user_addr;
     memset(user_ptr, 0, size);
 
@@ -71,7 +73,7 @@ void *run_gen_alloc_aligned(size_t size, size_t alignment) {
 void run_gen_free(void *ptr) {
     if (!ptr)
         return;
-    run_alloc_header_t *header = get_header(ptr);
+    run_alloc_header_t *header = run_get_header(ptr);
     if (header->generation == RUN_GEN_FREED) {
         fprintf(stderr, "run: double free detected\n");
         abort();
@@ -96,7 +98,7 @@ void run_gen_check(void *ptr, uint64_t expected_gen) {
         fprintf(stderr, "run: null pointer dereference\n");
         abort();
     }
-    run_alloc_header_t *header = get_header(ptr);
+    run_alloc_header_t *header = run_get_header(ptr);
     if (header->generation == RUN_GEN_FREED) {
         atomic_fetch_add_explicit(&run_gen_failure_count, 1, memory_order_relaxed);
         fprintf(stderr, "run: use-after-free detected (memory has been freed)\n");
@@ -119,7 +121,7 @@ uint64_t run_gen_get(void *ptr) {
         fprintf(stderr, "run: null pointer in run_gen_get\n");
         abort();
     }
-    return get_header(ptr)->generation;
+    return run_get_header(ptr)->generation;
 }
 
 run_gen_ref_t run_gen_ref_create(void *ptr) {

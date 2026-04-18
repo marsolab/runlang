@@ -18,7 +18,7 @@ static const int sig_run_to_posix[RUN_SIG_COUNT] = {
 };
 
 /* Reverse mapping: POSIX signal number → Run ordinal. Returns -1 if unknown. */
-static int posix_to_run(int signo) {
+static int run_posix_to_run(int signo) {
     for (int i = 0; i < RUN_SIG_COUNT; i++) {
         if (sig_run_to_posix[i] == signo)
             return i;
@@ -30,7 +30,7 @@ static int posix_to_run(int signo) {
 
 static int self_pipe[2] = {-1, -1};
 
-static void signal_handler(int signo) {
+static void run_signal_handler(int signo) {
     /* Async-signal-safe: write one byte (the signal number) to the pipe. */
     int saved_errno = errno;
     unsigned char byte = (unsigned char)signo;
@@ -56,7 +56,7 @@ static pthread_mutex_t registry_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t dispatcher_thread;
 static pthread_once_t dispatcher_once = PTHREAD_ONCE_INIT;
 
-static void *dispatcher_fn(void *arg) {
+static void *run_dispatcher_fn(void *arg) {
     (void)arg;
     for (;;) {
         unsigned char byte;
@@ -65,7 +65,7 @@ static void *dispatcher_fn(void *arg) {
             continue;
 
         int signo = (int)byte;
-        int run_sig = posix_to_run(signo);
+        int run_sig = run_posix_to_run(signo);
         if (run_sig < 0)
             continue;
 
@@ -82,28 +82,28 @@ static void *dispatcher_fn(void *arg) {
     return NULL;
 }
 
-static void start_dispatcher(void) {
+static void run_start_dispatcher(void) {
     if (pipe(self_pipe) != 0)
         return;
-    pthread_create(&dispatcher_thread, NULL, dispatcher_fn, NULL);
+    pthread_create(&dispatcher_thread, NULL, run_dispatcher_fn, NULL);
 }
 
-static void ensure_dispatcher(void) {
-    pthread_once(&dispatcher_once, start_dispatcher);
+static void run_ensure_dispatcher(void) {
+    pthread_once(&dispatcher_once, run_start_dispatcher);
 }
 
 /* ── Install/remove sigaction for a POSIX signal ─────────────────────────── */
 
-static void install_handler(int posix_sig) {
+static void run_install_handler(int posix_sig) {
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = signal_handler;
+    sa.sa_handler = run_signal_handler;
     sa.sa_flags = SA_RESTART;
     sigemptyset(&sa.sa_mask);
     sigaction(posix_sig, &sa, NULL);
 }
 
-static bool signal_has_any_registration(int run_sig) {
+static bool run_signal_has_any_registration(int run_sig) {
     for (int i = 0; i < registry_count; i++) {
         if (registry[i].signals[run_sig])
             return true;
@@ -117,7 +117,7 @@ void run_signal_notify(run_chan_t *ch, const int64_t *signals, size_t nsignals) 
     if (!ch)
         return;
 
-    ensure_dispatcher();
+    run_ensure_dispatcher();
     pthread_mutex_lock(&registry_mutex);
 
     /* Find or create registration for this channel */
@@ -142,14 +142,14 @@ void run_signal_notify(run_chan_t *ch, const int64_t *signals, size_t nsignals) 
         /* Register for all signals */
         for (int i = 0; i < RUN_SIG_COUNT; i++) {
             reg->signals[i] = true;
-            install_handler(sig_run_to_posix[i]);
+            run_install_handler(sig_run_to_posix[i]);
         }
     } else {
         for (size_t i = 0; i < nsignals; i++) {
             int s = (int)signals[i];
             if (s >= 0 && s < RUN_SIG_COUNT) {
                 reg->signals[s] = true;
-                install_handler(sig_run_to_posix[s]);
+                run_install_handler(sig_run_to_posix[s]);
             }
         }
     }
@@ -177,7 +177,7 @@ void run_signal_stop(run_chan_t *ch) {
 
             /* Restore SIG_DFL for signals that have no remaining registrations */
             for (int s = 0; s < RUN_SIG_COUNT; s++) {
-                if (had[s] && !signal_has_any_registration(s)) {
+                if (had[s] && !run_signal_has_any_registration(s)) {
                     signal(sig_run_to_posix[s], SIG_DFL);
                 }
             }

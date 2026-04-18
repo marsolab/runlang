@@ -42,7 +42,7 @@ struct run_map {
  * ======================================================================== */
 
 /* FNV-1a hash for arbitrary bytes */
-static uint64_t fnv1a(const void *data, size_t len) {
+static uint64_t run_fnv1a(const void *data, size_t len) {
     const uint8_t *bytes = (const uint8_t *)data;
     uint64_t hash = 0xcbf29ce484222325ULL;
     for (size_t i = 0; i < len; i++) {
@@ -53,14 +53,14 @@ static uint64_t fnv1a(const void *data, size_t len) {
 }
 
 uint64_t run_hash_int(const void *key, size_t key_size) {
-    return fnv1a(key, key_size);
+    return run_fnv1a(key, key_size);
 }
 
 uint64_t run_hash_string(const void *key, size_t key_size) {
     (void)key_size;
     /* key is a run_string_t */
     const run_string_t *s = (const run_string_t *)key;
-    return fnv1a(s->ptr, s->len);
+    return run_fnv1a(s->ptr, s->len);
 }
 
 bool run_eq_int(const void *a, const void *b, size_t key_size) {
@@ -80,27 +80,27 @@ bool run_eq_string(const void *a, const void *b, size_t key_size) {
  * Internal Helpers
  * ======================================================================== */
 
-static inline void *entry_key(run_map_t *map, size_t idx) {
+static inline void *run_map_entry_key(run_map_t *map, size_t idx) {
     return map->entries + idx * map->entry_size;
 }
 
-static inline void *entry_val(run_map_t *map, size_t idx) {
+static inline void *run_map_entry_val(run_map_t *map, size_t idx) {
     return map->entries + idx * map->entry_size + map->key_size;
 }
 
-static uint64_t map_hash(run_map_t *map, const void *key) {
+static uint64_t run_map_hash(run_map_t *map, const void *key) {
     if (map->hash_fn)
         return map->hash_fn(key, map->key_size);
-    return fnv1a(key, map->key_size);
+    return run_fnv1a(key, map->key_size);
 }
 
-static bool map_eq(run_map_t *map, const void *a, const void *b) {
+static bool run_map_eq(run_map_t *map, const void *a, const void *b) {
     if (map->eq_fn)
         return map->eq_fn(a, b, map->key_size);
     return memcmp(a, b, map->key_size) == 0;
 }
 
-static void map_resize(run_map_t *map, size_t new_cap);
+static void run_map_resize(run_map_t *map, size_t new_cap);
 
 /* ========================================================================
  * Map Creation / Destruction
@@ -143,7 +143,7 @@ void run_map_free(run_map_t *map) {
  * Resize
  * ======================================================================== */
 
-static void map_resize(run_map_t *map, size_t new_cap) {
+static void run_map_resize(run_map_t *map, size_t new_cap) {
     run_map_bucket_t *old_buckets = map->buckets;
     char *old_entries = map->entries;
     size_t old_cap = map->capacity;
@@ -177,10 +177,10 @@ static void map_resize(run_map_t *map, size_t new_cap) {
 void run_map_set(run_map_t *map, const void *key, const void *val) {
     /* Check load factor */
     if (map->count * 100 >= map->capacity * RUN_MAP_LOAD_FACTOR) {
-        map_resize(map, map->capacity * 2);
+        run_map_resize(map, map->capacity * 2);
     }
 
-    uint64_t hash = map_hash(map, key);
+    uint64_t hash = run_map_hash(map, key);
     size_t idx = hash & (map->capacity - 1); /* capacity is power of 2 */
     uint32_t psl = 0;
 
@@ -207,7 +207,7 @@ void run_map_set(run_map_t *map, const void *key, const void *val) {
             map->buckets[idx].hash = insert_hash;
             map->buckets[idx].psl = insert_psl;
             map->buckets[idx].occupied = true;
-            memcpy(entry_key(map, idx), insert_data, map->entry_size);
+            memcpy(run_map_entry_key(map, idx), insert_data, map->entry_size);
             map->count++;
             free(temp_entry);
             return;
@@ -215,9 +215,9 @@ void run_map_set(run_map_t *map, const void *key, const void *val) {
 
         /* Check if this is the same key (update) */
         if (map->buckets[idx].hash == insert_hash &&
-            map_eq(map, entry_key(map, idx), insert_data)) {
+            run_map_eq(map, run_map_entry_key(map, idx), insert_data)) {
             /* Update value in place */
-            memcpy(entry_val(map, idx), insert_data + map->key_size, map->val_size);
+            memcpy(run_map_entry_val(map, idx), insert_data + map->key_size, map->val_size);
             free(temp_entry);
             return;
         }
@@ -241,8 +241,8 @@ void run_map_set(run_map_t *map, const void *key, const void *val) {
             } else {
                 swap_data = (char *)malloc(map->entry_size);
             }
-            memcpy(swap_data, entry_key(map, idx), map->entry_size);
-            memcpy(entry_key(map, idx), insert_data, map->entry_size);
+            memcpy(swap_data, run_map_entry_key(map, idx), map->entry_size);
+            memcpy(run_map_entry_key(map, idx), insert_data, map->entry_size);
             memcpy(insert_data, swap_data, map->entry_size);
             if (swap_data != swap_buf)
                 free(swap_data);
@@ -261,7 +261,7 @@ bool run_map_get(run_map_t *map, const void *key, void *val_out) {
     if (map->count == 0)
         return false;
 
-    uint64_t hash = map_hash(map, key);
+    uint64_t hash = run_map_hash(map, key);
     size_t idx = hash & (map->capacity - 1);
     uint32_t psl = 0;
 
@@ -271,9 +271,9 @@ bool run_map_get(run_map_t *map, const void *key, void *val_out) {
         if (map->buckets[idx].psl < psl)
             return false; /* Robin Hood early termination */
 
-        if (map->buckets[idx].hash == hash && map_eq(map, entry_key(map, idx), key)) {
+        if (map->buckets[idx].hash == hash && run_map_eq(map, run_map_entry_key(map, idx), key)) {
             if (val_out) {
-                memcpy(val_out, entry_val(map, idx), map->val_size);
+                memcpy(val_out, run_map_entry_val(map, idx), map->val_size);
             }
             return true;
         }
@@ -291,7 +291,7 @@ bool run_map_delete(run_map_t *map, const void *key) {
     if (map->count == 0)
         return false;
 
-    uint64_t hash = map_hash(map, key);
+    uint64_t hash = run_map_hash(map, key);
     size_t idx = hash & (map->capacity - 1);
     uint32_t psl = 0;
 
@@ -301,7 +301,7 @@ bool run_map_delete(run_map_t *map, const void *key) {
         if (map->buckets[idx].psl < psl)
             return false;
 
-        if (map->buckets[idx].hash == hash && map_eq(map, entry_key(map, idx), key)) {
+        if (map->buckets[idx].hash == hash && run_map_eq(map, run_map_entry_key(map, idx), key)) {
             /* Found — remove and backward-shift */
             map->buckets[idx].occupied = false;
             map->count--;
@@ -311,7 +311,7 @@ bool run_map_delete(run_map_t *map, const void *key) {
             while (map->buckets[next].occupied && map->buckets[next].psl > 0) {
                 map->buckets[idx] = map->buckets[next];
                 map->buckets[idx].psl--;
-                memcpy(entry_key(map, idx), entry_key(map, next), map->entry_size);
+                memcpy(run_map_entry_key(map, idx), run_map_entry_key(map, next), map->entry_size);
 
                 map->buckets[next].occupied = false;
                 idx = next;
@@ -349,9 +349,9 @@ bool run_map_iter_next(run_map_iter_t *iter, const void **key_out, const void **
         size_t i = iter->index++;
         if (map->buckets[i].occupied) {
             if (key_out)
-                *key_out = entry_key(map, i);
+                *key_out = run_map_entry_key(map, i);
             if (val_out)
-                *val_out = entry_val(map, i);
+                *val_out = run_map_entry_val(map, i);
             return true;
         }
     }

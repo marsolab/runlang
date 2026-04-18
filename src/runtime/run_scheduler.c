@@ -229,7 +229,7 @@ uint32_t run_local_queue_len(run_local_queue_t *q) {
  * NUMA Thread Pinning
  * ======================================================================== */
 
-static void pin_m_to_node(run_m_t *m, uint32_t node_id) {
+static void run_pin_m_to_node(run_m_t *m, uint32_t node_id) {
 #if defined(__linux__)
     uint32_t cpu_count;
     const uint32_t *cpus = run_numa_cpus_on_node(node_id, &cpu_count);
@@ -277,7 +277,7 @@ size_t run_stack_max_size(void) {
     return RUN_DEFAULT_STACK_MAX;
 }
 
-static void *stack_alloc(size_t *out_size, size_t *out_committed) {
+static void *run_stack_alloc(size_t *out_size, size_t *out_committed) {
     if (growable_stacks_enabled) {
         size_t max_size = run_stack_max_size();
         /* Reserve entire address range */
@@ -309,12 +309,12 @@ static void *stack_alloc(size_t *out_size, size_t *out_committed) {
     }
 }
 
-static void stack_free(void *base, size_t size) {
+static void run_stack_free(void *base, size_t size) {
     run_vmem_free(base, size);
 }
 
 /* Push to a P's local queue with overflow to the global queue. */
-static void local_push_or_global(run_local_queue_t *lq, run_g_t *g) {
+static void run_local_push_or_global(run_local_queue_t *lq, run_g_t *g) {
     if (!run_local_queue_push(lq, g)) {
         run_global_queue_push(g);
     }
@@ -324,25 +324,25 @@ static void local_push_or_global(run_local_queue_t *lq, run_g_t *g) {
  * G Lifecycle
  * ======================================================================== */
 
-static uint64_t alloc_g_id(void) {
+static uint64_t run_alloc_g_id(void) {
     return atomic_fetch_add_explicit(&next_g_id, 1, memory_order_relaxed);
 }
 
-static run_g_t *g_alloc(void (*fn)(void *), void *arg) {
+static run_g_t *run_g_alloc(void (*fn)(void *), void *arg) {
     run_g_t *g = (run_g_t *)calloc(1, sizeof(run_g_t));
     if (!g) {
         fprintf(stderr, "run: failed to allocate G struct\n");
         abort();
     }
 
-    g->id = alloc_g_id();
+    g->id = run_alloc_g_id();
     g->status = G_IDLE;
     g->entry_fn = fn;
     g->entry_arg = arg;
     g->preferred_node = -1;
 
     /* Allocate stack */
-    g->stack_base = stack_alloc(&g->stack_size, &g->stack_committed);
+    g->stack_base = run_stack_alloc(&g->stack_size, &g->stack_committed);
 
     /* Stack top = base + size (stack grows downward) */
     void *stack_top = (char *)g->stack_base + g->stack_size;
@@ -354,9 +354,9 @@ static run_g_t *g_alloc(void (*fn)(void *), void *arg) {
     return g;
 }
 
-static void g_free(run_g_t *g) {
+static void run_g_free(run_g_t *g) {
     if (g->stack_base) {
-        stack_free(g->stack_base, g->stack_size);
+        run_stack_free(g->stack_base, g->stack_size);
     }
     free(g);
 }
@@ -365,7 +365,7 @@ static void g_free(run_g_t *g) {
  * M Lifecycle
  * ======================================================================== */
 
-static run_m_t *m_alloc(void) {
+static run_m_t *run_m_alloc(void) {
     run_m_t *m = (run_m_t *)calloc(1, sizeof(run_m_t));
     if (!m) {
         fprintf(stderr, "run: failed to allocate M struct\n");
@@ -402,7 +402,7 @@ static run_m_t *m_alloc(void) {
  * P Operations
  * ======================================================================== */
 
-static run_p_t *acquire_idle_p(void) {
+static run_p_t *run_acquire_idle_p(void) {
     pthread_mutex_lock(&idle_p_lock);
     if (idle_p_count == 0) {
         pthread_mutex_unlock(&idle_p_lock);
@@ -416,7 +416,7 @@ static run_p_t *acquire_idle_p(void) {
     return p;
 }
 
-static void release_p(run_p_t *p) {
+static void run_release_p(run_p_t *p) {
     p->status = P_IDLE;
     p->bound_m = NULL;
     pthread_mutex_lock(&idle_p_lock);
@@ -455,7 +455,7 @@ uint32_t run_global_queue_len(void) {
 /* Simple xorshift RNG for work stealing victim selection. */
 static __thread uint32_t steal_rng_state = 0;
 
-static uint32_t steal_random(void) {
+static uint32_t run_steal_random(void) {
     if (steal_rng_state == 0) {
         /* Seed from thread ID */
         steal_rng_state = (uint32_t)(uintptr_t)pthread_self() ^ 0xDEADBEEF;
@@ -470,7 +470,7 @@ static uint32_t steal_random(void) {
 
 /* Steal half of a victim P's local queue. Returns one G to run directly,
  * pushes the rest to self_p's queue. Returns NULL if nothing to steal. */
-static run_g_t *steal_from_p(run_p_t *self_p, run_p_t *victim) {
+static run_g_t *run_steal_from_p(run_p_t *self_p, run_p_t *victim) {
     run_g_t *g = run_local_queue_steal(&victim->local_queue, &self_p->local_queue);
     if (g) {
         atomic_fetch_add_explicit(&scheduler_metrics.steal_count, 1, memory_order_relaxed);
@@ -482,14 +482,14 @@ static run_g_t *steal_from_p(run_p_t *self_p, run_p_t *victim) {
     return g;
 }
 
-static run_g_t *try_steal(run_p_t *self_p) {
+static run_g_t *run_try_steal(run_p_t *self_p) {
     if (num_ps <= 1)
         return NULL;
 
     uint32_t my_node = self_p->numa_node;
 
     /* Phase 1: Try same-NUMA-node Ps first */
-    uint32_t start = steal_random() % num_ps;
+    uint32_t start = run_steal_random() % num_ps;
     for (uint32_t i = 0; i < num_ps; i++) {
         uint32_t idx = (start + i) % num_ps;
         if (idx == self_p->id)
@@ -497,13 +497,13 @@ static run_g_t *try_steal(run_p_t *self_p) {
         if (all_ps[idx].numa_node != my_node)
             continue;
 
-        run_g_t *g = steal_from_p(self_p, &all_ps[idx]);
+        run_g_t *g = run_steal_from_p(self_p, &all_ps[idx]);
         if (g)
             return g;
     }
 
     /* Phase 2: Try cross-NUMA-node Ps */
-    start = steal_random() % num_ps;
+    start = run_steal_random() % num_ps;
     for (uint32_t i = 0; i < num_ps; i++) {
         uint32_t idx = (start + i) % num_ps;
         if (idx == self_p->id)
@@ -511,7 +511,7 @@ static run_g_t *try_steal(run_p_t *self_p) {
         if (all_ps[idx].numa_node == my_node)
             continue; /* already tried */
 
-        run_g_t *g = steal_from_p(self_p, &all_ps[idx]);
+        run_g_t *g = run_steal_from_p(self_p, &all_ps[idx]);
         if (g)
             return g;
     }
@@ -523,7 +523,7 @@ static run_g_t *try_steal(run_p_t *self_p) {
  * M Parking / Waking (#86)
  * ======================================================================== */
 
-static void park_m(run_m_t *m) {
+static void run_park_m(run_m_t *m) {
     atomic_fetch_add_explicit(&scheduler_metrics.park_count, 1, memory_order_relaxed);
     if (trace_enabled) {
         fprintf(stderr, "{\"event\":\"park\",\"m_id\":%llu}\n", (unsigned long long)m->id);
@@ -543,7 +543,7 @@ static void park_m(run_m_t *m) {
     pthread_mutex_unlock(&m->park_mutex);
 }
 
-static void unpark_m(run_m_t *m) {
+static void run_unpark_m(run_m_t *m) {
     atomic_fetch_add_explicit(&scheduler_metrics.unpark_count, 1, memory_order_relaxed);
     if (trace_enabled) {
         fprintf(stderr, "{\"event\":\"unpark\",\"m_id\":%llu}\n", (unsigned long long)m->id);
@@ -565,11 +565,11 @@ void run_wake_m(void) {
 
     if (m) {
         /* Get an idle P for this M */
-        run_p_t *p = acquire_idle_p();
+        run_p_t *p = run_acquire_idle_p();
         if (p) {
             m->current_p = p;
             p->bound_m = m;
-            unpark_m(m);
+            run_unpark_m(m);
         } else {
             /* No idle P — put M back */
             pthread_mutex_lock(&idle_m_lock);
@@ -588,18 +588,18 @@ void run_wake_m(void) {
     if (current_ms >= RUN_MAX_M_COUNT)
         return;
 
-    run_p_t *p = acquire_idle_p();
+    run_p_t *p = run_acquire_idle_p();
     if (!p)
         return;
 
     /* Forward declaration of the M thread entry */
-    extern void *m_thread_entry(void *arg);
+    extern void *run_m_thread_entry(void *arg);
 
-    run_m_t *new_m = m_alloc();
+    run_m_t *new_m = run_m_alloc();
     new_m->current_p = p;
     p->bound_m = new_m;
 
-    pthread_create(&new_m->thread, NULL, m_thread_entry, new_m);
+    pthread_create(&new_m->thread, NULL, run_m_thread_entry, new_m);
     pthread_detach(new_m->thread);
 }
 
@@ -607,8 +607,8 @@ void run_wake_m(void) {
  * Scheduling Core
  * ======================================================================== */
 
-/* find_runnable: try local queue -> global queue -> poll I/O -> work stealing */
-static run_g_t *find_runnable(run_p_t *p) {
+/* run_find_runnable: try local queue -> global queue -> poll I/O -> work stealing */
+static run_g_t *run_find_runnable(run_p_t *p) {
     /* 1. Local queue */
     run_g_t *g = run_local_queue_pop(&p->local_queue);
     if (g)
@@ -635,7 +635,7 @@ static run_g_t *find_runnable(run_p_t *p) {
     }
 
     /* 4. Work stealing */
-    g = try_steal(p);
+    g = run_try_steal(p);
     if (g)
         return g;
 
@@ -643,12 +643,12 @@ static run_g_t *find_runnable(run_p_t *p) {
 }
 
 /* The core scheduling loop, runs on g0's stack. */
-static void schedule_loop(run_m_t *m) {
+static void run_schedule_loop(run_m_t *m) {
     while (1) {
         run_p_t *p = m->current_p;
         if (!p) {
             /* Try to acquire an idle P */
-            p = acquire_idle_p();
+            p = run_acquire_idle_p();
             if (!p) {
                 /* Check if there's still work to do */
                 int64_t count = atomic_load_explicit(&live_g_count, memory_order_acquire);
@@ -656,19 +656,19 @@ static void schedule_loop(run_m_t *m) {
                     return; /* All done */
 
                 /* Park this M until woken */
-                park_m(m);
+                run_park_m(m);
                 continue;
             }
             m->current_p = p;
             p->bound_m = m;
         }
 
-        run_g_t *g = find_runnable(p);
+        run_g_t *g = run_find_runnable(p);
         if (!g) {
             /* No work found — check if all Gs are done */
             int64_t count = atomic_load_explicit(&live_g_count, memory_order_acquire);
             if (count <= 0) {
-                release_p(p);
+                run_release_p(p);
                 m->current_p = NULL;
                 return;
             }
@@ -677,16 +677,16 @@ static void schedule_loop(run_m_t *m) {
              * If so, do a blocking poll to wait for completions. */
             if (run_poller_has_waiters()) {
                 if (run_poller_poll_blocking(-1) > 0) {
-                    continue; /* Gs were woken — re-enter find_runnable */
+                    continue; /* Gs were woken — re-enter run_find_runnable */
                 }
             }
 
             /* For multi-threaded: release P and park.
              * For single-threaded: just return (all Gs must be waiting). */
             if (num_ps > 1) {
-                release_p(p);
+                run_release_p(p);
                 m->current_p = NULL;
-                park_m(m);
+                run_park_m(m);
                 continue;
             } else {
                 /* Single-threaded: if there are live Gs but none runnable
@@ -719,7 +719,7 @@ static void schedule_loop(run_m_t *m) {
                         (unsigned long long)g->id);
             }
             atomic_fetch_sub_explicit(&live_g_count, 1, memory_order_release);
-            g_free(g);
+            run_g_free(g);
         }
         /* If g->status is G_RUNNABLE (yield), it's already re-enqueued.
          * If g->status is G_WAITING (channel), the channel code handles it. */
@@ -727,16 +727,16 @@ static void schedule_loop(run_m_t *m) {
 }
 
 /* M thread entry point (for dynamically created Ms in multi-threaded mode) */
-void *m_thread_entry(void *arg) {
+void *run_m_thread_entry(void *arg) {
     run_m_t *m = (run_m_t *)arg;
     tls_current_m = m;
 
     /* Pin this M to CPUs on its P's NUMA node */
     if (m->current_p) {
-        pin_m_to_node(m, m->current_p->numa_node);
+        run_pin_m_to_node(m, m->current_p->numa_node);
     }
 
-    schedule_loop(m);
+    run_schedule_loop(m);
     return NULL;
 }
 
@@ -784,7 +784,7 @@ void run_scheduler_init(void) {
     }
 
     /* Create M0 wrapping the main OS thread */
-    run_m_t *m0 = m_alloc();
+    run_m_t *m0 = run_m_alloc();
     m0->thread = pthread_self();
     m0->current_p = &all_ps[0];
     all_ps[0].status = P_RUNNING;
@@ -793,7 +793,7 @@ void run_scheduler_init(void) {
     tls_current_m = m0;
 
     /* Pin M0 to its P's NUMA node */
-    pin_m_to_node(m0, all_ps[0].numa_node);
+    run_pin_m_to_node(m0, all_ps[0].numa_node);
 
     /* Initialize the network poller (io_uring on Linux, kqueue on macOS) */
     run_poller_init();
@@ -840,7 +840,7 @@ void run_scheduler_run(void) {
     /* Ensure main M has a P before entering the schedule loop.
      * After a previous run, the P was released — re-acquire it. */
     if (!m->current_p) {
-        run_p_t *p = acquire_idle_p();
+        run_p_t *p = run_acquire_idle_p();
         if (p) {
             m->current_p = p;
             p->bound_m = m;
@@ -848,7 +848,7 @@ void run_scheduler_run(void) {
     }
 
     /* Run the scheduling loop */
-    schedule_loop(m);
+    run_schedule_loop(m);
 
     /* Cleanup */
     run_poller_close();
@@ -865,22 +865,22 @@ void run_spawn(void (*fn)(void *), void *arg) {
     if (trace_enabled) {
         fprintf(stderr, "{\"event\":\"spawn\"}\n");
     }
-    run_g_t *g = g_alloc(fn, arg);
+    run_g_t *g = run_g_alloc(fn, arg);
     atomic_fetch_add_explicit(&live_g_count, 1, memory_order_release);
 
     /* Enqueue to current P's local queue, or global queue */
     run_m_t *m = tls_current_m;
     if (m && m->current_p) {
-        local_push_or_global(&m->current_p->local_queue, g);
+        run_local_push_or_global(&m->current_p->local_queue, g);
     } else if (m && m->current_g == NULL) {
         /* Called from main thread (outside scheduler loop).
          * Try to re-acquire an idle P so the G goes to the local queue
          * rather than spawning a new M thread for it. */
-        run_p_t *p = acquire_idle_p();
+        run_p_t *p = run_acquire_idle_p();
         if (p) {
             m->current_p = p;
             p->bound_m = m;
-            local_push_or_global(&p->local_queue, g);
+            run_local_push_or_global(&p->local_queue, g);
         } else {
             run_global_queue_push(g);
         }
@@ -906,7 +906,7 @@ void run_yield(void) {
 
     /* Re-enqueue to local queue */
     if (m->current_p) {
-        local_push_or_global(&m->current_p->local_queue, g);
+        run_local_push_or_global(&m->current_p->local_queue, g);
     } else {
         run_global_queue_push(g);
     }
@@ -958,7 +958,7 @@ void run_g_ready(run_g_t *g) {
     /* Prefer last_p if it's on the right NUMA node */
     if (g->last_p && g->last_p->status == P_RUNNING) {
         if (g->preferred_node < 0 || g->last_p->numa_node == (uint32_t)g->preferred_node) {
-            local_push_or_global(&g->last_p->local_queue, g);
+            run_local_push_or_global(&g->last_p->local_queue, g);
             goto wake;
         }
     }
@@ -968,7 +968,7 @@ void run_g_ready(run_g_t *g) {
         for (uint32_t i = 0; i < num_ps; i++) {
             if (all_ps[i].numa_node == (uint32_t)g->preferred_node &&
                 all_ps[i].status == P_RUNNING) {
-                local_push_or_global(&all_ps[i].local_queue, g);
+                run_local_push_or_global(&all_ps[i].local_queue, g);
                 goto wake;
             }
         }
@@ -976,7 +976,7 @@ void run_g_ready(run_g_t *g) {
 
     /* Fallback: current P or global */
     if (m && m->current_p) {
-        local_push_or_global(&m->current_p->local_queue, g);
+        run_local_push_or_global(&m->current_p->local_queue, g);
     } else {
         run_global_queue_push(g);
     }
@@ -998,7 +998,7 @@ void run_spawn_on_node(void (*fn)(void *), void *arg, int32_t node_id) {
     if (trace_enabled) {
         fprintf(stderr, "{\"event\":\"spawn_on_node\",\"node_id\":%d}\n", node_id);
     }
-    run_g_t *g = g_alloc(fn, arg);
+    run_g_t *g = run_g_alloc(fn, arg);
     g->preferred_node = node_id;
     atomic_fetch_add_explicit(&live_g_count, 1, memory_order_release);
 
@@ -1008,7 +1008,7 @@ void run_spawn_on_node(void (*fn)(void *), void *arg, int32_t node_id) {
     if (node_id >= 0) {
         for (uint32_t i = 0; i < num_ps; i++) {
             if (all_ps[i].numa_node == (uint32_t)node_id && all_ps[i].status == P_RUNNING) {
-                local_push_or_global(&all_ps[i].local_queue, g);
+                run_local_push_or_global(&all_ps[i].local_queue, g);
                 goto wake;
             }
         }
@@ -1016,15 +1016,15 @@ void run_spawn_on_node(void (*fn)(void *), void *arg, int32_t node_id) {
 
     /* Fallback: same logic as run_spawn */
     if (m && m->current_p) {
-        local_push_or_global(&m->current_p->local_queue, g);
+        run_local_push_or_global(&m->current_p->local_queue, g);
     } else if (m && m->current_g == NULL) {
         /* Called from main thread (outside scheduler loop).
          * Try to re-acquire an idle P so the G goes to the local queue. */
-        run_p_t *p = acquire_idle_p();
+        run_p_t *p = run_acquire_idle_p();
         if (p) {
             m->current_p = p;
             p->bound_m = m;
-            local_push_or_global(&p->local_queue, g);
+            run_local_push_or_global(&p->local_queue, g);
         } else {
             run_global_queue_push(g);
         }
@@ -1055,7 +1055,7 @@ void run_numa_pin(uint32_t node_id) {
 
 #if defined(__linux__) || defined(__APPLE__)
 
-static void preempt_timer_handler(int sig) {
+static void run_preempt_timer_handler(int sig) {
     (void)sig;
     run_g_t *g = run_current_g();
     if (g && g->status == G_RUNNING) {
@@ -1066,7 +1066,7 @@ static void preempt_timer_handler(int sig) {
 void run_preemption_start(void) {
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = preempt_timer_handler;
+    sa.sa_handler = run_preempt_timer_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
     sigaction(SIGALRM, &sa, NULL);
@@ -1139,7 +1139,7 @@ void run_exitsyscall(void) {
     g->in_syscall = false;
 
     /* Try to reacquire a P */
-    run_p_t *p = acquire_idle_p();
+    run_p_t *p = run_acquire_idle_p();
     if (p) {
         m->current_p = p;
         p->bound_m = m;
@@ -1153,7 +1153,7 @@ void run_exitsyscall(void) {
     m->current_g = NULL;
 
     /* Park this M until there's a P available */
-    park_m(m);
+    run_park_m(m);
 }
 
 /* ========================================================================
@@ -1164,7 +1164,7 @@ void run_exitsyscall(void) {
 
 extern void run_async_preempt(void);
 
-static void sigurg_handler(int sig, siginfo_t *info, void *uctx) {
+static void run_sigurg_handler(int sig, siginfo_t *info, void *uctx) {
     (void)sig;
     (void)info;
 
@@ -1201,7 +1201,7 @@ static void sigurg_handler(int sig, siginfo_t *info, void *uctx) {
 void run_signal_preemption_start(void) {
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
-    sa.sa_sigaction = sigurg_handler;
+    sa.sa_sigaction = run_sigurg_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_SIGINFO | SA_RESTART;
     sigaction(SIGURG, &sa, NULL);
@@ -1230,7 +1230,7 @@ void run_signal_preemption_stop(void) {}
 #if defined(__linux__) || defined(__APPLE__)
 
 /* Find the G whose stack contains the faulting address. */
-static run_g_t *find_g_by_fault_addr(void *addr) {
+static run_g_t *run_find_g_by_fault_addr(void *addr) {
     /* Walk through all Ps' local queues and the global queue.
      * Also check the current G on each M.
      * This is O(n) but only runs on stack overflow (rare). */
@@ -1247,12 +1247,12 @@ static run_g_t *find_g_by_fault_addr(void *addr) {
     return NULL;
 }
 
-static void stack_growth_handler(int sig, siginfo_t *info, void *uctx) {
+static void run_stack_growth_handler(int sig, siginfo_t *info, void *uctx) {
     (void)sig;
     (void)uctx;
 
     void *fault_addr = info->si_addr;
-    run_g_t *g = find_g_by_fault_addr(fault_addr);
+    run_g_t *g = run_find_g_by_fault_addr(fault_addr);
 
     if (g && growable_stacks_enabled) {
         size_t page_size = run_vmem_page_size();
@@ -1265,6 +1265,7 @@ static void stack_growth_handler(int sig, siginfo_t *info, void *uctx) {
         }
 
         /* Commit the page containing the fault address */
+        // NOLINTNEXTLINE(performance-no-int-to-ptr): page alignment requires uintptr_t masking
         void *page = (void *)((uintptr_t)fault_addr & ~(page_size - 1));
         run_vmem_protect(page, page_size, RUN_VMEM_READWRITE);
         g->stack_committed += page_size;
@@ -1294,7 +1295,7 @@ void run_stack_growth_init(void) {
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
-    sa.sa_sigaction = stack_growth_handler;
+    sa.sa_sigaction = run_stack_growth_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
     sigaction(SIGSEGV, &sa, NULL);
@@ -1313,7 +1314,7 @@ void run_stack_growth_init(void) {
  * Called via GDB's -data-evaluate-expression from the DAP adapter.
  * ======================================================================== */
 
-static const char *g_status_str(run_g_status_t s) {
+static const char *run_g_status_str(run_g_status_t s) {
     switch (s) {
     case G_IDLE:
         return "idle";
@@ -1330,18 +1331,18 @@ static const char *g_status_str(run_g_status_t s) {
     }
 }
 
-static int dump_g(char *buf, size_t remaining, run_g_t *g, bool *first) {
+static int run_dump_g(char *buf, size_t remaining, run_g_t *g, bool *first) {
     if (g == NULL || remaining < 128)
         return 0;
     int n = snprintf(buf, remaining,
                      "%s{\"id\":%lu,\"status\":\"%s\",\"stack_base\":\"%p\",\"in_syscall\":%s}",
-                     *first ? "" : ",", (unsigned long)g->id, g_status_str(g->status),
+                     *first ? "" : ",", (unsigned long)g->id, run_g_status_str(g->status),
                      g->stack_base, g->in_syscall ? "true" : "false");
     *first = false;
     return (n > 0 && (size_t)n < remaining) ? n : 0;
 }
 
-void run_debug_dump_goroutines(char *buf, size_t buf_size) {
+void run_debug_run_dump_goroutines(char *buf, size_t buf_size) {
     if (buf == NULL || buf_size < 3)
         return;
 
@@ -1358,14 +1359,14 @@ void run_debug_dump_goroutines(char *buf, size_t buf_size) {
         for (uint32_t j = lq_head; j != lq_tail; j++) {
             run_g_t *g = lq->buf[j % RUN_LOCAL_QUEUE_SIZE];
             if (g) {
-                int n = dump_g(buf + pos, remaining, g, &first);
+                int n = run_dump_g(buf + pos, remaining, g, &first);
                 pos += n;
                 remaining -= (size_t)n;
             }
         }
         /* Also dump the currently running G on this P's bound M */
         if (all_ps[i].bound_m && all_ps[i].bound_m->current_g) {
-            int n = dump_g(buf + pos, remaining, all_ps[i].bound_m->current_g, &first);
+            int n = run_dump_g(buf + pos, remaining, all_ps[i].bound_m->current_g, &first);
             pos += n;
             remaining -= (size_t)n;
         }
@@ -1373,7 +1374,7 @@ void run_debug_dump_goroutines(char *buf, size_t buf_size) {
 
     /* Dump Gs in the global queue */
     for (run_g_t *g = global_queue.head; g != NULL; g = g->sched_next) {
-        int n = dump_g(buf + pos, remaining, g, &first);
+        int n = run_dump_g(buf + pos, remaining, g, &first);
         pos += n;
         remaining -= (size_t)n;
     }

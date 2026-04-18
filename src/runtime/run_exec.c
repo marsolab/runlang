@@ -10,7 +10,7 @@
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
 /* Convert run_string_t (ptr+len, not NUL-terminated) to a heap-allocated C string. */
-static char *string_to_cstr(run_string_t s) {
+static char *run_string_to_cstr(run_string_t s) {
     char *buf = malloc(s.len + 1);
     if (!buf) {
         return NULL;
@@ -48,7 +48,7 @@ run_exec_cmd_t *run_exec_command(run_string_t name) {
     if (!cmd)
         return NULL;
 
-    cmd->path = string_to_cstr(name);
+    cmd->path = run_string_to_cstr(name);
     if (!cmd->path) {
         free(cmd);
         return NULL;
@@ -85,7 +85,7 @@ void run_exec_add_args(run_exec_cmd_t *cmd, run_string_t *args, size_t nargs) {
             cmd->argv = new_argv;
             cmd->argv_cap = new_cap;
         }
-        char *s = string_to_cstr(args[i]);
+        char *s = run_string_to_cstr(args[i]);
         if (!s)
             return; /* OOM: stop adding args rather than corrupt argv */
         cmd->argv[cmd->argc] = s;
@@ -98,7 +98,7 @@ void run_exec_set_dir(run_exec_cmd_t *cmd, run_string_t dir) {
     if (!cmd)
         return;
     free(cmd->dir);
-    cmd->dir = (dir.len > 0) ? string_to_cstr(dir) : NULL;
+    cmd->dir = (dir.len > 0) ? run_string_to_cstr(dir) : NULL;
 }
 
 void run_exec_set_env(run_exec_cmd_t *cmd, run_string_t *env, size_t nenv) {
@@ -119,7 +119,7 @@ void run_exec_set_env(run_exec_cmd_t *cmd, run_string_t *env, size_t nenv) {
     if (!cmd->envp)
         return;
     for (size_t i = 0; i < nenv; i++) {
-        cmd->envp[i] = string_to_cstr(env[i]);
+        cmd->envp[i] = run_string_to_cstr(env[i]);
     }
     cmd->envp[nenv] = NULL;
     cmd->envc = (int)nenv;
@@ -127,7 +127,7 @@ void run_exec_set_env(run_exec_cmd_t *cmd, run_string_t *env, size_t nenv) {
 
 /* ── Internal: fork + exec ───────────────────────────────────────────────── */
 
-static run_error_t do_start(run_exec_cmd_t *cmd) {
+static run_error_t run_exec_do_start(run_exec_cmd_t *cmd) {
     if (!cmd)
         return RUN_ERR("exec: null command");
     if (cmd->started)
@@ -202,7 +202,7 @@ static run_error_t do_start(run_exec_cmd_t *cmd) {
     return RUN_OK;
 }
 
-static run_error_t do_wait(run_exec_cmd_t *cmd) {
+static run_error_t run_exec_do_wait(run_exec_cmd_t *cmd) {
     if (!cmd)
         return RUN_ERR("exec: null command");
     if (!cmd->started)
@@ -235,7 +235,7 @@ static run_error_t do_wait(run_exec_cmd_t *cmd) {
 
 /* ── Read all bytes from a file descriptor ───────────────────────────────── */
 
-static run_slice_t read_all_fd(int fd) {
+static run_slice_t run_exec_read_all_fd(int fd) {
     run_slice_t result = run_slice_new(1, 4096);
     char buf[4096];
     for (;;) {
@@ -252,10 +252,10 @@ static run_slice_t read_all_fd(int fd) {
 /* ── Public: run / output / combined_output ──────────────────────────────── */
 
 run_error_t run_exec_run(run_exec_cmd_t *cmd) {
-    run_error_t err = do_start(cmd);
+    run_error_t err = run_exec_do_start(cmd);
     if (err.is_error)
         return err;
-    return do_wait(cmd);
+    return run_exec_do_wait(cmd);
 }
 
 run_slice_t run_exec_output(run_exec_cmd_t *cmd, run_error_t *err) {
@@ -265,7 +265,7 @@ run_slice_t run_exec_output(run_exec_cmd_t *cmd, run_error_t *err) {
         return run_slice_new(1, 0);
     }
 
-    *err = do_start(cmd);
+    *err = run_exec_do_start(cmd);
     if (err->is_error) {
         close(cmd->stdout_pipe[0]);
         close(cmd->stdout_pipe[1]);
@@ -274,11 +274,11 @@ run_slice_t run_exec_output(run_exec_cmd_t *cmd, run_error_t *err) {
     }
 
     /* Read all stdout from parent end of pipe */
-    run_slice_t output = read_all_fd(cmd->stdout_pipe[0]);
+    run_slice_t output = run_exec_read_all_fd(cmd->stdout_pipe[0]);
     close(cmd->stdout_pipe[0]);
     cmd->stdout_pipe[0] = -1;
 
-    *err = do_wait(cmd);
+    *err = run_exec_do_wait(cmd);
     return output;
 }
 
@@ -288,11 +288,11 @@ run_slice_t run_exec_combined_output(run_exec_cmd_t *cmd, run_error_t *err) {
         *err = RUN_ERR("exec: pipe failed");
         return run_slice_new(1, 0);
     }
-    /* Signal to do_start that stderr should use stdout's pipe */
+    /* Signal to run_exec_do_start that stderr should use stdout's pipe */
     cmd->stderr_pipe[0] = -1;
     cmd->stderr_pipe[1] = cmd->stdout_pipe[1]; /* child will dup2 both */
 
-    *err = do_start(cmd);
+    *err = run_exec_do_start(cmd);
     if (err->is_error) {
         close(cmd->stdout_pipe[0]);
         close(cmd->stdout_pipe[1]);
@@ -301,22 +301,22 @@ run_slice_t run_exec_combined_output(run_exec_cmd_t *cmd, run_error_t *err) {
         return run_slice_new(1, 0);
     }
 
-    run_slice_t output = read_all_fd(cmd->stdout_pipe[0]);
+    run_slice_t output = run_exec_read_all_fd(cmd->stdout_pipe[0]);
     close(cmd->stdout_pipe[0]);
     cmd->stdout_pipe[0] = -1;
 
-    *err = do_wait(cmd);
+    *err = run_exec_do_wait(cmd);
     return output;
 }
 
 /* ── Public: start / wait ────────────────────────────────────────────────── */
 
 run_error_t run_exec_start(run_exec_cmd_t *cmd) {
-    return do_start(cmd);
+    return run_exec_do_start(cmd);
 }
 
 run_error_t run_exec_wait(run_exec_cmd_t *cmd) {
-    return do_wait(cmd);
+    return run_exec_do_wait(cmd);
 }
 
 /* ── Public: pipe accessors ──────────────────────────────────────────────── */
@@ -369,7 +369,7 @@ run_exec_process_state_t run_exec_process_state(run_exec_cmd_t *cmd) {
 /* ── Public: look_path ───────────────────────────────────────────────────── */
 
 run_string_t run_exec_look_path(run_string_t file, run_error_t *err) {
-    char *name = string_to_cstr(file);
+    char *name = run_string_to_cstr(file);
     if (!name) {
         *err = RUN_ERR("exec: out of memory");
         return (run_string_t){.ptr = NULL, .len = 0};
