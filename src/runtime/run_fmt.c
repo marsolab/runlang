@@ -155,7 +155,7 @@ static void run_fmt_buf_append(fmt_buf_t *b, const char *s, size_t n) {
     b->len += n;
 }
 
-static void run_fmt_run_fmt_buf_append_cstr(fmt_buf_t *b, const char *s) {
+static void run_fmt_buf_append_cstr(fmt_buf_t *b, const char *s) {
     run_fmt_buf_append(b, s, strlen(s));
 }
 
@@ -192,7 +192,7 @@ static void run_fmt_any_default(fmt_buf_t *b, const run_any_t *a) {
         run_fmt_buf_append(b, a->val.s.ptr, a->val.s.len);
         break;
     case RUN_ANY_BOOL:
-        run_fmt_run_fmt_buf_append_cstr(b, a->val.b ? "true" : "false");
+        run_fmt_buf_append_cstr(b, a->val.b ? "true" : "false");
         break;
     }
 }
@@ -202,10 +202,10 @@ static void run_fmt_any_default(fmt_buf_t *b, const run_any_t *a) {
 // Parse a format verb starting after '%'. Returns the number of chars consumed
 // from fmt (not counting the '%'). Appends formatted output to buf.
 // If arg_idx >= nargs, appends %!(MISSING) instead.
-static size_t run_fmt_process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len, const run_any_t *args,
-                           size_t nargs, size_t *arg_idx) {
+static size_t run_fmt_process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_len,
+                                   const run_any_t *args, size_t nargs, size_t *arg_idx) {
     if (fmt_len == 0) {
-        run_fmt_run_fmt_buf_append_cstr(buf, "%!(NOVERB)");
+        run_fmt_buf_append_cstr(buf, "%!(NOVERB)");
         return 0;
     }
 
@@ -248,7 +248,7 @@ static size_t run_fmt_process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_l
     }
 
     if (pos >= fmt_len) {
-        run_fmt_run_fmt_buf_append_cstr(buf, "%!(NOVERB)");
+        run_fmt_buf_append_cstr(buf, "%!(NOVERB)");
         return pos;
     }
 
@@ -263,7 +263,7 @@ static size_t run_fmt_process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_l
 
     // All other verbs consume an argument
     if (*arg_idx >= nargs) {
-        run_fmt_run_fmt_buf_append_cstr(buf, "%!(MISSING)");
+        run_fmt_buf_append_cstr(buf, "%!(MISSING)");
         return pos;
     }
 
@@ -365,7 +365,7 @@ static size_t run_fmt_process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_l
         bool val = (a->tag == RUN_ANY_BOOL)  ? a->val.b
                    : (a->tag == RUN_ANY_INT) ? (a->val.i != 0)
                                              : false;
-        run_fmt_run_fmt_buf_append_cstr(buf, val ? "true" : "false");
+        run_fmt_buf_append_cstr(buf, val ? "true" : "false");
         break;
     }
     case 'x': {
@@ -413,7 +413,7 @@ static size_t run_fmt_process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_l
                 bin[--bi] = (val & 1) ? '1' : '0';
                 val >>= 1;
             }
-            run_fmt_run_fmt_buf_append_cstr(buf, &bin[bi]);
+            run_fmt_buf_append_cstr(buf, &bin[bi]);
         }
         break;
     }
@@ -439,7 +439,7 @@ static size_t run_fmt_process_verb(fmt_buf_t *buf, const char *fmt, size_t fmt_l
 
 // Core format function: parses Go-style format string and writes to buffer.
 static void run_fmt_format_to_buf(fmt_buf_t *buf, const char *fmt, size_t fmt_len,
-                              const run_any_t *args, size_t nargs) {
+                                  const run_any_t *args, size_t nargs) {
     size_t arg_idx = 0;
     size_t i = 0;
     size_t literal_start = 0;
@@ -451,7 +451,8 @@ static void run_fmt_format_to_buf(fmt_buf_t *buf, const char *fmt, size_t fmt_le
                 run_fmt_buf_append(buf, fmt + literal_start, i - literal_start);
             }
             i++; // skip '%'
-            size_t consumed = run_fmt_process_verb(buf, fmt + i, fmt_len - i, args, nargs, &arg_idx);
+            size_t consumed =
+                run_fmt_process_verb(buf, fmt + i, fmt_len - i, args, nargs, &arg_idx);
             i += consumed;
             literal_start = i;
         } else {
@@ -466,7 +467,7 @@ static void run_fmt_format_to_buf(fmt_buf_t *buf, const char *fmt, size_t fmt_le
 
     // Extra args
     while (arg_idx < nargs) {
-        run_fmt_run_fmt_buf_append_cstr(buf, "%!(EXTRA ");
+        run_fmt_buf_append_cstr(buf, "%!(EXTRA ");
         run_fmt_any_default(buf, &args[arg_idx]);
         run_fmt_buf_append(buf, ")", 1);
         arg_idx++;
