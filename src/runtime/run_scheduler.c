@@ -1388,7 +1388,7 @@ void run_debug_dump_goroutines(char *buf, size_t buf_size) {
 
 void run_morestack(void) {
     /* Stub: real implementation requires stack copying */
-    fprintf(stderr, "run: stack overflow (morestack not yet implemented)\n");
+    fputs("run: stack overflow (morestack not yet implemented)\n", stderr);
     abort();
 }
 
