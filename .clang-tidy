@@ -9,7 +9,8 @@ Checks: >
   readability-identifier-naming,
   -bugprone-easily-swappable-parameters,
   -cert-err33-c,
-  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -misc-include-cleaner
 
 WarningsAsErrors: 'bugprone-*,cert-*'
 

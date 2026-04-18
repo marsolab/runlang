@@ -1,5 +1,7 @@
 #include "run_alloc.h"
 
+#include <stddef.h>
+#include <stdint.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
