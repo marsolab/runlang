@@ -1,5 +1,6 @@
-#include "run_poller.h"
 #include "run_xev.h"
+
+#include "run_poller.h"
 
 #include <pthread.h>
 #include <stdbool.h>
