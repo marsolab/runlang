@@ -26,7 +26,7 @@ pub fn build(b: *std.Build) void {
     const sanitize = b.option(bool, "sanitize", "Enable ASan+UBSan for runtime C code") orelse false;
     const tsan = b.option(bool, "tsan", "Enable ThreadSanitizer for runtime C code") orelse false;
     const no_gen_checks = b.option(bool, "no-gen-checks", "Disable generational reference checks at compile time") orelse false;
-    const legacy_poller = b.option(bool, "legacy-poller", "Use legacy run_poller.c instead of libxev-backed poller") orelse false;
+    const legacy_poller = b.option(bool, "legacy-poller", "Use legacy run_poller_legacy.c instead of libxev-backed poller") orelse false;
 
     // Version from build.zig.zon
     const version = "0.1.0-alpha.1";
