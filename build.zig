@@ -277,6 +277,11 @@ pub fn build(b: *std.Build) void {
     // Link libunwind for stack trace tests (matches runtime_lib linking).
     if (target_info.os.tag == .linux) {
         runtime_test_exe.linkSystemLibrary("unwind");
+        // On Linux, dladdr only resolves symbols exposed through the dynamic
+        // symbol table. Without --export-dynamic, stack-trace tests that match
+        // on function names (e.g. strstr(trace, "test_runtime_stack")) will
+        // fail because the static test functions aren't visible to dladdr.
+        runtime_test_exe.rdynamic = true;
     }
 
     // Link sanitizer runtime libraries for the test executable.
