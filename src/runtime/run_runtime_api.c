@@ -2,6 +2,7 @@
 
 #include "run_alloc.h"
 #include "run_scheduler.h"
+#include "run_stacktrace.h"
 #include "run_string.h"
 
 #include <stdatomic.h>
@@ -9,11 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
-#if defined(__APPLE__) || defined(__linux__)
-#include <dlfcn.h>
-#include <execinfo.h>
-#endif
 
 #ifndef RUN_VERSION
 #define RUN_VERSION "0.1.0-dev"
@@ -68,60 +64,50 @@ run_caller_info_t run_runtime_caller(int64_t skip) {
     info.line = 0;
     info.ok = false;
 
-#if defined(__APPLE__) || defined(__linux__)
-    /* skip + 1 to skip this function, + 1 more for safety */
-    int depth = (int)skip + 2;
-    void *frames[64];
-    int count = backtrace(frames, 64);
-    if (depth < count) {
-        Dl_info dl;
-        if (dladdr(frames[depth], &dl)) {
-            info.file = run_string_from_cstr(dl.dli_fname ? dl.dli_fname : "<unknown>");
-            info.ok = true;
-            /* dladdr doesn't provide line numbers; set to 0 */
-        }
+    if (skip < 0)
+        return info;
+
+    /* +1 to skip run_runtime_caller itself. */
+    run_stack_entry_t entry;
+    size_t captured = run_stacktrace_capture(&entry, 1, (size_t)skip + 1);
+    if (captured == 1) {
+        info.file = run_string_from_cstr(entry.file[0] ? entry.file : "<unknown>");
+        info.line = entry.line;
+        info.ok = true;
     }
-#endif
 
     return info;
 }
 
 run_string_t run_runtime_stack(void) {
-#if defined(__APPLE__) || defined(__linux__)
-    void *frames[128];
-    int count = backtrace(frames, 128);
-    char **symbols = backtrace_symbols(frames, count);
-    if (!symbols) {
+    run_stack_entry_t entries[128];
+    /* Skip run_runtime_stack itself. */
+    size_t count = run_stacktrace_capture(entries, 128, 1);
+    if (count == 0) {
         return run_string_from_cstr("<stack trace unavailable>");
     }
 
-    /* Calculate total buffer size */
-    size_t total = 0;
-    for (int i = 1; i < count; i++) {    /* skip frame 0 (this function) */
-        total += strlen(symbols[i]) + 1; /* +1 for newline */
+    /* Each line: "<function> at <file>:<line>\n" plus a small safety margin. */
+    size_t buf_size = 0;
+    for (size_t i = 0; i < count; i++) {
+        buf_size += strlen(entries[i].function) + strlen(entries[i].file) + 32;
     }
 
-    char *buf = malloc(total + 1);
+    char *buf = malloc(buf_size + 1);
     if (!buf) {
-        free((void *)symbols);
         return run_string_from_cstr("<out of memory>");
     }
 
     size_t pos = 0;
-    for (int i = 1; i < count; i++) {
-        size_t len = strlen(symbols[i]);
-        memcpy(buf + pos, symbols[i], len);
-        pos += len;
-        buf[pos++] = '\n';
+    for (size_t i = 0; i < count; i++) {
+        const char *fn = entries[i].function[0] ? entries[i].function : "<unknown>";
+        const char *file = entries[i].file[0] ? entries[i].file : "<unknown>";
+        int written = snprintf(buf + pos, buf_size - pos, "%s at %s:%lld\n", fn, file,
+                               (long long)entries[i].line);
+        if (written > 0)
+            pos += (size_t)written;
     }
-    buf[pos] = '\0';
 
-    free((void *)symbols);
-
-    /* Return as run_string_t — caller owns the memory */
     // NOLINTNEXTLINE(clang-analyzer-unix.Malloc): ownership transfers to returned run_string_t
     return run_string_from_parts(buf, pos);
-#else
-    return run_string_from_cstr("<stack trace not supported on this platform>");
-#endif
 }

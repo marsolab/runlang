@@ -62,8 +62,9 @@ static void test_runtime_yield(void) {
 
 static void test_runtime_caller(void) {
     run_caller_info_t info = run_runtime_caller(0);
-    /* On test platforms with backtrace support, ok should be true */
-    /* On unsupported platforms, ok will be false — both are acceptable */
+    /* On macOS and Linux, libunwind should resolve the caller. */
+    RUN_ASSERT(info.ok);
+    RUN_ASSERT(info.file.len > 0);
     RUN_ASSERT(info.line >= 0);
 }
 
@@ -71,6 +72,8 @@ static void test_runtime_stack(void) {
     run_string_t s = run_runtime_stack();
     RUN_ASSERT(s.ptr != NULL);
     RUN_ASSERT(s.len > 0);
+    /* The trace should name this test function. */
+    RUN_ASSERT(strstr(s.ptr, "test_runtime_stack") != NULL);
 }
 
 void run_test_runtime_api(void) {
