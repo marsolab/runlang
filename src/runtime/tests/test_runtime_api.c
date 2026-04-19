@@ -72,8 +72,10 @@ static void test_runtime_stack(void) {
     run_string_t s = run_runtime_stack();
     RUN_ASSERT(s.ptr != NULL);
     RUN_ASSERT(s.len > 0);
-    /* The trace should name this test function. */
-    RUN_ASSERT(strstr(s.ptr, "test_runtime_stack") != NULL);
+    /* The trace should name the exported suite dispatcher. dladdr on Linux
+     * only resolves symbols in the dynamic table, so static test functions
+     * show as <unknown> — but run_test_runtime_api is exported. */
+    RUN_ASSERT(strstr(s.ptr, "run_test_runtime_api") != NULL);
 }
 
 void run_test_runtime_api(void) {
