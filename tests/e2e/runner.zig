@@ -1,6 +1,8 @@
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
+const Dir = std.Io.Dir;
+const File = std.Io.File;
 
 const Expectations = struct {
     expected_lines: std.ArrayList([]const u8),
@@ -13,33 +15,28 @@ const Expectations = struct {
     }
 };
 
-const TestResult = struct {
-    name: []const u8,
-    passed: bool,
-    message: []const u8,
-};
-
-pub fn main() !void {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
+    var stdout_file = File.stdout().writer(io, &.{});
+    const stdout = &stdout_file.interface;
 
     // Parse --filter arg
-    var filter: ?[]const u8 = null;
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-    var i: usize = 1;
-    while (i < args.len) : (i += 1) {
-        if (std.mem.eql(u8, args[i], "--filter") and i + 1 < args.len) {
-            filter = args[i + 1];
-            i += 1;
+    var filter: ?[]u8 = null;
+    defer if (filter) |f| allocator.free(f);
+    var arg_iter = try std.process.Args.Iterator.initAllocator(init.minimal.args, allocator);
+    defer arg_iter.deinit();
+    _ = arg_iter.next();
+    while (arg_iter.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--filter")) {
+            const value = arg_iter.next() orelse break;
+            if (filter) |previous| allocator.free(previous);
+            filter = try allocator.dupe(u8, value);
         }
     }
 
     // Find the compiler binary
-    const compiler_path = findCompiler(allocator) catch {
+    const compiler_path = findCompiler(io, allocator) catch {
         try stdout.writeAll("error: could not find 'run' compiler binary. Run 'zig build' first.\n");
         std.process.exit(1);
     };
@@ -52,14 +49,14 @@ pub fn main() !void {
         test_files.deinit(allocator);
     }
 
-    var cases_dir = findCasesDir() catch {
+    var cases_dir = findCasesDir(io) catch {
         try stdout.writeAll("error: could not find tests/e2e/cases/ directory\n");
         std.process.exit(1);
     };
-    defer cases_dir.close();
+    defer cases_dir.close(io);
 
     var iter = cases_dir.iterate();
-    while (try iter.next()) |entry| {
+    while (try iter.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".run")) continue;
         if (filter) |f| {
@@ -80,28 +77,22 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    var timer = try std.time.Timer.start();
+    const start_ns = std.Io.Clock.awake.now(io).nanoseconds;
 
     var passed: usize = 0;
     var failed: usize = 0;
-    var results: std.ArrayList(TestResult) = .empty;
-    defer results.deinit(allocator);
 
     for (test_files.items) |test_file| {
         const test_path = try std.fmt.allocPrint(allocator, "tests/e2e/cases/{s}", .{test_file});
         defer allocator.free(test_path);
 
-        const source = blk: {
-            const f = try std.fs.cwd().openFile(test_path, .{});
-            defer f.close();
-            break :blk try f.readToEndAlloc(allocator, 10 * 1024 * 1024);
-        };
+        const source = try Dir.cwd().readFileAlloc(io, test_path, allocator, .limited(10 * 1024 * 1024));
         defer allocator.free(source);
 
         var expect = parseExpectations(allocator, source);
         defer expect.deinit(allocator);
 
-        const result = runTest(allocator, compiler_path, test_path, &expect) catch |err| {
+        const result = runTest(io, allocator, compiler_path, test_path, &expect) catch |err| {
             try stdout.print("FAIL {s}: runner error: {s}\n", .{ test_file, @errorName(err) });
             failed += 1;
             continue;
@@ -117,7 +108,7 @@ pub fn main() !void {
         }
     }
 
-    const elapsed_ms = timer.read() / std.time.ns_per_ms;
+    const elapsed_ms = @as(u64, @intCast(std.Io.Clock.awake.now(io).nanoseconds - start_ns)) / std.time.ns_per_ms;
     try stdout.print("\n{d} passed, {d} failed, {d} total ({d}ms)\n", .{
         passed,
         failed,
@@ -160,6 +151,7 @@ fn parseExpectations(allocator: Allocator, source: []const u8) Expectations {
 }
 
 fn runTest(
+    io: std.Io,
     allocator: Allocator,
     compiler_path: []const u8,
     test_path: []const u8,
@@ -171,7 +163,7 @@ fn runTest(
     defer allocator.free(out_path);
 
     // Compile the test file
-    const compile_result = try runProcess(allocator, &.{
+    const compile_result = try runProcess(io, allocator, &.{
         compiler_path, "build", "-o", out_path, "--no-color", test_path,
     });
     defer {
@@ -183,7 +175,7 @@ fn runTest(
         // Expect compilation to fail
         if (compile_result.exit_code == 0) {
             // Clean up the unexpectedly compiled binary
-            std.fs.cwd().deleteFile(out_path) catch {};
+            Dir.cwd().deleteFile(io, out_path) catch {};
             return .{ .passed = false, .message = try allocator.dupe(u8, "expected compilation to fail but it succeeded") };
         }
         if (expect.compile_error_text) |expected_text| {
@@ -212,10 +204,10 @@ fn runTest(
     }
 
     // Clean up binary after running
-    defer std.fs.cwd().deleteFile(out_path) catch {};
+    defer Dir.cwd().deleteFile(io, out_path) catch {};
 
     // Run the compiled binary
-    const run_result = try runProcess(allocator, &.{out_path});
+    const run_result = try runProcess(io, allocator, &.{out_path});
     defer {
         allocator.free(run_result.stdout);
         allocator.free(run_result.stderr);
@@ -285,62 +277,43 @@ fn formatLines(allocator: Allocator, lines: []const []const u8) ![]const u8 {
 }
 
 const ProcessResult = struct {
-    stdout: []const u8,
-    stderr: []const u8,
+    stdout: []u8,
+    stderr: []u8,
     exit_code: u8,
 };
 
-fn runProcess(allocator: Allocator, argv: []const []const u8) !ProcessResult {
-    var child = std.process.Child.init(argv, allocator);
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-
-    try child.spawn();
-
-    var stdout_buf: std.ArrayList(u8) = .empty;
-    defer stdout_buf.deinit(allocator);
-    var stderr_buf: std.ArrayList(u8) = .empty;
-    defer stderr_buf.deinit(allocator);
-
-    // Read stdout
-    while (true) {
-        var buf: [4096]u8 = undefined;
-        const n = child.stdout.?.read(&buf) catch break;
-        if (n == 0) break;
-        try stdout_buf.appendSlice(allocator, buf[0..n]);
-    }
-
-    // Read stderr
-    while (true) {
-        var buf: [4096]u8 = undefined;
-        const n = child.stderr.?.read(&buf) catch break;
-        if (n == 0) break;
-        try stderr_buf.appendSlice(allocator, buf[0..n]);
-    }
-
-    const result = try child.wait();
+fn runProcess(io: std.Io, allocator: Allocator, argv: []const []const u8) !ProcessResult {
+    const result = try std.process.run(allocator, io, .{
+        .argv = argv,
+        .stdout_limit = .limited(10 * 1024 * 1024),
+        .stderr_limit = .limited(10 * 1024 * 1024),
+    });
 
     return .{
-        .stdout = try stdout_buf.toOwnedSlice(allocator),
-        .stderr = try stderr_buf.toOwnedSlice(allocator),
-        .exit_code = switch (result) {
-            .Exited => |code| code,
-            .Signal => |sig| if (sig + 128 <= std.math.maxInt(u8)) @as(u8, @intCast(sig + 128)) else std.math.maxInt(u8),
-            .Stopped, .Unknown => 1,
-        },
+        .stdout = result.stdout,
+        .stderr = result.stderr,
+        .exit_code = childExitCode(result.term),
     };
 }
 
-fn findCompiler(allocator: Allocator) ![]const u8 {
+fn childExitCode(term: std.process.Child.Term) u8 {
+    return switch (term) {
+        .exited => |code| code,
+        .signal => |sig| if (@intFromEnum(sig) + 128 <= std.math.maxInt(u8)) @as(u8, @intCast(@intFromEnum(sig) + 128)) else std.math.maxInt(u8),
+        .stopped, .unknown => 1,
+    };
+}
+
+fn findCompiler(io: std.Io, allocator: Allocator) ![]const u8 {
     // Try zig-out/bin/run relative to cwd
     const local_path = "zig-out/bin/run";
-    if (std.fs.cwd().access(local_path, .{})) |_| {
+    if (Dir.cwd().access(io, local_path, .{})) |_| {
         return try allocator.dupe(u8, local_path);
     } else |_| {}
 
     return error.CompilerNotFound;
 }
 
-fn findCasesDir() !std.fs.Dir {
-    return std.fs.cwd().openDir("tests/e2e/cases", .{ .iterate = true });
+fn findCasesDir(io: std.Io) !Dir {
+    return Dir.cwd().openDir(io, "tests/e2e/cases", .{ .iterate = true });
 }

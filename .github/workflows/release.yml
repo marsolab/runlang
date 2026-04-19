@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  ZIG_VERSION: "0.15.2"
+  ZIG_VERSION: "0.16.0"
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -402,7 +402,7 @@ jobs:
               end
             end
 
-            depends_on "zig" => "0.15.2"
+            depends_on "zig" => "0.16.0"
 
             def install
               bin.install "bin/run"

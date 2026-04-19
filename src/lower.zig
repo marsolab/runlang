@@ -662,11 +662,13 @@ const LoweringContext = struct {
         const else_node = extra[node.data.rhs + 1];
 
         const func = self.current_func orelse return;
+        const current_bb = self.currentBlockId() orelse return;
 
         if (else_node == null_node) {
             const then_bb = try func.addBlock(self.allocator);
             const after_bb = try func.addBlock(self.allocator);
 
+            self.current_block = func.getBlock(current_bb);
             try self.emit(ir.makeInst(.br_cond, 0, cond_ref, then_bb));
             try self.emit(ir.makeInst(.br, 0, after_bb, 0));
 
@@ -684,6 +686,7 @@ const LoweringContext = struct {
             const else_bb = try func.addBlock(self.allocator);
             const after_bb = try func.addBlock(self.allocator);
 
+            self.current_block = func.getBlock(current_bb);
             try self.emit(ir.makeInst(.br_cond, 0, cond_ref, then_bb));
             try self.emit(ir.makeInst(.br, 0, else_bb, 0));
 
@@ -715,6 +718,7 @@ const LoweringContext = struct {
     fn lowerForStmt(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
         const node = self.tree.nodes.items[node_idx];
         const func = self.current_func orelse return;
+        const current_bb = self.currentBlockId() orelse return;
 
         const cond_node = node.data.lhs;
         const body_node = node.data.rhs;
@@ -723,6 +727,7 @@ const LoweringContext = struct {
         const body_bb = try func.addBlock(self.allocator);
         const after_bb = try func.addBlock(self.allocator);
 
+        self.current_block = func.getBlock(current_bb);
         try self.emit(ir.makeInst(.br, 0, cond_bb, 0));
 
         self.current_block = func.getBlock(cond_bb);
@@ -1078,6 +1083,7 @@ const LoweringContext = struct {
         const else_node = extra[node.data.rhs + 1];
 
         const func = self.current_func orelse return ir.null_ref;
+        const current_bb = self.currentBlockId() orelse return ir.null_ref;
         const result_type = self.typeOfNode(node_idx);
         const result_c_type = if (result_type == types.null_type) "int64_t" else self.cTypeForTypeId(result_type);
         const result_alignment = self.alignmentForTypeId(result_type);
@@ -1091,6 +1097,7 @@ const LoweringContext = struct {
         const else_bb = try func.addBlock(self.allocator);
         const after_bb = try func.addBlock(self.allocator);
 
+        self.current_block = func.getBlock(current_bb);
         try self.emit(ir.makeInst(.br_cond, 0, cond_ref, then_bb));
         try self.emit(ir.makeInst(.br, 0, else_bb, 0));
 
@@ -1971,6 +1978,16 @@ const LoweringContext = struct {
             return func.allocRef();
         }
         return ir.null_ref;
+    }
+
+    fn currentBlockId(self: *const LoweringContext) ?ir.BlockId {
+        const func = self.current_func orelse return null;
+        const block = self.current_block orelse return null;
+
+        for (func.blocks.items, 0..) |*candidate, idx| {
+            if (candidate == block) return @intCast(idx);
+        }
+        return null;
     }
 
     fn tokenSlice(self: *const LoweringContext, tok_index: u32) []const u8 {

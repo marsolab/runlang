@@ -580,28 +580,26 @@ test "DiagnosticList: render output format" {
     try diags.addError(4, 5, "undefined variable 'x'");
     try diags.addWarning(14, 15, "unused variable 'y'");
 
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(std.testing.allocator);
-    const writer = buf.writer(std.testing.allocator);
+    var writer: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer writer.deinit();
 
-    try diags.render(source, writer);
+    try diags.render(source, &writer.writer);
 
     const expected =
         "error[1:5]: undefined variable 'x'\n" ++
         "warning[2:5]: unused variable 'y'\n";
-    try std.testing.expectEqualStrings(expected, buf.items);
+    try std.testing.expectEqualStrings(expected, writer.writer.buffered());
 }
 
 test "DiagnosticList: render empty list" {
     var diags = DiagnosticList.init(std.testing.allocator);
     defer diags.deinit();
 
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(std.testing.allocator);
-    const writer = buf.writer(std.testing.allocator);
+    var writer: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer writer.deinit();
 
-    try diags.render("", writer);
-    try std.testing.expectEqual(@as(usize, 0), buf.items.len);
+    try diags.render("", &writer.writer);
+    try std.testing.expectEqual(@as(usize, 0), writer.writer.buffered().len);
 }
 
 test "DiagnosticList: multiple errors and warnings" {
@@ -665,11 +663,10 @@ test "renderRich: single error with source context" {
     const source = "var x i32 = \"hello\"";
     try diags.addError(12, 19, "type mismatch");
 
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(std.testing.allocator);
-    const writer = buf.writer(std.testing.allocator);
+    var writer: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer writer.deinit();
 
-    try diags.renderRich(source, "test.run", writer, false);
+    try diags.renderRich(source, "test.run", &writer.writer, false);
 
     const expected =
         "error: type mismatch\n" ++
@@ -678,7 +675,7 @@ test "renderRich: single error with source context" {
         "1 | var x i32 = \"hello\"\n" ++
         "  |             ^^^^^^^ type mismatch\n" ++
         "  |\n";
-    try std.testing.expectEqualStrings(expected, buf.items);
+    try std.testing.expectEqualStrings(expected, writer.writer.buffered());
 }
 
 test "renderRich: warning on second line" {
@@ -688,11 +685,10 @@ test "renderRich: warning on second line" {
     const source = "var x int\nvar y int";
     try diags.addWarning(14, 15, "unused variable 'y'");
 
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(std.testing.allocator);
-    const writer = buf.writer(std.testing.allocator);
+    var writer: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer writer.deinit();
 
-    try diags.renderRich(source, "main.run", writer, false);
+    try diags.renderRich(source, "main.run", &writer.writer, false);
 
     const expected =
         "warning: unused variable 'y'\n" ++
@@ -701,7 +697,7 @@ test "renderRich: warning on second line" {
         "2 | var y int\n" ++
         "  |     ^ unused variable 'y'\n" ++
         "  |\n";
-    try std.testing.expectEqualStrings(expected, buf.items);
+    try std.testing.expectEqualStrings(expected, writer.writer.buffered());
 }
 
 test "renderRich: multiple diagnostics" {
@@ -712,15 +708,14 @@ test "renderRich: multiple diagnostics" {
     try diags.addError(4, 5, "error here");
     try diags.addWarning(14, 15, "warning here");
 
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(std.testing.allocator);
-    const writer = buf.writer(std.testing.allocator);
+    var writer: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer writer.deinit();
 
-    try diags.renderRich(source, "test.run", writer, false);
+    try diags.renderRich(source, "test.run", &writer.writer, false);
 
     // Just check that both are present
-    try std.testing.expect(std.mem.indexOf(u8, buf.items, "error: error here") != null);
-    try std.testing.expect(std.mem.indexOf(u8, buf.items, "warning: warning here") != null);
+    try std.testing.expect(std.mem.indexOf(u8, writer.writer.buffered(), "error: error here") != null);
+    try std.testing.expect(std.mem.indexOf(u8, writer.writer.buffered(), "warning: warning here") != null);
 }
 
 test "renderRich: error with label shows label on caret line" {
@@ -730,16 +725,15 @@ test "renderRich: error with label shows label on caret line" {
     const source = "var x i32 = \"hello\"";
     try diags.addErrorWithLabel(12, 19, "type mismatch: expected 'i32', got 'string'", "expected 'i32'");
 
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(std.testing.allocator);
-    const writer = buf.writer(std.testing.allocator);
+    var writer: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer writer.deinit();
 
-    try diags.renderRich(source, "test.run", writer, false);
+    try diags.renderRich(source, "test.run", &writer.writer, false);
 
     // Header should have full message
-    try std.testing.expect(std.mem.indexOf(u8, buf.items, "error: type mismatch: expected 'i32', got 'string'") != null);
+    try std.testing.expect(std.mem.indexOf(u8, writer.writer.buffered(), "error: type mismatch: expected 'i32', got 'string'") != null);
     // Caret line should have short label, not full message
-    try std.testing.expect(std.mem.indexOf(u8, buf.items, "^^^^^^^ expected 'i32'\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, writer.writer.buffered(), "^^^^^^^ expected 'i32'\n") != null);
 }
 
 test "renderRich: error with text-only annotation" {
@@ -752,15 +746,14 @@ test "renderRich: error with text-only annotation" {
     };
     try diags.addErrorAnnotated(8, 15, "undefined reference to 'pirntln'", "not found in this scope", &annotations);
 
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(std.testing.allocator);
-    const writer = buf.writer(std.testing.allocator);
+    var writer: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer writer.deinit();
 
-    try diags.renderRich(source, "test.run", writer, false);
+    try diags.renderRich(source, "test.run", &writer.writer, false);
 
-    try std.testing.expect(std.mem.indexOf(u8, buf.items, "error: undefined reference to 'pirntln'") != null);
-    try std.testing.expect(std.mem.indexOf(u8, buf.items, "^^^^^^^ not found in this scope") != null);
-    try std.testing.expect(std.mem.indexOf(u8, buf.items, "= help: did you mean 'println'?") != null);
+    try std.testing.expect(std.mem.indexOf(u8, writer.writer.buffered(), "error: undefined reference to 'pirntln'") != null);
+    try std.testing.expect(std.mem.indexOf(u8, writer.writer.buffered(), "^^^^^^^ not found in this scope") != null);
+    try std.testing.expect(std.mem.indexOf(u8, writer.writer.buffered(), "= help: did you mean 'println'?") != null);
 }
 
 test "renderRich: error with note annotation" {
@@ -773,13 +766,12 @@ test "renderRich: error with note annotation" {
     };
     try diags.addErrorAnnotated(12, 19, "type mismatch", null, &annotations);
 
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(std.testing.allocator);
-    const writer = buf.writer(std.testing.allocator);
+    var writer: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer writer.deinit();
 
-    try diags.renderRich(source, "test.run", writer, false);
+    try diags.renderRich(source, "test.run", &writer.writer, false);
 
-    try std.testing.expect(std.mem.indexOf(u8, buf.items, "= note: string literals have type 'string'") != null);
+    try std.testing.expect(std.mem.indexOf(u8, writer.writer.buffered(), "= note: string literals have type 'string'") != null);
 }
 
 test "digitCount" {

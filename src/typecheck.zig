@@ -831,7 +831,8 @@ const TypeChecker = struct {
         // Skip for nullable return types (implicit null return) and error unions.
         if (return_type != types.null_type and return_type != types.primitives.void_id and
             !self.type_pool.isNullable(return_type) and
-            self.type_pool.unwrapErrorUnion(return_type) == null) {
+            self.type_pool.unwrapErrorUnion(return_type) == null)
+        {
             if (!self.blockAlwaysReturns(body)) {
                 const fn_tok = self.nodeMainToken(node);
                 const loc = self.tokenLoc(fn_tok);
@@ -930,7 +931,8 @@ const TypeChecker = struct {
             // Check return value type matches declared return type.
             if (expr_type != types.null_type and self.current_fn_return_type != types.null_type) {
                 if (!self.typesCompatible(self.current_fn_return_type, expr_type) and
-                    !std.mem.eql(u8, self.typeName(self.current_fn_return_type), "<unknown>")) {
+                    !std.mem.eql(u8, self.typeName(self.current_fn_return_type), "<unknown>"))
+                {
                     const help = self.typeMismatchHelp(self.current_fn_return_type, expr_type);
                     if (help) |help_msg| {
                         var ann_buf = try self.allocator.alloc(diag_mod.Annotation, 1);
@@ -2527,7 +2529,10 @@ const TypeChecker = struct {
                 // list may be incomplete — skip the error in that case.
                 var has_unresolved = false;
                 for (st.fields) |f| {
-                    if (f.type_id == types.null_type) { has_unresolved = true; break; }
+                    if (f.type_id == types.null_type) {
+                        has_unresolved = true;
+                        break;
+                    }
                 }
                 if (!has_unresolved) {
                     // Field not found — emit error with suggestion.
@@ -2555,13 +2560,12 @@ const TypeChecker = struct {
                         if (st.fields.len > 0 and st.fields.len <= 10) {
                             // Build available fields list
                             var fields_buf: [512]u8 = undefined;
-                            var fbs = std.io.fixedBufferStream(&fields_buf);
-                            const fbw = fbs.writer();
+                            var fbw = std.Io.Writer.fixed(&fields_buf);
                             for (st.fields, 0..) |f, fi| {
                                 if (fi > 0) fbw.writeAll(", ") catch break;
                                 fbw.writeAll(f.name) catch break;
                             }
-                            const fields_list = fbs.getWritten();
+                            const fields_list = fbw.buffered();
                             if (fields_list.len > 0) {
                                 const note_msg = try std.fmt.allocPrint(self.allocator, "available fields: {s}", .{fields_list});
                                 try self.diagnostics.allocated_messages.append(self.allocator, note_msg);
@@ -2692,7 +2696,8 @@ const TypeChecker = struct {
                             const init_type = init_types[i];
                             if (init_type != types.null_type and decl_field.type_id != types.null_type) {
                                 if (!self.typesCompatible(decl_field.type_id, init_type) and
-                                    !std.mem.eql(u8, self.typeName(decl_field.type_id), "<unknown>")) {
+                                    !std.mem.eql(u8, self.typeName(decl_field.type_id), "<unknown>"))
+                                {
                                     const loc = self.tokenLoc(init_name_tok);
                                     try self.diagnostics.addErrorFmt(
                                         loc.start,
@@ -2740,9 +2745,15 @@ const TypeChecker = struct {
                     const init_name2 = self.tokenSlice(init_name_tok2);
                     var f = false;
                     for (st.fields) |df| {
-                        if (std.mem.eql(u8, df.name, init_name2)) { f = true; break; }
+                        if (std.mem.eql(u8, df.name, init_name2)) {
+                            f = true;
+                            break;
+                        }
                     }
-                    if (!f) { all_found = false; break; }
+                    if (!f) {
+                        all_found = false;
+                        break;
+                    }
                 }
                 if (all_found) {
                     for (0..decl_field_count) |fi| {

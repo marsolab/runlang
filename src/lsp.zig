@@ -7,16 +7,16 @@ const Node = @import("ast.zig").Node;
 const NodeIndex = @import("ast.zig").NodeIndex;
 const null_node = @import("ast.zig").null_node;
 
-const File = std.fs.File;
+const File = std.Io.File;
 
 /// JSON-RPC message header/body reader over stdin/stdout.
 pub const Transport = struct {
-    reader: std.io.AnyReader,
-    writer: std.io.AnyWriter,
+    reader: *std.Io.Reader,
+    writer: *std.Io.Writer,
     read_buf: std.ArrayList(u8),
     allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator, reader: std.io.AnyReader, writer: std.io.AnyWriter) Transport {
+    pub fn init(allocator: std.mem.Allocator, reader: *std.Io.Reader, writer: *std.Io.Writer) Transport {
         return .{
             .reader = reader,
             .writer = writer,
@@ -34,10 +34,9 @@ pub const Transport = struct {
     pub fn readMessage(self: *Transport) !std.json.Parsed(std.json.Value) {
         // Read headers until empty line
         var content_length: ?usize = null;
-        var header_buf: [1024]u8 = undefined;
 
         while (true) {
-            const line = self.reader.readUntilDelimiter(&header_buf, '\n') catch |err| switch (err) {
+            const line = self.reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
                 error.EndOfStream => return error.EndOfStream,
                 else => return error.InvalidMessage,
             };
@@ -58,7 +57,7 @@ pub const Transport = struct {
         // Read body
         self.read_buf.clearRetainingCapacity();
         try self.read_buf.resize(self.allocator, length);
-        self.reader.readNoEof(self.read_buf.items) catch return error.InvalidMessage;
+        self.reader.readSliceAll(self.read_buf.items) catch return error.InvalidMessage;
 
         // Parse JSON
         return std.json.parseFromSlice(std.json.Value, self.allocator, self.read_buf.items, .{
@@ -131,7 +130,7 @@ pub const Server = struct {
     initialized: bool,
     shutdown_requested: bool,
 
-    pub fn init(allocator: std.mem.Allocator, reader: std.io.AnyReader, writer: std.io.AnyWriter) Server {
+    pub fn init(allocator: std.mem.Allocator, reader: *std.Io.Reader, writer: *std.Io.Writer) Server {
         return .{
             .allocator = allocator,
             .transport = Transport.init(allocator, reader, writer),
@@ -298,18 +297,17 @@ pub const Server = struct {
         const hover_text = self.getHoverInfo(doc, tokens, tok_idx) orelse return try self.sendResult(id, .null);
 
         // Build hover response
-        var buf: std.ArrayList(u8) = .empty;
-        defer buf.deinit(self.allocator);
-        const writer = buf.writer(self.allocator);
+        var writer: std.Io.Writer.Allocating = .init(self.allocator);
+        defer writer.deinit();
 
         const start_loc = offsetToLineCol(doc.source, tok.loc.start);
         const end_loc = offsetToLineCol(doc.source, tok.loc.end);
 
-        try writer.print(
+        try writer.writer.print(
             \\{{"contents":{{"kind":"markdown","value":"{s}"}},"range":{{"start":{{"line":{d},"character":{d}}},"end":{{"line":{d},"character":{d}}}}}}}
         , .{ hover_text, start_loc.line, start_loc.col, end_loc.line, end_loc.col });
 
-        try self.sendResultRaw(id, buf.items);
+        try self.sendResultRaw(id, writer.writer.buffered());
     }
 
     fn handleDefinition(self: *Server, id: ?std.json.Value, params: ?std.json.Value) !void {
@@ -340,15 +338,14 @@ pub const Server = struct {
         const start_loc = offsetToLineCol(doc.source, def_loc.start);
         const end_loc = offsetToLineCol(doc.source, def_loc.end);
 
-        var buf: std.ArrayList(u8) = .empty;
-        defer buf.deinit(self.allocator);
-        const writer = buf.writer(self.allocator);
+        var writer: std.Io.Writer.Allocating = .init(self.allocator);
+        defer writer.deinit();
 
-        try writer.print(
+        try writer.writer.print(
             \\{{"uri":"{s}","range":{{"start":{{"line":{d},"character":{d}}},"end":{{"line":{d},"character":{d}}}}}}}
         , .{ uri, start_loc.line, start_loc.col, end_loc.line, end_loc.col });
 
-        try self.sendResultRaw(id, buf.items);
+        try self.sendResultRaw(id, writer.writer.buffered());
     }
 
     fn handleCompletion(self: *Server, id: ?std.json.Value, params: ?std.json.Value) !void {
@@ -362,29 +359,27 @@ pub const Server = struct {
         const tokens = if (doc.tokens) |t| t.items else return try self.sendResultRaw(id, "[]");
         const tree = if (doc.tree) |t| t else return try self.sendResultRaw(id, "[]");
 
-        var buf: std.ArrayList(u8) = .empty;
-        defer buf.deinit(self.allocator);
-        const writer = buf.writer(self.allocator);
+        var writer: std.Io.Writer.Allocating = .init(self.allocator);
+        defer writer.deinit();
 
-        try writer.writeAll("[");
+        try writer.writer.writeAll("[");
 
         var first = true;
 
         // Add keywords
         const kw_list = [_][]const u8{
-            "fn",        "pub",     "var",       "let",     "return",
-            "if",        "else",    "for",       "in",      "switch",
-            "break",     "continue", "defer",    "run",     "try",
-            "package",   "use",     "struct",    "interface",
-            "implements", "type",   "chan",       "map",     "alloc",
-            "true",      "false",   "null",      "and",     "or",
-            "not",
+            "fn",      "pub",      "var",    "let",       "return",
+            "if",      "else",     "for",    "in",        "switch",
+            "break",   "continue", "defer",  "run",       "try",
+            "package", "use",      "struct", "interface", "implements",
+            "type",    "chan",     "map",    "alloc",     "true",
+            "false",   "null",     "and",    "or",        "not",
         };
 
         for (kw_list) |kw| {
-            if (!first) try writer.writeAll(",");
+            if (!first) try writer.writer.writeAll(",");
             first = false;
-            try writer.print(
+            try writer.writer.print(
                 \\{{"label":"{s}","kind":14}}
             , .{kw});
         }
@@ -435,7 +430,7 @@ pub const Server = struct {
                 const name = tokens[nt].slice(doc.source);
                 if (!seen.contains(name)) {
                     try seen.put(name, {});
-                    if (!first) try writer.writeAll(",");
+                    if (!first) try writer.writer.writeAll(",");
                     first = false;
 
                     const kind: u8 = switch (node.tag) {
@@ -445,25 +440,24 @@ pub const Server = struct {
                         .type_alias, .type_decl => 22, // Struct (used for types)
                         else => 1, // Text
                     };
-                    try writer.print(
+                    try writer.writer.print(
                         \\{{"label":"{s}","kind":{d}}}
                     , .{ name, kind });
                 }
             }
         }
 
-        try writer.writeAll("]");
-        try self.sendResultRaw(id, buf.items);
+        try writer.writer.writeAll("]");
+        try self.sendResultRaw(id, writer.writer.buffered());
     }
 
     fn publishDiagnostics(self: *Server, uri: []const u8, doc: *Document) !void {
         doc.ensureParsed();
 
-        var buf: std.ArrayList(u8) = .empty;
-        defer buf.deinit(self.allocator);
-        const writer = buf.writer(self.allocator);
+        var writer: std.Io.Writer.Allocating = .init(self.allocator);
+        defer writer.deinit();
 
-        try writer.writeAll("[");
+        try writer.writer.writeAll("[");
 
         const tree = doc.tree orelse {
             try self.publishDiagnosticsRaw(uri, "[]");
@@ -472,7 +466,7 @@ pub const Server = struct {
 
         var first = true;
         for (tree.errors.items) |err| {
-            if (!first) try writer.writeAll(",");
+            if (!first) try writer.writer.writeAll(",");
             first = false;
 
             const start_loc = offsetToLineCol(doc.source, err.loc.start);
@@ -481,25 +475,24 @@ pub const Server = struct {
             // Escape the tag name for JSON
             const msg = @tagName(err.tag);
 
-            try writer.print(
+            try writer.writer.print(
                 \\{{"range":{{"start":{{"line":{d},"character":{d}}},"end":{{"line":{d},"character":{d}}}}},"severity":1,"source":"run","message":"{s}"}}
             , .{ start_loc.line, start_loc.col, end_loc.line, end_loc.col, msg });
         }
 
-        try writer.writeAll("]");
-        try self.publishDiagnosticsRaw(uri, buf.items);
+        try writer.writer.writeAll("]");
+        try self.publishDiagnosticsRaw(uri, writer.writer.buffered());
     }
 
     fn publishDiagnosticsRaw(self: *Server, uri: []const u8, diagnostics_json: []const u8) !void {
-        var buf: std.ArrayList(u8) = .empty;
-        defer buf.deinit(self.allocator);
-        const writer = buf.writer(self.allocator);
+        var writer: std.Io.Writer.Allocating = .init(self.allocator);
+        defer writer.deinit();
 
-        try writer.print(
+        try writer.writer.print(
             \\{{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{{"uri":"{s}","diagnostics":{s}}}}}
         , .{ uri, diagnostics_json });
 
-        try self.transport.writeMessage(buf.items);
+        try self.transport.writeMessage(writer.writer.buffered());
     }
 
     fn getHoverInfo(self: *Server, doc: *Document, tokens: []const Token, tok_idx: usize) ?[]const u8 {
@@ -595,43 +588,41 @@ pub const Server = struct {
     }
 
     fn sendResultRaw(self: *Server, id: ?std.json.Value, result_json: []const u8) !void {
-        var buf: std.ArrayList(u8) = .empty;
-        defer buf.deinit(self.allocator);
-        const writer = buf.writer(self.allocator);
+        var writer: std.Io.Writer.Allocating = .init(self.allocator);
+        defer writer.deinit();
 
-        try writer.writeAll("{\"jsonrpc\":\"2.0\",\"id\":");
+        try writer.writer.writeAll("{\"jsonrpc\":\"2.0\",\"id\":");
         if (id) |id_val| {
             switch (id_val) {
-                .integer => |n| try writer.print("{d}", .{n}),
-                .string => |s| try writer.print("\"{s}\"", .{s}),
-                else => try writer.writeAll("null"),
+                .integer => |n| try writer.writer.print("{d}", .{n}),
+                .string => |s| try writer.writer.print("\"{s}\"", .{s}),
+                else => try writer.writer.writeAll("null"),
             }
         } else {
-            try writer.writeAll("null");
+            try writer.writer.writeAll("null");
         }
-        try writer.print(",\"result\":{s}}}", .{result_json});
+        try writer.writer.print(",\"result\":{s}}}", .{result_json});
 
-        try self.transport.writeMessage(buf.items);
+        try self.transport.writeMessage(writer.writer.buffered());
     }
 
     fn sendError(self: *Server, id: ?std.json.Value, code: i32, message: []const u8) !void {
-        var buf: std.ArrayList(u8) = .empty;
-        defer buf.deinit(self.allocator);
-        const writer = buf.writer(self.allocator);
+        var writer: std.Io.Writer.Allocating = .init(self.allocator);
+        defer writer.deinit();
 
-        try writer.writeAll("{\"jsonrpc\":\"2.0\",\"id\":");
+        try writer.writer.writeAll("{\"jsonrpc\":\"2.0\",\"id\":");
         if (id) |id_val| {
             switch (id_val) {
-                .integer => |n| try writer.print("{d}", .{n}),
-                .string => |s| try writer.print("\"{s}\"", .{s}),
-                else => try writer.writeAll("null"),
+                .integer => |n| try writer.writer.print("{d}", .{n}),
+                .string => |s| try writer.writer.print("\"{s}\"", .{s}),
+                else => try writer.writer.writeAll("null"),
             }
         } else {
-            try writer.writeAll("null");
+            try writer.writer.writeAll("null");
         }
-        try writer.print(",\"error\":{{\"code\":{d},\"message\":\"{s}\"}}}}", .{ code, message });
+        try writer.writer.print(",\"error\":{{\"code\":{d},\"message\":\"{s}\"}}}}", .{ code, message });
 
-        try self.transport.writeMessage(buf.items);
+        try self.transport.writeMessage(writer.writer.buffered());
     }
 };
 
@@ -855,10 +846,17 @@ fn keywordDescription(tag: Token.Tag) []const u8 {
 
 /// Entry point: run the LSP server on stdin/stdout.
 pub fn serve(allocator: std.mem.Allocator) !void {
-    const stdin = File.stdin().deprecatedReader();
-    const stdout = File.stdout().deprecatedWriter();
+    var io_threaded: std.Io.Threaded = .init(allocator, .{});
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
 
-    var server = Server.init(allocator, stdin.any(), stdout.any());
+    var stdin_buffer: [4096]u8 = undefined;
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdin_reader = File.stdin().readerStreaming(io, &stdin_buffer);
+    var stdout_writer = File.stdout().writerStreaming(io, &stdout_buffer);
+    defer stdout_writer.flush() catch {};
+
+    var server = Server.init(allocator, &stdin_reader.interface, &stdout_writer.interface);
     defer server.deinit();
 
     try server.run();
@@ -914,21 +912,20 @@ test "keywordDescription: returns descriptions" {
 }
 
 test "Transport: writeMessage format" {
-    var out_buf: std.ArrayList(u8) = .empty;
-    defer out_buf.deinit(std.testing.allocator);
-
     var empty_buf: [0]u8 = .{};
-    var empty_stream = std.io.fixedBufferStream(&empty_buf);
+    var empty_reader = std.Io.Reader.fixed(&empty_buf);
+    var out_writer: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out_writer.deinit();
 
     var transport = Transport.init(
         std.testing.allocator,
-        empty_stream.reader().any(),
-        out_buf.writer(std.testing.allocator).any(),
+        &empty_reader,
+        &out_writer.writer,
     );
     defer transport.deinit();
 
     try transport.writeMessage("{\"test\":true}");
 
     const expected = "Content-Length: 13\r\n\r\n{\"test\":true}";
-    try std.testing.expectEqualStrings(expected, out_buf.items);
+    try std.testing.expectEqualStrings(expected, out_writer.writer.buffered());
 }

@@ -15,7 +15,7 @@ Compiler commands: `run`, `build`, `check`, `tokens` (dump lexer output), `ast` 
 
 ## Architecture
 
-Run is a systems programming language compiler written in Zig 0.15. The full compilation pipeline:
+Run is a systems programming language compiler written in Zig 0.16. The full compilation pipeline:
 
 ```
 Source (.run) → Lexer → Parser → Naming → Resolve → TypeCheck → Lower (IR) → CodegenC → zig cc
@@ -60,7 +60,7 @@ Source (.run) → Lexer → Parser → Naming → Resolve → TypeCheck → Lowe
 
 Tests are embedded `test` blocks in source files, discovered through root.zig.
 
-## Zig 0.15 Conventions
+## Zig 0.16 Conventions
 
 These differ from older Zig versions and are critical to get right:
 

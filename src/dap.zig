@@ -4,7 +4,7 @@ const debug_engine = @import("debug_engine.zig");
 const driver = @import("driver.zig");
 const ir = @import("ir.zig");
 
-const File = std.fs.File;
+const File = std.Io.File;
 
 /// Debug Adapter Protocol server for the Run language.
 ///
@@ -20,16 +20,10 @@ pub const DapServer = struct {
     source_path: ?[]const u8,
     binary_path: ?[]const u8,
 
-    pub fn init(allocator: std.mem.Allocator) DapServer {
-        const stdin = File.stdin().deprecatedReader();
-        const stdout = File.stdout().deprecatedWriter();
+    pub fn init(allocator: std.mem.Allocator, reader: *std.Io.Reader, writer: *std.Io.Writer) DapServer {
         return .{
             .allocator = allocator,
-            .transport = lsp.Transport.init(
-                allocator,
-                stdin.any(),
-                stdout.any(),
-            ),
+            .transport = lsp.Transport.init(allocator, reader, writer),
             .engine = null,
             .seq = 1,
             .initialized = false,
@@ -114,14 +108,14 @@ pub const DapServer = struct {
         self.initialized = true;
 
         // Build capabilities response
-        var body = std.json.ObjectMap.init(self.allocator);
-        try body.put("supportsConfigurationDoneRequest", .{ .bool = true });
-        try body.put("supportsEvaluateForHovers", .{ .bool = true });
-        try body.put("supportsSetVariable", .{ .bool = false });
-        try body.put("supportsConditionalBreakpoints", .{ .bool = true });
-        try body.put("supportsHitConditionalBreakpoints", .{ .bool = true });
-        try body.put("supportsFunctionBreakpoints", .{ .bool = true });
-        try body.put("supportsStepBack", .{ .bool = false });
+        var body = std.json.ObjectMap.empty;
+        try body.put(self.allocator, "supportsConfigurationDoneRequest", .{ .bool = true });
+        try body.put(self.allocator, "supportsEvaluateForHovers", .{ .bool = true });
+        try body.put(self.allocator, "supportsSetVariable", .{ .bool = false });
+        try body.put(self.allocator, "supportsConditionalBreakpoints", .{ .bool = true });
+        try body.put(self.allocator, "supportsHitConditionalBreakpoints", .{ .bool = true });
+        try body.put(self.allocator, "supportsFunctionBreakpoints", .{ .bool = true });
+        try body.put(self.allocator, "supportsStepBack", .{ .bool = false });
 
         try self.sendResponse(request_seq, "initialize", true, .{ .object = body });
 
@@ -189,24 +183,24 @@ pub const DapServer = struct {
 
                     if (self.engine) |*engine| {
                         const result = engine.setBreakpoint(source_path, line, condition, hit_condition) catch {
-                            var bp_obj = std.json.ObjectMap.init(self.allocator);
-                            try bp_obj.put("verified", .{ .bool = false });
-                            try bp_obj.put("line", .{ .integer = @intCast(line) });
+                            var bp_obj = std.json.ObjectMap.empty;
+                            try bp_obj.put(self.allocator, "verified", .{ .bool = false });
+                            try bp_obj.put(self.allocator, "line", .{ .integer = @intCast(line) });
                             try breakpoints.append(.{ .object = bp_obj });
                             continue;
                         };
-                        var bp_obj = std.json.ObjectMap.init(self.allocator);
-                        try bp_obj.put("id", .{ .integer = @intCast(result.id) });
-                        try bp_obj.put("verified", .{ .bool = result.verified });
-                        try bp_obj.put("line", .{ .integer = @intCast(result.line) });
+                        var bp_obj = std.json.ObjectMap.empty;
+                        try bp_obj.put(self.allocator, "id", .{ .integer = @intCast(result.id) });
+                        try bp_obj.put(self.allocator, "verified", .{ .bool = result.verified });
+                        try bp_obj.put(self.allocator, "line", .{ .integer = @intCast(result.line) });
                         try breakpoints.append(.{ .object = bp_obj });
                     }
                 }
             }
         }
 
-        var body = std.json.ObjectMap.init(self.allocator);
-        try body.put("breakpoints", .{ .array = breakpoints });
+        var body = std.json.ObjectMap.empty;
+        try body.put(self.allocator, "breakpoints", .{ .array = breakpoints });
         try self.sendResponse(request_seq, "setBreakpoints", true, .{ .object = body });
     }
 
@@ -214,9 +208,9 @@ pub const DapServer = struct {
         var threads = std.json.Array.init(self.allocator);
 
         // Always report the main OS thread
-        var thread_obj = std.json.ObjectMap.init(self.allocator);
-        try thread_obj.put("id", .{ .integer = 1 });
-        try thread_obj.put("name", .{ .string = "main" });
+        var thread_obj = std.json.ObjectMap.empty;
+        try thread_obj.put(self.allocator, "id", .{ .integer = 1 });
+        try thread_obj.put(self.allocator, "name", .{ .string = "main" });
         try threads.append(.{ .object = thread_obj });
 
         // Try to surface green threads from the runtime via run_debug_dump_goroutines()
@@ -227,8 +221,8 @@ pub const DapServer = struct {
             _ = gt_result;
         }
 
-        var body = std.json.ObjectMap.init(self.allocator);
-        try body.put("threads", .{ .array = threads });
+        var body = std.json.ObjectMap.empty;
+        try body.put(self.allocator, "threads", .{ .array = threads });
         try self.sendResponse(request_seq, "threads", true, .{ .object = body });
     }
 
@@ -239,25 +233,25 @@ pub const DapServer = struct {
         if (self.engine) |*engine| {
             const trace = engine.getStackTrace(1) catch &.{};
             for (trace, 0..) |frame, i| {
-                var frame_obj = std.json.ObjectMap.init(self.allocator);
-                try frame_obj.put("id", .{ .integer = @intCast(i) });
-                try frame_obj.put("name", .{ .string = frame.name });
-                try frame_obj.put("line", .{ .integer = @intCast(frame.line) });
-                try frame_obj.put("column", .{ .integer = @intCast(frame.column) });
+                var frame_obj = std.json.ObjectMap.empty;
+                try frame_obj.put(self.allocator, "id", .{ .integer = @intCast(i) });
+                try frame_obj.put(self.allocator, "name", .{ .string = frame.name });
+                try frame_obj.put(self.allocator, "line", .{ .integer = @intCast(frame.line) });
+                try frame_obj.put(self.allocator, "column", .{ .integer = @intCast(frame.column) });
 
                 if (frame.source_path.len > 0) {
-                    var source_obj = std.json.ObjectMap.init(self.allocator);
-                    try source_obj.put("path", .{ .string = frame.source_path });
-                    try frame_obj.put("source", .{ .object = source_obj });
+                    var source_obj = std.json.ObjectMap.empty;
+                    try source_obj.put(self.allocator, "path", .{ .string = frame.source_path });
+                    try frame_obj.put(self.allocator, "source", .{ .object = source_obj });
                 }
 
                 try frames.append(.{ .object = frame_obj });
             }
         }
 
-        var body = std.json.ObjectMap.init(self.allocator);
-        try body.put("stackFrames", .{ .array = frames });
-        try body.put("totalFrames", .{ .integer = @intCast(frames.items.len) });
+        var body = std.json.ObjectMap.empty;
+        try body.put(self.allocator, "stackFrames", .{ .array = frames });
+        try body.put(self.allocator, "totalFrames", .{ .integer = @intCast(frames.items.len) });
         try self.sendResponse(request_seq, "stackTrace", true, .{ .object = body });
     }
 
@@ -266,14 +260,14 @@ pub const DapServer = struct {
         var scopes = std.json.Array.init(self.allocator);
 
         // Local scope
-        var local_scope = std.json.ObjectMap.init(self.allocator);
-        try local_scope.put("name", .{ .string = "Locals" });
-        try local_scope.put("variablesReference", .{ .integer = 1 });
-        try local_scope.put("expensive", .{ .bool = false });
+        var local_scope = std.json.ObjectMap.empty;
+        try local_scope.put(self.allocator, "name", .{ .string = "Locals" });
+        try local_scope.put(self.allocator, "variablesReference", .{ .integer = 1 });
+        try local_scope.put(self.allocator, "expensive", .{ .bool = false });
         try scopes.append(.{ .object = local_scope });
 
-        var body = std.json.ObjectMap.init(self.allocator);
-        try body.put("scopes", .{ .array = scopes });
+        var body = std.json.ObjectMap.empty;
+        try body.put(self.allocator, "scopes", .{ .array = scopes });
         try self.sendResponse(request_seq, "scopes", true, .{ .object = body });
     }
 
@@ -287,17 +281,17 @@ pub const DapServer = struct {
                 // Filter out SSA temporaries
                 if (debug_engine.isSsaTemporary(v.name)) continue;
 
-                var var_obj = std.json.ObjectMap.init(self.allocator);
-                try var_obj.put("name", .{ .string = v.name });
-                try var_obj.put("value", .{ .string = v.value });
-                try var_obj.put("type", .{ .string = debug_engine.runTypeName(v.type_name) });
-                try var_obj.put("variablesReference", .{ .integer = 0 });
+                var var_obj = std.json.ObjectMap.empty;
+                try var_obj.put(self.allocator, "name", .{ .string = v.name });
+                try var_obj.put(self.allocator, "value", .{ .string = v.value });
+                try var_obj.put(self.allocator, "type", .{ .string = debug_engine.runTypeName(v.type_name) });
+                try var_obj.put(self.allocator, "variablesReference", .{ .integer = 0 });
                 try variables.append(.{ .object = var_obj });
             }
         }
 
-        var body = std.json.ObjectMap.init(self.allocator);
-        try body.put("variables", .{ .array = variables });
+        var body = std.json.ObjectMap.empty;
+        try body.put(self.allocator, "variables", .{ .array = variables });
         try self.sendResponse(request_seq, "variables", true, .{ .object = body });
     }
 
@@ -351,10 +345,10 @@ pub const DapServer = struct {
                 try self.sendErrorResponse(request_seq, "evaluate", "Evaluation failed");
                 return;
             };
-            var body = std.json.ObjectMap.init(self.allocator);
-            try body.put("result", .{ .string = result.value });
-            try body.put("type", .{ .string = debug_engine.runTypeName(result.type_name) });
-            try body.put("variablesReference", .{ .integer = 0 });
+            var body = std.json.ObjectMap.empty;
+            try body.put(self.allocator, "result", .{ .string = result.value });
+            try body.put(self.allocator, "type", .{ .string = debug_engine.runTypeName(result.type_name) });
+            try body.put(self.allocator, "variablesReference", .{ .integer = 0 });
             try self.sendResponse(request_seq, "evaluate", true, .{ .object = body });
         } else {
             try self.sendErrorResponse(request_seq, "evaluate", "No active debug session");
@@ -376,23 +370,23 @@ pub const DapServer = struct {
             }
         }
 
-        var body = std.json.ObjectMap.init(self.allocator);
-        try body.put("results", .{ .array = results });
+        var body = std.json.ObjectMap.empty;
+        try body.put(self.allocator, "results", .{ .array = results });
         try self.sendResponse(request_seq, "runBatch", true, .{ .object = body });
     }
 
     /// Dispatch a single command for batch execution, returning a result object.
     fn dispatchSingleCommand(self: *DapServer, command: []const u8, args: ?std.json.Value) std.json.Value {
-        var result = std.json.ObjectMap.init(self.allocator);
-        result.put("command", .{ .string = command }) catch {};
-        result.put("success", .{ .bool = true }) catch {};
+        var result = std.json.ObjectMap.empty;
+        result.put(self.allocator, "command", .{ .string = command }) catch {};
+        result.put(self.allocator, "success", .{ .bool = true }) catch {};
 
         // Dispatch to engine for supported commands
         if (self.engine) |*engine| {
             if (std.mem.eql(u8, command, "setBreakpoints")) {
                 if (args) |a| {
                     const source_obj = a.object.get("source") orelse {
-                        result.put("success", .{ .bool = false }) catch {};
+                        result.put(self.allocator, "success", .{ .bool = false }) catch {};
                         return .{ .object = result };
                     };
                     const source_path = if (source_obj.object.get("path")) |p| p.string else "";
@@ -403,31 +397,31 @@ pub const DapServer = struct {
                             const condition: ?[]const u8 = if (bp.object.get("condition")) |c| c.string else null;
                             const hit_condition: ?[]const u8 = if (bp.object.get("hitCondition")) |h| h.string else null;
                             const bp_result = engine.setBreakpoint(source_path, line, condition, hit_condition) catch {
-                                var bp_obj = std.json.ObjectMap.init(self.allocator);
-                                bp_obj.put("verified", .{ .bool = false }) catch {};
+                                var bp_obj = std.json.ObjectMap.empty;
+                                bp_obj.put(self.allocator, "verified", .{ .bool = false }) catch {};
                                 bp_results.append(.{ .object = bp_obj }) catch {};
                                 continue;
                             };
-                            var bp_obj = std.json.ObjectMap.init(self.allocator);
-                            bp_obj.put("id", .{ .integer = @intCast(bp_result.id) }) catch {};
-                            bp_obj.put("verified", .{ .bool = bp_result.verified }) catch {};
-                            bp_obj.put("line", .{ .integer = @intCast(bp_result.line) }) catch {};
+                            var bp_obj = std.json.ObjectMap.empty;
+                            bp_obj.put(self.allocator, "id", .{ .integer = @intCast(bp_result.id) }) catch {};
+                            bp_obj.put(self.allocator, "verified", .{ .bool = bp_result.verified }) catch {};
+                            bp_obj.put(self.allocator, "line", .{ .integer = @intCast(bp_result.line) }) catch {};
                             bp_results.append(.{ .object = bp_obj }) catch {};
                         }
-                        var body = std.json.ObjectMap.init(self.allocator);
-                        body.put("breakpoints", .{ .array = bp_results }) catch {};
-                        result.put("body", .{ .object = body }) catch {};
+                        var body = std.json.ObjectMap.empty;
+                        body.put(self.allocator, "breakpoints", .{ .array = bp_results }) catch {};
+                        result.put(self.allocator, "body", .{ .object = body }) catch {};
                     }
                 }
             } else if (std.mem.eql(u8, command, "continue")) {
                 const stop = engine.continue_() catch {
-                    result.put("success", .{ .bool = false }) catch {};
+                    result.put(self.allocator, "success", .{ .bool = false }) catch {};
                     return .{ .object = result };
                 };
                 self.sendStoppedEvent(stop) catch {};
             } else if (std.mem.eql(u8, command, "next")) {
                 const stop = engine.next() catch {
-                    result.put("success", .{ .bool = false }) catch {};
+                    result.put(self.allocator, "success", .{ .bool = false }) catch {};
                     return .{ .object = result };
                 };
                 self.sendStoppedEvent(stop) catch {};
@@ -436,18 +430,18 @@ pub const DapServer = struct {
                     if (a.object.get("expression")) |expr_val| {
                         const translated = translateRunExpr(expr_val.string);
                         const eval_result = engine.evaluate(translated) catch {
-                            result.put("success", .{ .bool = false }) catch {};
+                            result.put(self.allocator, "success", .{ .bool = false }) catch {};
                             return .{ .object = result };
                         };
-                        var body = std.json.ObjectMap.init(self.allocator);
-                        body.put("result", .{ .string = eval_result.value }) catch {};
-                        body.put("type", .{ .string = debug_engine.runTypeName(eval_result.type_name) }) catch {};
-                        result.put("body", .{ .object = body }) catch {};
+                        var body = std.json.ObjectMap.empty;
+                        body.put(self.allocator, "result", .{ .string = eval_result.value }) catch {};
+                        body.put(self.allocator, "type", .{ .string = debug_engine.runTypeName(eval_result.type_name) }) catch {};
+                        result.put(self.allocator, "body", .{ .object = body }) catch {};
                     }
                 }
             }
         } else {
-            result.put("success", .{ .bool = false }) catch {};
+            result.put(self.allocator, "success", .{ .bool = false }) catch {};
         }
 
         return .{ .object = result };
@@ -479,11 +473,11 @@ pub const DapServer = struct {
             try self.sendErrorResponse(request_seq, "run/inspectGenRef", "Failed to read ptr field");
             return;
         };
-        var ptr_var = std.json.ObjectMap.init(self.allocator);
-        try ptr_var.put("name", .{ .string = "ptr" });
-        try ptr_var.put("value", .{ .string = ptr_result.value });
-        try ptr_var.put("type", .{ .string = "ptr" });
-        try ptr_var.put("variablesReference", .{ .integer = 0 });
+        var ptr_var = std.json.ObjectMap.empty;
+        try ptr_var.put(self.allocator, "name", .{ .string = "ptr" });
+        try ptr_var.put(self.allocator, "value", .{ .string = ptr_result.value });
+        try ptr_var.put(self.allocator, "type", .{ .string = "ptr" });
+        try ptr_var.put(self.allocator, "variablesReference", .{ .integer = 0 });
         try variables.append(.{ .object = ptr_var });
 
         // Read the generation field
@@ -496,11 +490,11 @@ pub const DapServer = struct {
             try self.sendErrorResponse(request_seq, "run/inspectGenRef", "Failed to read generation field");
             return;
         };
-        var gen_var = std.json.ObjectMap.init(self.allocator);
-        try gen_var.put("name", .{ .string = "generation" });
-        try gen_var.put("value", .{ .string = gen_result.value });
-        try gen_var.put("type", .{ .string = "int" });
-        try gen_var.put("variablesReference", .{ .integer = 0 });
+        var gen_var = std.json.ObjectMap.empty;
+        try gen_var.put(self.allocator, "name", .{ .string = "generation" });
+        try gen_var.put(self.allocator, "value", .{ .string = gen_result.value });
+        try gen_var.put(self.allocator, "type", .{ .string = "int" });
+        try gen_var.put(self.allocator, "variablesReference", .{ .integer = 0 });
         try variables.append(.{ .object = gen_var });
 
         // Check validity by calling run_gen_get
@@ -511,20 +505,20 @@ pub const DapServer = struct {
             },
         ) catch null;
 
-        var valid_var = std.json.ObjectMap.init(self.allocator);
-        try valid_var.put("name", .{ .string = "valid" });
+        var valid_var = std.json.ObjectMap.empty;
+        try valid_var.put(self.allocator, "name", .{ .string = "valid" });
         if (current_gen) |cg| {
             const is_valid = std.mem.eql(u8, cg.value, gen_result.value);
-            try valid_var.put("value", .{ .string = if (is_valid) "true" else "false" });
+            try valid_var.put(self.allocator, "value", .{ .string = if (is_valid) "true" else "false" });
         } else {
-            try valid_var.put("value", .{ .string = "unknown" });
+            try valid_var.put(self.allocator, "value", .{ .string = "unknown" });
         }
-        try valid_var.put("type", .{ .string = "bool" });
-        try valid_var.put("variablesReference", .{ .integer = 0 });
+        try valid_var.put(self.allocator, "type", .{ .string = "bool" });
+        try valid_var.put(self.allocator, "variablesReference", .{ .integer = 0 });
         try variables.append(.{ .object = valid_var });
 
-        var body = std.json.ObjectMap.init(self.allocator);
-        try body.put("variables", .{ .array = variables });
+        var body = std.json.ObjectMap.empty;
+        try body.put(self.allocator, "variables", .{ .array = variables });
         try self.sendResponse(request_seq, "run/inspectGenRef", true, .{ .object = body });
     }
 
@@ -556,16 +550,16 @@ pub const DapServer = struct {
         for (fields) |f| {
             const eval_expr = std.fmt.allocPrint(self.allocator, "({s})->{s}", .{ expr.?, f.field }) catch continue;
             const result = engine.evaluate(eval_expr) catch continue;
-            var var_obj = std.json.ObjectMap.init(self.allocator);
-            try var_obj.put("name", .{ .string = f.name });
-            try var_obj.put("value", .{ .string = result.value });
-            try var_obj.put("type", .{ .string = f.type_name });
-            try var_obj.put("variablesReference", .{ .integer = 0 });
+            var var_obj = std.json.ObjectMap.empty;
+            try var_obj.put(self.allocator, "name", .{ .string = f.name });
+            try var_obj.put(self.allocator, "value", .{ .string = result.value });
+            try var_obj.put(self.allocator, "type", .{ .string = f.type_name });
+            try var_obj.put(self.allocator, "variablesReference", .{ .integer = 0 });
             try variables.append(.{ .object = var_obj });
         }
 
-        var body = std.json.ObjectMap.init(self.allocator);
-        try body.put("variables", .{ .array = variables });
+        var body = std.json.ObjectMap.empty;
+        try body.put(self.allocator, "variables", .{ .array = variables });
         try self.sendResponse(request_seq, "run/inspectChannel", true, .{ .object = body });
     }
 
@@ -593,22 +587,22 @@ pub const DapServer = struct {
             try self.sendErrorResponse(request_seq, "run/inspectMap", "Failed to evaluate map length");
             return;
         };
-        var len_var = std.json.ObjectMap.init(self.allocator);
-        try len_var.put("name", .{ .string = "length" });
-        try len_var.put("value", .{ .string = len_result.value });
-        try len_var.put("type", .{ .string = "int" });
-        try len_var.put("variablesReference", .{ .integer = 0 });
+        var len_var = std.json.ObjectMap.empty;
+        try len_var.put(self.allocator, "name", .{ .string = "length" });
+        try len_var.put(self.allocator, "value", .{ .string = len_result.value });
+        try len_var.put(self.allocator, "type", .{ .string = "int" });
+        try len_var.put(self.allocator, "variablesReference", .{ .integer = 0 });
         try variables.append(.{ .object = len_var });
 
-        var body = std.json.ObjectMap.init(self.allocator);
-        try body.put("variables", .{ .array = variables });
+        var body = std.json.ObjectMap.empty;
+        try body.put(self.allocator, "variables", .{ .array = variables });
         try self.sendResponse(request_seq, "run/inspectMap", true, .{ .object = body });
     }
 
     // --- DAP Message Helpers ---
 
     fn sendStoppedEvent(self: *DapServer, stop: debug_engine.StopEvent) !void {
-        var body = std.json.ObjectMap.init(self.allocator);
+        var body = std.json.ObjectMap.empty;
         const reason_str: []const u8 = switch (stop.reason) {
             .breakpoint_hit => "breakpoint",
             .step => "step",
@@ -618,67 +612,67 @@ pub const DapServer = struct {
             .exited => "exited",
             .unknown => "unknown",
         };
-        try body.put("reason", .{ .string = reason_str });
-        try body.put("threadId", .{ .integer = @intCast(stop.thread_id) });
-        try body.put("allThreadsStopped", .{ .bool = true });
+        try body.put(self.allocator, "reason", .{ .string = reason_str });
+        try body.put(self.allocator, "threadId", .{ .integer = @intCast(stop.thread_id) });
+        try body.put(self.allocator, "allThreadsStopped", .{ .bool = true });
 
         try self.sendEvent("stopped", .{ .object = body });
     }
 
     fn sendResponse(self: *DapServer, request_seq: u32, command: []const u8, success: bool, body: ?std.json.Value) !void {
-        var msg = std.json.ObjectMap.init(self.allocator);
-        try msg.put("seq", .{ .integer = @intCast(self.seq) });
+        var msg = std.json.ObjectMap.empty;
+        try msg.put(self.allocator, "seq", .{ .integer = @intCast(self.seq) });
         self.seq += 1;
-        try msg.put("type", .{ .string = "response" });
-        try msg.put("request_seq", .{ .integer = @intCast(request_seq) });
-        try msg.put("success", .{ .bool = success });
-        try msg.put("command", .{ .string = command });
+        try msg.put(self.allocator, "type", .{ .string = "response" });
+        try msg.put(self.allocator, "request_seq", .{ .integer = @intCast(request_seq) });
+        try msg.put(self.allocator, "success", .{ .bool = success });
+        try msg.put(self.allocator, "command", .{ .string = command });
         if (body) |b| {
-            try msg.put("body", b);
+            try msg.put(self.allocator, "body", b);
         }
 
         try self.writeJson(.{ .object = msg });
     }
 
     fn sendErrorResponse(self: *DapServer, request_seq: u32, command: []const u8, message: []const u8) !void {
-        var body = std.json.ObjectMap.init(self.allocator);
-        var error_obj = std.json.ObjectMap.init(self.allocator);
-        try error_obj.put("id", .{ .integer = 1 });
-        try error_obj.put("format", .{ .string = message });
-        try body.put("error", .{ .object = error_obj });
+        var body = std.json.ObjectMap.empty;
+        var error_obj = std.json.ObjectMap.empty;
+        try error_obj.put(self.allocator, "id", .{ .integer = 1 });
+        try error_obj.put(self.allocator, "format", .{ .string = message });
+        try body.put(self.allocator, "error", .{ .object = error_obj });
 
-        var msg = std.json.ObjectMap.init(self.allocator);
-        try msg.put("seq", .{ .integer = @intCast(self.seq) });
+        var msg = std.json.ObjectMap.empty;
+        try msg.put(self.allocator, "seq", .{ .integer = @intCast(self.seq) });
         self.seq += 1;
-        try msg.put("type", .{ .string = "response" });
-        try msg.put("request_seq", .{ .integer = @intCast(request_seq) });
-        try msg.put("success", .{ .bool = false });
-        try msg.put("command", .{ .string = command });
-        try msg.put("message", .{ .string = message });
-        try msg.put("body", .{ .object = body });
+        try msg.put(self.allocator, "type", .{ .string = "response" });
+        try msg.put(self.allocator, "request_seq", .{ .integer = @intCast(request_seq) });
+        try msg.put(self.allocator, "success", .{ .bool = false });
+        try msg.put(self.allocator, "command", .{ .string = command });
+        try msg.put(self.allocator, "message", .{ .string = message });
+        try msg.put(self.allocator, "body", .{ .object = body });
 
         try self.writeJson(.{ .object = msg });
     }
 
     fn sendEvent(self: *DapServer, event: []const u8, body: ?std.json.Value) !void {
-        var msg = std.json.ObjectMap.init(self.allocator);
-        try msg.put("seq", .{ .integer = @intCast(self.seq) });
+        var msg = std.json.ObjectMap.empty;
+        try msg.put(self.allocator, "seq", .{ .integer = @intCast(self.seq) });
         self.seq += 1;
-        try msg.put("type", .{ .string = "event" });
-        try msg.put("event", .{ .string = event });
+        try msg.put(self.allocator, "type", .{ .string = "event" });
+        try msg.put(self.allocator, "event", .{ .string = event });
         if (body) |b| {
-            try msg.put("body", b);
+            try msg.put(self.allocator, "body", b);
         }
 
         try self.writeJson(.{ .object = msg });
     }
 
     fn writeJson(self: *DapServer, value: std.json.Value) !void {
-        var buf = std.ArrayList(u8).empty;
-        defer buf.deinit(self.allocator);
+        var writer: std.Io.Writer.Allocating = .init(self.allocator);
+        defer writer.deinit();
 
-        try writeJsonValue(buf.writer(self.allocator), value);
-        try self.transport.writeMessage(buf.items);
+        try writeJsonValue(&writer.writer, value);
+        try self.transport.writeMessage(writer.writer.buffered());
     }
 };
 
@@ -704,7 +698,7 @@ fn translateRunExpr(expr: []const u8) []const u8 {
 }
 
 /// Serialize a std.json.Value to a writer as JSON text.
-fn writeJsonValue(writer: anytype, value: std.json.Value) @TypeOf(writer).Error!void {
+fn writeJsonValue(writer: *std.Io.Writer, value: std.json.Value) std.Io.Writer.Error!void {
     switch (value) {
         .null => try writer.writeAll("null"),
         .bool => |b| try writer.writeAll(if (b) "true" else "false"),
@@ -752,7 +746,17 @@ fn writeJsonValue(writer: anytype, value: std.json.Value) @TypeOf(writer).Error!
 
 /// Entry point: start the DAP server on stdin/stdout.
 pub fn serve(allocator: std.mem.Allocator) !void {
-    var server = DapServer.init(allocator);
+    var io_threaded: std.Io.Threaded = .init(allocator, .{});
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var stdin_buffer: [4096]u8 = undefined;
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdin_reader = File.stdin().readerStreaming(io, &stdin_buffer);
+    var stdout_writer = File.stdout().writerStreaming(io, &stdout_buffer);
+    defer stdout_writer.flush() catch {};
+
+    var server = DapServer.init(allocator, &stdin_reader.interface, &stdout_writer.interface);
     defer server.deinit();
     try server.run();
 }

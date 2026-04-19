@@ -6,3 +6,9 @@ main.o
 /test
 .agents/
 .claude/
+/root
+/runner
+/tmp-*-XXXXXX
+/dap-*-XXXXXX
+/lsp-*-XXXXXX
+/skills-lock.json

@@ -1,22 +1,17 @@
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
+const Dir = std.Io.Dir;
+const File = std.Io.File;
 
-const TestResult = struct {
-    name: []const u8,
-    passed: bool,
-    message: []const u8,
-};
-
-pub fn main() !void {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
+    var stdout_file = File.stdout().writer(io, &.{});
+    const stdout = &stdout_file.interface;
 
     // Find the compiler binary
-    const compiler_path = findCompiler(allocator) catch {
+    const compiler_path = findCompiler(io, allocator) catch {
         try stdout.writeAll("error: could not find 'run' compiler binary. Run 'zig build' first.\n");
         std.process.exit(1);
     };
@@ -29,21 +24,21 @@ pub fn main() !void {
         examples.deinit(allocator);
     }
 
-    var examples_dir = findExamplesDir() catch {
+    var examples_dir = findExamplesDir(io) catch {
         try stdout.writeAll("error: could not find examples/ directory\n");
         std.process.exit(1);
     };
-    defer examples_dir.close();
+    defer examples_dir.close(io);
 
     var iter = examples_dir.iterate();
-    while (try iter.next()) |entry| {
+    while (try iter.next(io)) |entry| {
         if (entry.kind != .directory) continue;
 
         // Check if directory contains main.run
         const main_path = try std.fmt.allocPrint(allocator, "examples/{s}/main.run", .{entry.name});
         defer allocator.free(main_path);
 
-        if (std.fs.cwd().access(main_path, .{})) |_| {
+        if (Dir.cwd().access(io, main_path, .{})) |_| {
             try examples.append(allocator, try allocator.dupe(u8, entry.name));
         } else |_| {}
     }
@@ -62,7 +57,7 @@ pub fn main() !void {
 
     try stdout.print("Found {d} example(s)\n\n", .{examples.items.len});
 
-    var timer = try std.time.Timer.start();
+    const start_ns = std.Io.Clock.awake.now(io).nanoseconds;
 
     var passed: usize = 0;
     var failed: usize = 0;
@@ -74,7 +69,7 @@ pub fn main() !void {
         const out_path = try std.fmt.allocPrint(allocator, "/tmp/example_{s}", .{name});
         defer allocator.free(out_path);
 
-        const result = buildExample(allocator, compiler_path, main_path, out_path) catch |err| {
+        const result = buildExample(io, allocator, compiler_path, main_path, out_path) catch |err| {
             try stdout.print("FAIL {s}: runner error: {s}\n", .{ name, @errorName(err) });
             failed += 1;
             continue;
@@ -82,7 +77,7 @@ pub fn main() !void {
         defer allocator.free(result.message);
 
         // Clean up compiled binary
-        std.fs.cwd().deleteFile(out_path) catch {};
+        Dir.cwd().deleteFile(io, out_path) catch {};
 
         if (result.passed) {
             try stdout.print("PASS {s}\n", .{name});
@@ -93,7 +88,7 @@ pub fn main() !void {
         }
     }
 
-    const elapsed_ms = timer.read() / std.time.ns_per_ms;
+    const elapsed_ms = @as(u64, @intCast(std.Io.Clock.awake.now(io).nanoseconds - start_ns)) / std.time.ns_per_ms;
     try stdout.print("\n{d} passed, {d} failed, {d} total ({d}ms)\n", .{
         passed,
         failed,
@@ -107,12 +102,13 @@ pub fn main() !void {
 }
 
 fn buildExample(
+    io: std.Io,
     allocator: Allocator,
     compiler_path: []const u8,
     source_path: []const u8,
     out_path: []const u8,
 ) !struct { passed: bool, message: []const u8 } {
-    const result = try runProcess(allocator, &.{
+    const result = try runProcess(io, allocator, &.{
         compiler_path, "build", "-o", out_path, "--no-color", source_path,
     });
     defer {
@@ -134,55 +130,42 @@ fn buildExample(
 }
 
 const ProcessResult = struct {
-    stdout: []const u8,
-    stderr: []const u8,
+    stdout: []u8,
+    stderr: []u8,
     exit_code: u8,
 };
 
-fn runProcess(allocator: Allocator, argv: []const []const u8) !ProcessResult {
-    var child = std.process.Child.init(argv, allocator);
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-
-    try child.spawn();
-
-    var stdout_buf: std.ArrayList(u8) = .empty;
-    defer stdout_buf.deinit(allocator);
-    var stderr_buf: std.ArrayList(u8) = .empty;
-    defer stderr_buf.deinit(allocator);
-
-    while (true) {
-        var buf: [4096]u8 = undefined;
-        const n = child.stdout.?.read(&buf) catch break;
-        if (n == 0) break;
-        try stdout_buf.appendSlice(allocator, buf[0..n]);
-    }
-
-    while (true) {
-        var buf: [4096]u8 = undefined;
-        const n = child.stderr.?.read(&buf) catch break;
-        if (n == 0) break;
-        try stderr_buf.appendSlice(allocator, buf[0..n]);
-    }
-
-    const result = try child.wait();
+fn runProcess(io: std.Io, allocator: Allocator, argv: []const []const u8) !ProcessResult {
+    const result = try std.process.run(allocator, io, .{
+        .argv = argv,
+        .stdout_limit = .limited(10 * 1024 * 1024),
+        .stderr_limit = .limited(10 * 1024 * 1024),
+    });
 
     return .{
-        .stdout = try stdout_buf.toOwnedSlice(allocator),
-        .stderr = try stderr_buf.toOwnedSlice(allocator),
-        .exit_code = result.Exited,
+        .stdout = result.stdout,
+        .stderr = result.stderr,
+        .exit_code = childExitCode(result.term),
     };
 }
 
-fn findCompiler(allocator: Allocator) ![]const u8 {
+fn childExitCode(term: std.process.Child.Term) u8 {
+    return switch (term) {
+        .exited => |code| code,
+        .signal => |sig| if (@intFromEnum(sig) + 128 <= std.math.maxInt(u8)) @as(u8, @intCast(@intFromEnum(sig) + 128)) else std.math.maxInt(u8),
+        .stopped, .unknown => 1,
+    };
+}
+
+fn findCompiler(io: std.Io, allocator: Allocator) ![]const u8 {
     const local_path = "zig-out/bin/run";
-    if (std.fs.cwd().access(local_path, .{})) |_| {
+    if (Dir.cwd().access(io, local_path, .{})) |_| {
         return try allocator.dupe(u8, local_path);
     } else |_| {}
 
     return error.CompilerNotFound;
 }
 
-fn findExamplesDir() !std.fs.Dir {
-    return std.fs.cwd().openDir("examples", .{ .iterate = true });
+fn findExamplesDir(io: std.Io) !Dir {
+    return Dir.cwd().openDir(io, "examples", .{ .iterate = true });
 }

@@ -1,9 +1,7 @@
 const std = @import("std");
 const build_options = @import("build_options");
-const Token = @import("token.zig").Token;
 const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;
-const naming = @import("naming.zig");
 const driver = @import("driver.zig");
 const lsp = @import("lsp.zig");
 const dap = @import("dap.zig");
@@ -37,45 +35,61 @@ const usage =
     \\
 ;
 
-const File = std.fs.File;
+const File = std.Io.File;
+const Dir = std.Io.Dir;
 
-pub fn main() !void {
-    const allocator = std.heap.page_allocator;
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
+    var arg_iter = try std.process.Args.Iterator.initAllocator(init.minimal.args, allocator);
+    defer arg_iter.deinit();
+    var stdout_file = File.stdout().writer(io, &.{});
+    const stdout = &stdout_file.interface;
+    var stderr_file = File.stderr().writer(io, &.{});
+    const stderr = &stderr_file.interface;
 
-    if (args.len < 2) {
-        try File.stderr().writeAll(usage);
+    var args: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (args.items) |arg| allocator.free(arg);
+        args.deinit(allocator);
+    }
+
+    while (arg_iter.next()) |arg| {
+        try args.append(allocator, try allocator.dupe(u8, arg));
+    }
+
+    if (args.items.len < 2) {
+        try stderr.writeAll(usage);
         std.process.exit(1);
     }
 
-    const command = args[1];
+    const command = args.items[1];
 
     if (std.mem.eql(u8, command, "-h") or std.mem.eql(u8, command, "--help")) {
-        try File.stdout().writeAll(usage);
+        try stdout.writeAll(usage);
         return;
     }
 
     if (std.mem.eql(u8, command, "--version") or std.mem.eql(u8, command, "-V")) {
-        try File.stdout().writeAll("run " ++ build_options.version ++ "\n");
+        try stdout.writeAll("run " ++ build_options.version ++ "\n");
         return;
     }
 
     if (std.mem.eql(u8, command, "tokens")) {
-        if (args.len < 3) {
-            try File.stderr().writeAll("Error: no input file\n");
+        if (args.items.len < 3) {
+            try stderr.writeAll("Error: no input file\n");
             std.process.exit(1);
         }
-        try cmdTokens(allocator, args[2]);
+        try cmdTokens(io, allocator, args.items[2]);
         return;
     }
 
     if (std.mem.eql(u8, command, "ast")) {
-        if (args.len < 3) {
-            try File.stderr().writeAll("Error: no input file\n");
+        if (args.items.len < 3) {
+            try stderr.writeAll("Error: no input file\n");
             std.process.exit(1);
         }
-        try cmdAst(allocator, args[2]);
+        try cmdAst(io, allocator, args.items[2]);
         return;
     }
 
@@ -90,48 +104,47 @@ pub fn main() !void {
     }
 
     if (std.mem.eql(u8, command, "init")) {
-        cmdInit(allocator, args[2..]);
+        cmdInit(io, allocator, args.items[2..]);
         return;
     }
 
     if (std.mem.eql(u8, command, "fmt")) {
-        try cmdFmt(allocator, args[2..]);
+        try cmdFmt(io, allocator, args.items[2..]);
         return;
     }
 
     if (std.mem.eql(u8, command, "test")) {
-        try cmdTest(allocator, args[2..]);
+        try cmdTest(io, allocator, args.items[2..]);
         return;
     }
 
     if (std.mem.eql(u8, command, "build") or std.mem.eql(u8, command, "check") or std.mem.eql(u8, command, "run")) {
-        try cmdBuild(allocator, args[2..], command);
+        try cmdBuild(io, allocator, args.items[2..], command);
         return;
     }
 
     // If the first arg is a .run file, treat it as `run <file>`
     if (std.mem.endsWith(u8, command, ".run")) {
-        try cmdBuild(allocator, args[1..], "run");
+        try cmdBuild(io, allocator, args.items[1..], "run");
         return;
     }
 
-    try File.stderr().deprecatedWriter().print("Unknown command: {s}\n", .{command});
-    try File.stderr().writeAll(usage);
+    try stderr.print("Unknown command: {s}\n", .{command});
+    try stderr.writeAll(usage);
     std.process.exit(1);
 }
 
-fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    return try file.readToEndAlloc(allocator, 10 * 1024 * 1024); // 10MB max
+fn readFile(io: std.Io, allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+    return Dir.cwd().readFileAlloc(io, path, allocator, .limited(10 * 1024 * 1024));
 }
 
-fn cmdTokens(allocator: std.mem.Allocator, path: []const u8) !void {
-    const source = try readFile(allocator, path);
+fn cmdTokens(io: std.Io, allocator: std.mem.Allocator, path: []const u8) !void {
+    const source = try readFile(io, allocator, path);
     defer allocator.free(source);
 
     var lexer = Lexer.init(source);
-    const stdout = File.stdout().deprecatedWriter();
+    var stdout_file = File.stdout().writer(io, &.{});
+    const stdout = &stdout_file.interface;
 
     while (true) {
         const tok = lexer.next();
@@ -141,8 +154,8 @@ fn cmdTokens(allocator: std.mem.Allocator, path: []const u8) !void {
     }
 }
 
-fn cmdAst(allocator: std.mem.Allocator, path: []const u8) !void {
-    const source = try readFile(allocator, path);
+fn cmdAst(io: std.Io, allocator: std.mem.Allocator, path: []const u8) !void {
+    const source = try readFile(io, allocator, path);
     defer allocator.free(source);
 
     var lexer = Lexer.init(source);
@@ -154,10 +167,12 @@ fn cmdAst(allocator: std.mem.Allocator, path: []const u8) !void {
 
     _ = try parser.parseFile();
 
-    const stdout = File.stdout().deprecatedWriter();
+    var stdout_file = File.stdout().writer(io, &.{});
+    const stdout = &stdout_file.interface;
 
     if (parser.tree.errors.items.len > 0) {
-        const stderr = File.stderr().deprecatedWriter();
+        var stderr_file = File.stderr().writer(io, &.{});
+        const stderr = &stderr_file.interface;
         for (parser.tree.errors.items) |err| {
             try stderr.print("error: {s} at offset {d}\n", .{ @tagName(err.tag), err.loc.start });
         }
@@ -180,7 +195,7 @@ fn cmdAst(allocator: std.mem.Allocator, path: []const u8) !void {
     }
 }
 
-fn cmdBuild(allocator: std.mem.Allocator, remaining_args: []const []const u8, command: []const u8) !void {
+fn cmdBuild(io: std.Io, allocator: std.mem.Allocator, remaining_args: []const []const u8, command: []const u8) !void {
     var input_path: ?[]const u8 = null;
     var output_path: ?[]const u8 = null;
     var no_dce = false;
@@ -204,7 +219,8 @@ fn cmdBuild(allocator: std.mem.Allocator, remaining_args: []const []const u8, co
     }
 
     if (input_path == null) {
-        try File.stderr().writeAll("Error: no input file\n");
+        var stderr_file = File.stderr().writer(io, &.{});
+        try stderr_file.interface.writeAll("Error: no input file\n");
         std.process.exit(1);
     }
 
@@ -226,13 +242,14 @@ fn cmdBuild(allocator: std.mem.Allocator, remaining_args: []const []const u8, co
         error.ParseFailed, error.NamingFailed => std.process.exit(1),
         error.CodegenNotImplemented => return,
         else => {
-            File.stderr().deprecatedWriter().print("error: {s}\n", .{@errorName(err)}) catch {};
+            var stderr_file = File.stderr().writer(io, &.{});
+            stderr_file.interface.print("error: {s}\n", .{@errorName(err)}) catch {};
             std.process.exit(1);
         },
     };
 }
 
-fn cmdInit(allocator: std.mem.Allocator, remaining_args: []const []const u8) void {
+fn cmdInit(io: std.Io, allocator: std.mem.Allocator, remaining_args: []const []const u8) void {
     var project_name: ?[]const u8 = null;
     var force = false;
 
@@ -245,23 +262,27 @@ fn cmdInit(allocator: std.mem.Allocator, remaining_args: []const []const u8) voi
     }
 
     if (project_name == null) {
-        File.stderr().writeAll("Error: missing project name\nUsage: run init <name> [--force]\n       run init . [--force]\n") catch {};
+        var stderr_file = File.stderr().writer(io, &.{});
+        stderr_file.interface.writeAll("Error: missing project name\nUsage: run init <name> [--force]\n       run init . [--force]\n") catch {};
         std.process.exit(1);
     }
 
     const name = project_name.?;
     const in_place = std.mem.eql(u8, name, ".");
+    var cwd_path: ?[:0]u8 = null;
+    defer if (cwd_path) |path| allocator.free(path);
 
     // For in-place init, derive name from current directory
     const effective_name = if (in_place) blk: {
-        const cwd_path = std.fs.cwd().realpathAlloc(allocator, ".") catch {
-            File.stderr().writeAll("Error: failed to determine current directory name\n") catch {};
+        cwd_path = std.process.currentPathAlloc(io, allocator) catch {
+            var stderr_file = File.stderr().writer(io, &.{});
+            stderr_file.interface.writeAll("Error: failed to determine current directory name\n") catch {};
             std.process.exit(1);
         };
-        break :blk std.fs.path.basename(cwd_path);
+        break :blk std.fs.path.basename(cwd_path.?);
     } else name;
 
-    init_mod.initProject(allocator, .{
+    init_mod.initProject(io, allocator, .{
         .name = effective_name,
         .force = force,
         .in_place = in_place,
@@ -269,13 +290,14 @@ fn cmdInit(allocator: std.mem.Allocator, remaining_args: []const []const u8) voi
         error.DirectoryExists => std.process.exit(1),
         error.CreateFailed => std.process.exit(1),
         error.OutOfMemory => {
-            File.stderr().writeAll("Error: out of memory\n") catch {};
+            var stderr_file = File.stderr().writer(io, &.{});
+            stderr_file.interface.writeAll("Error: out of memory\n") catch {};
             std.process.exit(1);
         },
     };
 }
 
-fn cmdFmt(allocator: std.mem.Allocator, remaining_args: []const []const u8) !void {
+fn cmdFmt(io: std.Io, allocator: std.mem.Allocator, remaining_args: []const []const u8) !void {
     var check_mode = false;
     var paths: std.ArrayList([]const u8) = .empty;
     defer paths.deinit(allocator);
@@ -289,25 +311,33 @@ fn cmdFmt(allocator: std.mem.Allocator, remaining_args: []const []const u8) !voi
     }
 
     if (paths.items.len == 0) {
-        try File.stderr().writeAll("Error: no input file or directory\n");
+        var stderr_file = File.stderr().writer(io, &.{});
+        try stderr_file.interface.writeAll("Error: no input file or directory\n");
         std.process.exit(1);
     }
 
-    const stderr = File.stderr().deprecatedWriter();
-    const stdout = File.stdout().deprecatedWriter();
+    var stderr_file = File.stderr().writer(io, &.{});
+    const stderr = &stderr_file.interface;
+    var stdout_file = File.stdout().writer(io, &.{});
+    const stdout = &stdout_file.interface;
     var any_diff = false;
+    const cwd = Dir.cwd();
 
     for (paths.items) |path| {
-        // Check if path is a directory
-        const stat = std.fs.cwd().statFile(path) catch {
+        const stat = cwd.statFile(io, path, .{}) catch {
             // Try as directory
-            formatDirectory(allocator, path, check_mode, &any_diff, stderr, stdout) catch |err| {
+            formatDirectory(io, allocator, path, check_mode, &any_diff, stderr, stdout) catch |err| {
                 stderr.print("error: could not process '{s}': {s}\n", .{ path, @errorName(err) }) catch {};
             };
             continue;
         };
-        _ = stat;
-        formatSingleFile(allocator, path, check_mode, &any_diff, stderr, stdout) catch |err| {
+        if (stat.kind == .directory) {
+            formatDirectory(io, allocator, path, check_mode, &any_diff, stderr, stdout) catch |err| {
+                stderr.print("error: could not process '{s}': {s}\n", .{ path, @errorName(err) }) catch {};
+            };
+            continue;
+        }
+        formatSingleFile(io, allocator, path, check_mode, &any_diff, stderr, stdout) catch |err| {
             stderr.print("error: could not format '{s}': {s}\n", .{ path, @errorName(err) }) catch {};
         };
     }
@@ -318,6 +348,7 @@ fn cmdFmt(allocator: std.mem.Allocator, remaining_args: []const []const u8) !voi
 }
 
 fn formatSingleFile(
+    io: std.Io,
     allocator: std.mem.Allocator,
     path: []const u8,
     check_mode: bool,
@@ -325,7 +356,7 @@ fn formatSingleFile(
     stderr: anytype,
     stdout: anytype,
 ) !void {
-    const source = readFile(allocator, path) catch {
+    const source = readFile(io, allocator, path) catch {
         try stderr.print("error: could not read '{s}'\n", .{path});
         return;
     };
@@ -344,15 +375,16 @@ fn formatSingleFile(
         }
     } else {
         if (!std.mem.eql(u8, source, formatted)) {
-            const file = try std.fs.cwd().createFile(path, .{});
-            defer file.close();
-            try file.writeAll(formatted);
+            const file = try Dir.cwd().createFile(io, path, .{});
+            defer file.close(io);
+            try file.writeStreamingAll(io, formatted);
             try stdout.print("formatted: {s}\n", .{path});
         }
     }
 }
 
 fn formatDirectory(
+    io: std.Io,
     allocator: std.mem.Allocator,
     dir_path: []const u8,
     check_mode: bool,
@@ -360,23 +392,23 @@ fn formatDirectory(
     stderr: anytype,
     stdout: anytype,
 ) !void {
-    var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
-    defer dir.close();
+    var dir = try Dir.cwd().openDir(io, dir_path, .{ .iterate = true });
+    defer dir.close(io);
 
     var walker = try dir.walk(allocator);
     defer walker.deinit();
 
-    while (try walker.next()) |entry| {
+    while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.basename, ".run")) continue;
 
         const full_path = try std.fs.path.join(allocator, &.{ dir_path, entry.path });
         defer allocator.free(full_path);
-        formatSingleFile(allocator, full_path, check_mode, any_diff, stderr, stdout) catch {};
+        formatSingleFile(io, allocator, full_path, check_mode, any_diff, stderr, stdout) catch {};
     }
 }
 
-fn cmdTest(allocator: std.mem.Allocator, remaining_args: []const []const u8) !void {
+fn cmdTest(io: std.Io, allocator: std.mem.Allocator, remaining_args: []const []const u8) !void {
     var filter: ?[]const u8 = null;
     var verbose = false;
     var paths: std.ArrayList([]const u8) = .empty;
@@ -395,12 +427,15 @@ fn cmdTest(allocator: std.mem.Allocator, remaining_args: []const []const u8) !vo
     }
 
     if (paths.items.len == 0) {
-        try File.stderr().writeAll("Error: no input file or directory\n");
+        var stderr_file = File.stderr().writer(io, &.{});
+        try stderr_file.interface.writeAll("Error: no input file or directory\n");
         std.process.exit(1);
     }
 
-    const stderr = File.stderr().deprecatedWriter();
-    const stdout = File.stdout().deprecatedWriter();
+    var stderr_file = File.stderr().writer(io, &.{});
+    const stderr = &stderr_file.interface;
+    var stdout_file = File.stdout().writer(io, &.{});
+    const stdout = &stdout_file.interface;
     try stdout.writeAll("note: `run test` currently validates that discovered `test_*` functions compile; executing test bodies is not implemented yet.\n\n");
 
     var all_files: std.ArrayList([]const u8) = .empty;
@@ -415,7 +450,7 @@ fn cmdTest(allocator: std.mem.Allocator, remaining_args: []const []const u8) !vo
             try all_files.append(allocator, owned);
         } else {
             // Treat as directory
-            collectRunFiles(allocator, path, &all_files) catch |err| {
+            collectRunFiles(io, allocator, path, &all_files) catch |err| {
                 stderr.print("error: could not read directory '{s}': {s}\n", .{ path, @errorName(err) }) catch {};
             };
         }
@@ -425,10 +460,10 @@ fn cmdTest(allocator: std.mem.Allocator, remaining_args: []const []const u8) !vo
     var passed: u32 = 0;
     var failed: u32 = 0;
 
-    var timer = std.time.Timer.start() catch null;
+    const start_ns = std.Io.Clock.awake.now(io).nanoseconds;
 
     for (all_files.items) |file_path| {
-        const source = readFile(allocator, file_path) catch {
+        const source = readFile(io, allocator, file_path) catch {
             stderr.print("error: could not read '{s}'\n", .{file_path}) catch {};
             continue;
         };
@@ -463,7 +498,7 @@ fn cmdTest(allocator: std.mem.Allocator, remaining_args: []const []const u8) !vo
     }
 
     // Summary
-    const elapsed_ns: u64 = if (timer) |*t| t.read() else 0;
+    const elapsed_ns: u64 = @intCast(std.Io.Clock.awake.now(io).nanoseconds - start_ns);
     const elapsed_ms = elapsed_ns / 1_000_000;
 
     try stdout.print("\n{d} passed, {d} failed, {d} total ({d}ms)\n", .{
@@ -475,14 +510,14 @@ fn cmdTest(allocator: std.mem.Allocator, remaining_args: []const []const u8) !vo
     }
 }
 
-fn collectRunFiles(allocator: std.mem.Allocator, dir_path: []const u8, files: *std.ArrayList([]const u8)) !void {
-    var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
-    defer dir.close();
+fn collectRunFiles(io: std.Io, allocator: std.mem.Allocator, dir_path: []const u8, files: *std.ArrayList([]const u8)) !void {
+    var dir = try Dir.cwd().openDir(io, dir_path, .{ .iterate = true });
+    defer dir.close(io);
 
     var walker = try dir.walk(allocator);
     defer walker.deinit();
 
-    while (try walker.next()) |entry| {
+    while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.basename, ".run")) continue;
 

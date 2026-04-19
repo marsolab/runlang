@@ -25,7 +25,7 @@
     .fingerprint = 0x8b3b105cafe73f9f, // Changing this has security and trust implications.
     // Tracks the earliest Zig version that the package considers to be a
     // supported use case.
-    .minimum_zig_version = "0.15.2",
+    .minimum_zig_version = "0.16.0",
     // This field is optional.
     // Each dependency must either provide a `url` and `hash`, or a `path`.
     // `zig build --fetch` can be used to fetch all dependencies of a package, recursively.
@@ -33,8 +33,8 @@
     // internet connectivity.
     .dependencies = .{
         .libxev = .{
-            .url = "https://github.com/mitchellh/libxev/archive/d398cba9bf711fa4dd21c48bf73d25e4d8986408.tar.gz",
-            .hash = "libxev-0.0.0-86vtc689EwAjQWysidPm9NKkAwwUNByiE3kZTg_xu0Hp",
+            .url = "https://github.com/mitchellh/libxev/archive/a82a04eabb46b0611c72d6d0e32db2d9dcf2e745.tar.gz",
+            .hash = "libxev-0.0.0-86vtcwIRFACVrx54GaHsMFFlyC4dTi0tcVh10V7btRUc",
         },
     },
     .paths = .{
