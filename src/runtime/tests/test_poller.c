@@ -2,6 +2,7 @@
 #include "../run_scheduler.h"
 #include "test_framework.h"
 
+#include <fcntl.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -208,6 +209,102 @@ static void test_poller_multiple_fds(void) {
     close(fds2[1]);
 }
 
+/* --- Test 6: write-interest park — fill pipe, park writer, drainer wakes it --- */
+
+typedef struct {
+    run_poll_desc_t *pd;
+    int write_fd;
+    volatile int *flag;
+} writer_ctx_t;
+
+typedef struct {
+    int read_fd;
+    size_t to_drain;
+} drainer_ctx_t;
+
+static void writer_fn(void *arg) {
+    writer_ctx_t *ctx = (writer_ctx_t *)arg;
+    run_poll_wait(ctx->pd, RUN_POLL_WRITE);
+    /* Write one byte to confirm the fd is now writable. */
+    char c = 'w';
+    ssize_t nw = write(ctx->write_fd, &c, 1);
+    if (nw == 1)
+        *(ctx->flag) = 1;
+}
+
+static void drainer_fn(void *arg) {
+    drainer_ctx_t *ctx = (drainer_ctx_t *)arg;
+    /* Yield first so the writer attempts poll_wait before we drain. */
+    run_yield();
+    char buf[4096];
+    size_t drained = 0;
+    while (drained < ctx->to_drain) {
+        ssize_t nr = read(ctx->read_fd, buf, sizeof(buf));
+        if (nr <= 0)
+            break;
+        drained += (size_t)nr;
+    }
+}
+
+static void test_poller_write_park(void) {
+    write_done = 0;
+
+    int fds[2];
+    int rc = pipe(fds);
+    RUN_ASSERT(rc == 0);
+
+    /* Fill the pipe buffer so the write end is not writable.
+     * macOS pipe capacity is 16–64KB; write nonblocking in chunks until EAGAIN. */
+    int flags = fcntl(fds[1], F_GETFL, 0);
+    RUN_ASSERT(flags != -1);
+    rc = fcntl(fds[1], F_SETFL, flags | O_NONBLOCK);
+    RUN_ASSERT(rc == 0);
+
+    /* Use 256-byte chunks (below PIPE_BUF) so writes are atomic: either
+     * the whole chunk fits or the write returns EAGAIN with no partial data. */
+    char chunk[256];
+    memset(chunk, 'x', sizeof(chunk));
+    size_t filled = 0;
+    while (1) {
+        ssize_t nw = write(fds[1], chunk, sizeof(chunk));
+        if (nw < 0)
+            break;
+        filled += (size_t)nw;
+        if (filled > 1024 * 1024)
+            break; /* safety cap */
+    }
+    RUN_ASSERT(filled > 0);
+
+    /* Restore blocking mode so the writer's one-byte write blocks on a
+     * full buffer rather than erroring — but the poll should have woken it
+     * precisely when the buffer had space. */
+    rc = fcntl(fds[1], F_SETFL, flags);
+    RUN_ASSERT(rc == 0);
+
+    run_poll_desc_t pd;
+    memset(&pd, 0, sizeof(pd));
+    pd.fd = fds[1];
+
+    rc = run_poll_open(&pd);
+    RUN_ASSERT(rc == 0);
+
+    writer_ctx_t wctx = {.pd = &pd, .write_fd = fds[1], .flag = &write_done};
+    drainer_ctx_t dctx = {.read_fd = fds[0], .to_drain = filled};
+
+    /* Spawn drainer first so writer pops first (LIFO) and parks before drainer
+     * yields and empties the pipe. */
+    run_spawn(drainer_fn, &dctx);
+    run_spawn(writer_fn, &wctx);
+
+    run_scheduler_run();
+
+    RUN_ASSERT_EQ(write_done, 1);
+
+    run_poll_close(&pd);
+    close(fds[0]);
+    close(fds[1]);
+}
+
 /* --- Suite entry point --- */
 
 void run_test_poller(void) {
@@ -216,6 +313,10 @@ void run_test_poller(void) {
     RUN_TEST(test_poller_open_close);
     RUN_TEST(test_poller_close_while_waiting);
     RUN_TEST(test_poller_pipe_read);
+    /* Gated on #426: passes in isolation, but running it in the same suite as
+     * test_poller_pipe_read in either order causes the second test to hang due
+     * to inter-test libxev state leak. Re-enable once #426 is fixed. */
+    /* RUN_TEST(test_poller_write_park); */
     /* Gated on #424: libxev kqueue adapter only fires one fd's callback per
      * tick when multiple fds are ready, so this test hangs. Re-enable once
      * the adapter is fixed. */
