@@ -14,6 +14,13 @@ static void test_debug_stack_trace(void) {
     run_slice_t frames = run_debug_stack_trace(0);
     RUN_ASSERT(frames.ptr != NULL);
     RUN_ASSERT(frames.len > 0);
+
+    /* Verify libunwind symbolication: the top frame should name this test. */
+    run_stack_frame_t *top = (run_stack_frame_t *)frames.ptr;
+    RUN_ASSERT(top->function.len > 0);
+    RUN_ASSERT(strstr(top->function.ptr, "test_debug_stack_trace") != NULL);
+    RUN_ASSERT(top->file.len > 0);
+
     run_slice_free(&frames);
 }
 

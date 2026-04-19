@@ -2,6 +2,7 @@
 
 #include "run_alloc.h"
 #include "run_slice.h"
+#include "run_stacktrace.h"
 #include "run_string.h"
 
 #include <signal.h>
@@ -9,62 +10,44 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(__APPLE__) || defined(__linux__)
-#include <dlfcn.h>
-#include <execinfo.h>
-#endif
-
 run_slice_t run_debug_stack_trace(int64_t skip) {
     run_slice_t result = run_slice_new(sizeof(run_stack_frame_t), 16);
 
-#if defined(__APPLE__) || defined(__linux__)
-    void *addrs[128];
-    int count = backtrace(addrs, 128);
-    /* skip + 1 to skip this function */
-    int start = (int)skip + 1;
+    if (skip < 0)
+        return result;
 
-    for (int i = start; i < count; i++) {
+    run_stack_entry_t entries[128];
+    /* +1 to skip run_debug_stack_trace itself. */
+    size_t count = run_stacktrace_capture(entries, 128, (size_t)skip + 1);
+
+    for (size_t i = 0; i < count; i++) {
         run_stack_frame_t frame;
-        frame.function = run_string_from_cstr("<unknown>");
-        frame.file = run_string_from_cstr("<unknown>");
-        frame.line = 0;
-
-        Dl_info dl;
-        if (dladdr(addrs[i], &dl)) {
-            if (dl.dli_sname)
-                frame.function = run_string_from_cstr(dl.dli_sname);
-            if (dl.dli_fname)
-                frame.file = run_string_from_cstr(dl.dli_fname);
-        }
-
+        frame.function =
+            run_string_from_cstr(entries[i].function[0] ? entries[i].function : "<unknown>");
+        frame.file = run_string_from_cstr(entries[i].file[0] ? entries[i].file : "<unknown>");
+        frame.line = entries[i].line;
         run_slice_append(&result, &frame);
     }
-#else
-    (void)skip;
-#endif
 
     return result;
 }
 
 void run_debug_print_stack(void) {
-#if defined(__APPLE__) || defined(__linux__)
-    void *addrs[128];
-    int count = backtrace(addrs, 128);
-    char **symbols = backtrace_symbols(addrs, count);
-    if (!symbols) {
+    run_stack_entry_t entries[128];
+    /* Skip run_debug_print_stack itself. */
+    size_t count = run_stacktrace_capture(entries, 128, 1);
+    if (count == 0) {
         fprintf(stderr, "<stack trace unavailable>\n");
         return;
     }
 
     fprintf(stderr, "goroutine stack trace:\n");
-    for (int i = 1; i < count; i++) { /* skip frame 0 (this function) */
-        fprintf(stderr, "  %s\n", symbols[i]);
+    for (size_t i = 0; i < count; i++) {
+        const char *fn = entries[i].function[0] ? entries[i].function : "<unknown>";
+        const char *file = entries[i].file[0] ? entries[i].file : "<unknown>";
+        fprintf(stderr, "  %zu  %p  %s  (%s:%lld)\n", i + 1, entries[i].ip, fn, file,
+                (long long)entries[i].line);
     }
-
-    free((void *)symbols);
-#else
-    fprintf(stderr, "<stack trace not supported on this platform>\n");
-#endif
 }
 
 run_string_t run_debug_format_stack(run_slice_t frames) {
