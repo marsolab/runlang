@@ -82,6 +82,7 @@ pub fn build(b: *std.Build) void {
         "src/runtime/run_numa.c",
         "src/runtime/run_runtime_api.c",
         "src/runtime/run_debug_api.c",
+        "src/runtime/run_stacktrace.c",
     };
     // runtime_c_sources kept as alias for inline iteration below
     const runtime_c_sources = runtime_c_sources_base;
@@ -362,6 +363,10 @@ pub fn build(b: *std.Build) void {
     }
     runtime_bench_exe.linkLibC();
     runtime_bench_exe.linkSystemLibrary("pthread");
+    // Link libunwind for stack trace support (matches runtime_lib linking).
+    if (target_info.os.tag == .linux) {
+        runtime_bench_exe.linkSystemLibrary("unwind");
+    }
     b.installArtifact(runtime_bench_exe);
 
     const run_runtime_bench = b.addRunArtifact(runtime_bench_exe);
