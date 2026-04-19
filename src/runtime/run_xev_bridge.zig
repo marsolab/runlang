@@ -31,6 +31,8 @@ const FdSlot = struct {
     write_g: GPtr = null,
     read_completion: Completion = .{},
     write_completion: Completion = .{},
+    read_cancel: Completion = .{},
+    write_cancel: Completion = .{},
     active: bool = false,
 };
 
@@ -81,14 +83,35 @@ export fn run_xev_open(fd: c_int) c_int {
 }
 
 /// Unregister an fd and cancel outstanding completions.
+///
+/// If the read/write completions are still active in the libxev loop (i.e.,
+/// registered with kqueue/epoll but not yet fired), we submit cancel ops so
+/// libxev removes them cleanly. Zeroing a still-active completion leaves the
+/// loop's internal bookkeeping pointing at dangling memory and produces
+/// "invalid state" errors on the next tick.
 export fn run_xev_close_fd(fd: c_int) void {
     if (fd < 0 or fd >= MaxFds) return;
     const idx: u32 = @intCast(@as(u32, @bitCast(fd)));
     var slot = &fd_slots[idx];
+
+    if (slot.read_completion.state() == .active) {
+        slot.read_cancel = .{ .op = .{ .cancel = .{ .c = &slot.read_completion } } };
+        loop.add(&slot.read_cancel);
+    }
+    if (slot.write_completion.state() == .active) {
+        slot.write_cancel = .{ .op = .{ .cancel = .{ .c = &slot.write_completion } } };
+        loop.add(&slot.write_cancel);
+    }
+
+    // Drain the loop so cancels process before we clear the slot.
+    loop.run(.no_wait) catch {};
+
     slot.read_g = null;
     slot.write_g = null;
     slot.read_completion = .{};
     slot.write_completion = .{};
+    slot.read_cancel = .{};
+    slot.write_cancel = .{};
     slot.active = false;
     registered_count -= 1;
 }
@@ -105,19 +128,54 @@ export fn run_xev_poll_read(fd: c_int, g: GPtr) void {
     file.poll(&loop, &slot.read_completion, .read, FdSlot, slot, &pollCallback);
 }
 
-/// Submit write interest for an fd.
-/// libxev high-level poll only exposes .read; for write readiness we
-/// call back immediately since most fds are write-ready.
+/// Submit write interest for an fd. The associated G will be woken via the
+/// callback once the fd is writable. libxev's high-level File.poll only
+/// exposes read events, so we construct a completion with a `.write` op and
+/// empty buffer manually — on kqueue this registers an EVFILT_WRITE kevent,
+/// and on epoll a corresponding EPOLLOUT interest. The completion's perform()
+/// will attempt a zero-byte write on fire, which is a no-op on all fd types
+/// we care about, and we ignore the returned byte count.
 export fn run_xev_poll_write(fd: c_int, g: GPtr) void {
     if (fd < 0 or fd >= MaxFds) return;
     const idx: u32 = @intCast(@as(u32, @bitCast(fd)));
     var slot = &fd_slots[idx];
     slot.write_g = g;
+    slot.write_completion = .{
+        .op = .{
+            .write = .{
+                .fd = fd,
+                .buffer = .{ .slice = &.{} },
+            },
+        },
+        .userdata = slot,
+        .callback = writePollCallback,
+    };
+    loop.add(&slot.write_completion);
+}
+
+fn writePollCallback(
+    userdata: ?*anyopaque,
+    _: *Loop,
+    _: *Completion,
+    result: xev.Result,
+) CallbackAction {
+    const s: *FdSlot = @ptrCast(@alignCast(userdata orelse return .disarm));
     if (ready_callback) |cb| {
-        const wg = slot.write_g;
-        slot.write_g = null;
+        const idx = (@intFromPtr(s) - @intFromPtr(&fd_slots[0])) / @sizeOf(FdSlot);
+        const fd: c_int = @intCast(idx);
+        _ = result.write catch {
+            const rg = s.read_g;
+            const wg = s.write_g;
+            s.read_g = null;
+            s.write_g = null;
+            cb(fd, 3, rg, wg);
+            return .disarm;
+        };
+        const wg = s.write_g;
+        s.write_g = null;
         cb(fd, 2, null, wg);
     }
+    return .disarm;
 }
 
 fn pollCallback(
