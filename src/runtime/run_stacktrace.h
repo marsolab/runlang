@@ -18,10 +18,10 @@
  * ======================================================================== */
 
 typedef struct {
-    void *ip;                 /* instruction pointer of this frame */
-    char function[256];       /* mangled symbol name, or empty */
-    char file[512];           /* binary (module) path, or empty */
-    int64_t line;             /* source line; 0 when DWARF is unavailable */
+    void *ip;           /* instruction pointer of this frame */
+    char function[256]; /* mangled symbol name, or empty */
+    char file[512];     /* binary (module) path, or empty */
+    int64_t line;       /* source line; 0 when DWARF is unavailable */
 } run_stack_entry_t;
 
 /* Capture up to `max_count` frames from the current thread's stack.
