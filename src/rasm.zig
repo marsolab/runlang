@@ -9,7 +9,6 @@
 /// The build system selects the correct file: platform-specific takes priority
 /// over portable versions. .rasm files are compiled to .S (GAS) files and
 /// assembled alongside the generated C code.
-
 const std = @import("std");
 const Lexer = @import("lexer.zig").Lexer;
 const Token = @import("token.zig").Token;
@@ -219,7 +218,10 @@ pub fn selectRasmFile(allocator: std.mem.Allocator, base_path: []const u8, arch:
 }
 
 fn fileExists(path: []const u8) bool {
-    std.fs.cwd().access(path, .{}) catch return false;
+    var io_threaded: std.Io.Threaded = .init(std.heap.smp_allocator, .{});
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+    std.Io.Dir.cwd().access(io, path, .{}) catch return false;
     return true;
 }
 
@@ -228,26 +230,25 @@ fn fileExists(path: []const u8) bool {
 pub fn generateGasFile(allocator: std.mem.Allocator, rasm: *const RasmFile, arch: Arch) ![]const u8 {
     var output: std.ArrayList(u8) = .empty;
     defer output.deinit(allocator);
-    const w = output.writer(allocator);
 
     // File header
-    try w.print("// Generated from .rasm file\n", .{});
-    try w.print(".text\n\n", .{});
+    try output.print(allocator, "// Generated from .rasm file\n", .{});
+    try output.print(allocator, ".text\n\n", .{});
 
     for (rasm.functions.items) |func| {
         // Mangle name to match Run calling convention
-        try w.print(".globl run_main__{s}\n", .{func.name});
-        try w.print("run_main__{s}:\n", .{func.name});
+        try output.print(allocator, ".globl run_main__{s}\n", .{func.name});
+        try output.print(allocator, "run_main__{s}:\n", .{func.name});
 
         // Platform-specific prologue
         switch (arch) {
             .x86_64 => {
-                try w.print("    pushq %rbp\n", .{});
-                try w.print("    movq %rsp, %rbp\n", .{});
+                try output.print(allocator, "    pushq %rbp\n", .{});
+                try output.print(allocator, "    movq %rsp, %rbp\n", .{});
             },
             .arm64 => {
-                try w.print("    stp x29, x30, [sp, #-16]!\n", .{});
-                try w.print("    mov x29, sp\n", .{});
+                try output.print(allocator, "    stp x29, x30, [sp, #-16]!\n", .{});
+                try output.print(allocator, "    mov x29, sp\n", .{});
             },
             .other => {},
         }
@@ -259,7 +260,7 @@ pub fn generateGasFile(allocator: std.mem.Allocator, rasm: *const RasmFile, arch
             while (lines.next()) |line| {
                 const tline = std.mem.trim(u8, line, " \t\r");
                 if (tline.len > 0) {
-                    try w.print("    {s}\n", .{tline});
+                    try output.print(allocator, "    {s}\n", .{tline});
                 }
             }
         }
@@ -267,18 +268,18 @@ pub fn generateGasFile(allocator: std.mem.Allocator, rasm: *const RasmFile, arch
         // Platform-specific epilogue
         switch (arch) {
             .x86_64 => {
-                try w.print("    popq %rbp\n", .{});
-                try w.print("    retq\n", .{});
+                try output.print(allocator, "    popq %rbp\n", .{});
+                try output.print(allocator, "    retq\n", .{});
             },
             .arm64 => {
-                try w.print("    ldp x29, x30, [sp], #16\n", .{});
-                try w.print("    ret\n", .{});
+                try output.print(allocator, "    ldp x29, x30, [sp], #16\n", .{});
+                try output.print(allocator, "    ret\n", .{});
             },
             .other => {
-                try w.print("    ret\n", .{});
+                try output.print(allocator, "    ret\n", .{});
             },
         }
-        try w.print("\n", .{});
+        try output.print(allocator, "\n", .{});
     }
 
     return try allocator.dupe(u8, output.items);
@@ -288,18 +289,21 @@ pub fn generateGasFile(allocator: std.mem.Allocator, rasm: *const RasmFile, arch
 /// Returns a list of resolved .rasm file paths (platform-specific takes priority).
 pub fn discoverRasmFiles(allocator: std.mem.Allocator, source_dir: []const u8, arch: Arch) !std.ArrayList([]const u8) {
     var result: std.ArrayList([]const u8) = .empty;
+    var io_threaded: std.Io.Threaded = .init(allocator, .{});
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
 
-    var dir = std.fs.cwd().openDir(source_dir, .{ .iterate = true }) catch {
+    var dir = std.Io.Dir.cwd().openDir(io, source_dir, .{ .iterate = true }) catch {
         return result;
     };
-    defer dir.close();
+    defer dir.close(io);
 
     // Collect all .rasm files, then filter by platform priority
     var rasm_bases: std.ArrayList([]const u8) = .empty;
     defer rasm_bases.deinit(allocator);
 
     var it = dir.iterate();
-    while (try it.next()) |entry| {
+    while (try it.next(io)) |entry| {
         if (entry.kind != .file) continue;
         const name = entry.name;
         if (!std.mem.endsWith(u8, name, ".rasm")) continue;

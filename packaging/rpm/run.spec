@@ -7,7 +7,7 @@ License:        MIT
 URL:            https://runlang.dev
 Source0:        https://github.com/marsolab/runlang/releases/download/v%{version}/run-%{version}-linux-%{_run_arch}.tar.gz
 
-Requires:       zig >= 0.15
+Requires:       zig >= 0.16
 
 # Disable debug package generation — we ship a pre-built binary.
 %global debug_package %{nil}
@@ -22,7 +22,7 @@ It features generational references for memory safety without a garbage
 collector or borrow checker, green threads for concurrency, and compiles
 to native code via C.
 
-The compiler requires Zig (>= 0.15) as it uses 'zig cc' for C compilation
+The compiler requires Zig (>= 0.16) as it uses 'zig cc' for C compilation
 and linking.
 
 %prep

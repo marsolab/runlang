@@ -111,7 +111,7 @@ Quick install:
     sudo cp include/run/*.h /usr/local/include/run/
 
 Prerequisites:
-  - Zig >= 0.15 must be installed (the compiler shells out to 'zig cc')
+  - Zig >= 0.16 must be installed (the compiler shells out to 'zig cc')
 
 More information: https://runlang.dev
 Source code:       https://github.com/marsolab/runlang

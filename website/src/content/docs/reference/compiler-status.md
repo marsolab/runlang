@@ -22,7 +22,7 @@ Run is in **active development**. The compiler can compile and run simple progra
 
 ## Compiler Architecture
 
-The compiler is written in Zig 0.15 and follows a traditional pipeline:
+The compiler is written in Zig 0.16 and follows a traditional pipeline:
 
 ```
 Source (.run) → Lexer → Token stream → Parser → AST → Name Resolution → Type Check → IR → C codegen

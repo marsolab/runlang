@@ -4,7 +4,7 @@ Thanks for your interest in contributing to Run! This document covers how to get
 
 ## Development Setup
 
-1. Install [Zig 0.15](https://ziglang.org/download/) or later
+1. Install [Zig 0.16](https://ziglang.org/download/) or later
 2. Clone the repository:
    ```bash
    git clone https://github.com/marsolab/runlang.git
@@ -33,7 +33,7 @@ Thanks for your interest in contributing to Run! This document covers how to get
 - Use `kw_` prefix for keyword tokens
 - Use `_stmt`, `_decl`, `_literal` suffixes for AST node tags
 - Use `type_` prefix for type-related AST nodes
-- Use `ArrayList.empty` (not `.init(allocator)`) — Zig 0.15 convention
+- Use `ArrayList.empty` (not `.init(allocator)`) — Zig 0.16 convention
 - Pass the allocator to each method call rather than storing it in containers
 
 ## Submitting a Pull Request

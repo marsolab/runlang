@@ -22,7 +22,7 @@ jobs:
       - name: Set up Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.16.0
 
       - name: Build
         run: zig build
@@ -45,7 +45,7 @@ jobs:
       - name: Set up Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.16.0
 
       - name: Build compiler
         run: zig build
@@ -68,7 +68,7 @@ jobs:
       - name: Set up Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.16.0
 
       - name: Zig test
         run: zig test src/root.zig
@@ -85,7 +85,7 @@ jobs:
       - name: Set up Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.16.0
 
       - name: Build with sanitizers
         run: zig build -Dsanitize=true
@@ -146,7 +146,7 @@ jobs:
         if: steps.changes.outputs.should_run == 'true'
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.16.0
 
       - name: Build compiler
         if: steps.changes.outputs.should_run == 'true'

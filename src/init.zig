@@ -1,5 +1,6 @@
 const std = @import("std");
-const File = std.fs.File;
+const File = std.Io.File;
+const Dir = std.Io.Dir;
 
 pub const InitOptions = struct {
     name: []const u8,
@@ -15,19 +16,21 @@ pub const InitError = error{
 };
 
 /// Scaffold a new Run project with the standard project layout.
-pub fn initProject(allocator: std.mem.Allocator, options: InitOptions) InitError!void {
-    const stderr = File.stderr().deprecatedWriter();
-    const stdout = File.stdout().deprecatedWriter();
+pub fn initProject(io: std.Io, allocator: std.mem.Allocator, options: InitOptions) InitError!void {
+    var stderr_file = File.stderr().writer(io, &.{});
+    const stderr = &stderr_file.interface;
+    var stdout_file = File.stdout().writer(io, &.{});
+    const stdout = &stdout_file.interface;
 
     if (options.in_place) {
         // Initialize in current directory
-        scaffoldFiles(allocator, ".", options.name, options.force, stderr) catch {
+        scaffoldFiles(io, allocator, ".", options.name, options.force, stderr) catch {
             return InitError.CreateFailed;
         };
         stdout.print("Initialized project '{s}' in current directory\n", .{options.name}) catch {};
     } else {
         // Create new directory
-        std.fs.cwd().makeDir(options.name) catch |err| switch (err) {
+        Dir.cwd().createDir(io, options.name, .default_dir) catch |err| switch (err) {
             error.PathAlreadyExists => {
                 if (!options.force) {
                     stderr.print("error: directory '{s}' already exists (use --force to overwrite)\n", .{options.name}) catch {};
@@ -40,7 +43,7 @@ pub fn initProject(allocator: std.mem.Allocator, options: InitOptions) InitError
             },
         };
 
-        scaffoldFiles(allocator, options.name, options.name, options.force, stderr) catch {
+        scaffoldFiles(io, allocator, options.name, options.name, options.force, stderr) catch {
             return InitError.CreateFailed;
         };
         stdout.print("Initialized project '{s}' in ./{s}/\n", .{ options.name, options.name }) catch {};
@@ -48,24 +51,29 @@ pub fn initProject(allocator: std.mem.Allocator, options: InitOptions) InitError
 }
 
 fn scaffoldFiles(
+    io: std.Io,
     allocator: std.mem.Allocator,
     base_dir: []const u8,
     project_name: []const u8,
     force: bool,
     stderr: anytype,
 ) !void {
+    var opened_dir: ?Dir = null;
+    defer if (opened_dir) |dir| dir.close(io);
     const dir = if (std.mem.eql(u8, base_dir, "."))
-        std.fs.cwd()
-    else
-        std.fs.cwd().openDir(base_dir, .{}) catch {
+        Dir.cwd()
+    else blk: {
+        opened_dir = Dir.cwd().openDir(io, base_dir, .{}) catch {
             stderr.print("error: failed to open directory '{s}'\n", .{base_dir}) catch {};
             return error.CreateFailed;
         };
+        break :blk opened_dir.?;
+    };
 
     // Create subdirectories
     const dirs = [_][]const u8{ "cmd", "pkg", "lib" };
     for (dirs) |d| {
-        dir.makeDir(d) catch |err| switch (err) {
+        dir.createDir(io, d, .default_dir) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => {
                 stderr.print("error: failed to create directory '{s}'\n", .{d}) catch {};
@@ -77,37 +85,37 @@ fn scaffoldFiles(
     // Generate main.run
     const main_content = generateMainFile(allocator, project_name) catch return error.OutOfMemory;
     defer allocator.free(main_content);
-    writeFileIfNotExists(dir, "cmd/main.run", main_content, force, stderr);
+    writeFileIfNotExists(io, dir, "cmd/main.run", main_content, force, stderr);
 
     // Generate .gitignore
-    writeFileIfNotExists(dir, ".gitignore", gitignore_content, force, stderr);
+    writeFileIfNotExists(io, dir, ".gitignore", gitignore_content, force, stderr);
 
     // Generate run.toml (project config)
     const run_toml = generateRunToml(allocator, project_name) catch return error.OutOfMemory;
     defer allocator.free(run_toml);
-    writeFileIfNotExists(dir, "run.toml", run_toml, force, stderr);
+    writeFileIfNotExists(io, dir, "run.toml", run_toml, force, stderr);
 
     // Generate README.md
     const readme = generateReadme(allocator, project_name) catch return error.OutOfMemory;
     defer allocator.free(readme);
-    writeFileIfNotExists(dir, "README.md", readme, force, stderr);
+    writeFileIfNotExists(io, dir, "README.md", readme, force, stderr);
 }
 
-fn writeFileIfNotExists(dir: std.fs.Dir, path: []const u8, content: []const u8, force: bool, stderr: anytype) void {
+fn writeFileIfNotExists(io: std.Io, dir: Dir, path: []const u8, content: []const u8, force: bool, stderr: anytype) void {
     if (!force) {
         // Check if file exists
-        if (dir.statFile(path)) |_| {
+        if (dir.access(io, path, .{})) |_| {
             stderr.print("warning: '{s}' already exists, skipping (use --force to overwrite)\n", .{path}) catch {};
             return;
         } else |_| {}
     }
 
-    const file = dir.createFile(path, .{}) catch {
+    const file = dir.createFile(io, path, .{}) catch {
         stderr.print("error: failed to create '{s}'\n", .{path}) catch {};
         return;
     };
-    defer file.close();
-    file.writeAll(content) catch {
+    defer file.close(io);
+    file.writeStreamingAll(io, content) catch {
         stderr.print("error: failed to write '{s}'\n", .{path}) catch {};
     };
 }
@@ -199,24 +207,18 @@ test "generateReadme: contains project name" {
 }
 
 test "initProject: creates directory structure" {
-    const allocator = std.testing.allocator;
+    const io = std.testing.io;
 
     // Use a temp directory for testing
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    // We need to test with the filesystem, so create in tmp
-    const tmp_path = tmp.dir.realpathAlloc(allocator, ".") catch return;
-    defer allocator.free(tmp_path);
+    try tmp.dir.createDir(io, "testproj", .default_dir);
+    var proj_dir = try tmp.dir.openDir(io, "testproj", .{});
+    defer proj_dir.close(io);
 
-    // Create the project dir manually inside tmp
-    tmp.dir.makeDir("testproj") catch {};
+    var stderr_file = File.stderr().writer(io, &.{});
+    writeFileIfNotExists(io, proj_dir, "README.md", "hello\n", false, &stderr_file.interface);
 
-    const proj_dir = tmp.dir.openDir("testproj", .{}) catch return;
-    _ = proj_dir;
-
-    // Just verify the helper functions work — full init requires cwd manipulation
-    const main_content = try generateMainFile(allocator, "testproj");
-    defer allocator.free(main_content);
-    try std.testing.expect(main_content.len > 0);
+    try proj_dir.access(io, "README.md", .{});
 }

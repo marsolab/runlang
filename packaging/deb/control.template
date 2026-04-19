@@ -13,5 +13,5 @@ Description: Systems programming language compiler with Go simplicity and low-le
  collector or borrow checker, green threads for concurrency, and compiles
  to native code via C.
  .
- Note: Zig (>= 0.15) is required at runtime as the compiler uses 'zig cc'
+ Note: Zig (>= 0.16) is required at runtime as the compiler uses 'zig cc'
  for C compilation and linking. Install Zig separately from https://ziglang.org.

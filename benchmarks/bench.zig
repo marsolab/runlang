@@ -1,18 +1,17 @@
 const std = @import("std");
-const compiler = @import("compiler");
-
-const Lexer = compiler.Lexer;
-const Parser = compiler.Parser;
+const Lexer = @import("compiler").Lexer;
+const Parser = @import("compiler").Parser;
+const Dir = std.Io.Dir;
+const File = std.Io.File;
 
 const WARMUP = 3;
 const ITERS = 10;
 
-pub fn main() !void {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
+    var stdout_file = File.stdout().writer(io, &.{});
+    const stdout = &stdout_file.interface;
 
     try stdout.writeAll("Run Compiler Benchmarks\n");
     try stdout.writeAll("=======================\n\n");
@@ -47,13 +46,13 @@ pub fn main() !void {
 
         // Measured
         for (0..ITERS) |iter| {
-            var timer = try std.time.Timer.start();
+            const start_ns = std.Io.Clock.awake.now(io).nanoseconds;
             var lexer = Lexer.init(source);
             while (true) {
                 const tok = lexer.next();
                 if (tok.tag == .eof) break;
             }
-            timings[iter] = timer.read();
+            timings[iter] = @intCast(std.Io.Clock.awake.now(io).nanoseconds - start_ns);
         }
 
         const stats = computeStats(&timings);
@@ -79,14 +78,14 @@ pub fn main() !void {
 
         // Measured
         for (0..ITERS) |iter| {
-            var timer = try std.time.Timer.start();
+            const start_ns = std.Io.Clock.awake.now(io).nanoseconds;
             var lexer = Lexer.init(source);
             var tokens = try lexer.tokenize(allocator);
             defer tokens.deinit(allocator);
             var parser = Parser.init(allocator, tokens.items, source);
             defer parser.deinit();
             _ = try parser.parseFile();
-            timings[iter] = timer.read();
+            timings[iter] = @intCast(std.Io.Clock.awake.now(io).nanoseconds - start_ns);
         }
 
         const stats = computeStats(&timings);
@@ -102,13 +101,13 @@ pub fn main() !void {
         defer allocator.free(tmp_path);
 
         {
-            const f = try std.fs.cwd().createFile(tmp_path, .{});
-            defer f.close();
-            try f.writeAll(source);
+            const f = try Dir.cwd().createFile(io, tmp_path, .{});
+            defer f.close(io);
+            try f.writeStreamingAll(io, source);
         }
-        defer std.fs.cwd().deleteFile(tmp_path) catch {};
+        defer Dir.cwd().deleteFile(io, tmp_path) catch {};
 
-        const compiler_path = findCompiler(allocator) catch {
+        const compiler_path = findCompiler(io, allocator) catch {
             try stdout.writeAll("  (skipped — compiler binary not found, run 'zig build' first)\n");
             break;
         };
@@ -118,17 +117,17 @@ pub fn main() !void {
 
         // Warmup
         for (0..WARMUP) |_| {
-            _ = runCompilerCheck(allocator, compiler_path, tmp_path) catch continue;
+            _ = runCompilerCheck(io, allocator, compiler_path, tmp_path) catch continue;
         }
 
         // Measured
         for (0..ITERS) |iter| {
-            var timer = try std.time.Timer.start();
-            _ = runCompilerCheck(allocator, compiler_path, tmp_path) catch {
+            const start_ns = std.Io.Clock.awake.now(io).nanoseconds;
+            _ = runCompilerCheck(io, allocator, compiler_path, tmp_path) catch {
                 timings[iter] = 0;
                 continue;
             };
-            timings[iter] = timer.read();
+            timings[iter] = @intCast(std.Io.Clock.awake.now(io).nanoseconds - start_ns);
         }
 
         const stats = computeStats(&timings);
@@ -189,64 +188,62 @@ fn formatDuration(ns: u64) [12]u8 {
 
 fn generateSource(allocator: std.mem.Allocator, num_fns: usize) ![]const u8 {
     var buf: std.ArrayList(u8) = .empty;
-    const writer = buf.writer(allocator);
-    try writer.writeAll("package main\n\nuse \"fmt\"\n\n");
+    try buf.appendSlice(allocator, "package main\n\nuse \"fmt\"\n\n");
 
     for (0..num_fns) |i| {
-        try writer.print("fun func_{d}() {{\n", .{i});
-        try writer.writeAll("    let x = 42\n");
-        try writer.writeAll("    var y = 10\n");
-        try writer.writeAll("    y = y + x\n");
-        try writer.writeAll("    if y > 50 {\n");
-        try writer.writeAll("        fmt.println(\"big\")\n");
-        try writer.writeAll("    } else {\n");
-        try writer.writeAll("        fmt.println(\"small\")\n");
-        try writer.writeAll("    }\n");
-        try writer.writeAll("    var i = 0\n");
-        try writer.writeAll("    for i < 3 {\n");
-        try writer.writeAll("        i = i + 1\n");
-        try writer.writeAll("    }\n");
-        try writer.writeAll("    fmt.println(y)\n");
-        try writer.writeAll("}\n\n");
+        try buf.print(allocator, "fun func_{d}() {{\n", .{i});
+        try buf.appendSlice(allocator, "    let x = 42\n");
+        try buf.appendSlice(allocator, "    var y = 10\n");
+        try buf.appendSlice(allocator, "    y = y + x\n");
+        try buf.appendSlice(allocator, "    if y > 50 {\n");
+        try buf.appendSlice(allocator, "        fmt.println(\"big\")\n");
+        try buf.appendSlice(allocator, "    } else {\n");
+        try buf.appendSlice(allocator, "        fmt.println(\"small\")\n");
+        try buf.appendSlice(allocator, "    }\n");
+        try buf.appendSlice(allocator, "    var i = 0\n");
+        try buf.appendSlice(allocator, "    for i < 3 {\n");
+        try buf.appendSlice(allocator, "        i = i + 1\n");
+        try buf.appendSlice(allocator, "    }\n");
+        try buf.appendSlice(allocator, "    fmt.println(y)\n");
+        try buf.appendSlice(allocator, "}\n\n");
     }
 
-    try writer.writeAll("pub fun main() {\n");
-    try writer.writeAll("    func_0()\n");
-    try writer.writeAll("}\n");
+    try buf.appendSlice(allocator, "pub fun main() {\n");
+    try buf.appendSlice(allocator, "    func_0()\n");
+    try buf.appendSlice(allocator, "}\n");
 
     return buf.toOwnedSlice(allocator);
 }
 
-fn findCompiler(allocator: std.mem.Allocator) ![]const u8 {
+fn findCompiler(io: std.Io, allocator: std.mem.Allocator) ![]const u8 {
     const local_path = "zig-out/bin/run";
-    if (std.fs.cwd().access(local_path, .{})) |_| {
+    if (Dir.cwd().access(io, local_path, .{})) |_| {
         return try allocator.dupe(u8, local_path);
     } else |_| {}
     return error.CompilerNotFound;
 }
 
 fn runCompilerCheck(
+    io: std.Io,
     allocator: std.mem.Allocator,
     compiler_path: []const u8,
     source_path: []const u8,
 ) !void {
-    var child = std.process.Child.init(&.{ compiler_path, "check", "--no-color", source_path }, allocator);
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-    try child.spawn();
+    const result = try std.process.run(allocator, io, .{
+        .argv = &.{ compiler_path, "check", "--no-color", source_path },
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
 
-    // Drain output
-    while (true) {
-        var buf: [4096]u8 = undefined;
-        const n = child.stdout.?.read(&buf) catch break;
-        if (n == 0) break;
-    }
-    while (true) {
-        var buf: [4096]u8 = undefined;
-        const n = child.stderr.?.read(&buf) catch break;
-        if (n == 0) break;
-    }
+    if (childExitCode(result.term) != 0) return error.CheckFailed;
+}
 
-    const result = try child.wait();
-    if (result.Exited != 0) return error.CheckFailed;
+fn childExitCode(term: std.process.Child.Term) u8 {
+    return switch (term) {
+        .exited => |code| code,
+        .signal => |sig| if (@intFromEnum(sig) + 128 <= std.math.maxInt(u8)) @as(u8, @intCast(@intFromEnum(sig) + 128)) else std.math.maxInt(u8),
+        .stopped, .unknown => 1,
+    };
 }

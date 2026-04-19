@@ -947,7 +947,7 @@ pub const Formatter = struct {
 
     fn formatTypeArray(self: *Formatter, node: Node) !void {
         try self.write("[");
-        try self.buf.writer(self.allocator).print("{d}", .{node.data.rhs});
+        try self.buf.print(self.allocator, "{d}", .{node.data.rhs});
         try self.write("]");
         try self.formatNode(node.data.lhs); // element type
     }

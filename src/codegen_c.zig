@@ -3,6 +3,14 @@ const ir = @import("ir.zig");
 const diagnostics = @import("diagnostics.zig");
 
 pub const CCodegen = struct {
+    const OutputWriter = struct {
+        codegen: *CCodegen,
+
+        pub fn print(self: @This(), comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
+            try self.codegen.output.print(self.codegen.allocator, fmt, args);
+        }
+    };
+
     output: std.ArrayList(u8),
     module: *const ir.Module,
     allocator: std.mem.Allocator,
@@ -738,8 +746,12 @@ pub const CCodegen = struct {
         try self.output.append(self.allocator, '\n');
     }
 
-    fn writer(self: *CCodegen) std.ArrayList(u8).Writer {
-        return self.output.writer(self.allocator);
+    fn print(self: *CCodegen, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
+        try self.output.print(self.allocator, fmt, args);
+    }
+
+    fn writer(self: *CCodegen) OutputWriter {
+        return .{ .codegen = self };
     }
 };
 

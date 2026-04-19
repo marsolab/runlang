@@ -45,7 +45,7 @@ pub fun main() {
 
 ### Prerequisites
 
-Run's compiler is written in [Zig](https://ziglang.org/). You need **Zig 0.15** or later.
+Run's compiler is written in [Zig](https://ziglang.org/). You need **Zig 0.16** or later.
 
 ### Build from Source
 

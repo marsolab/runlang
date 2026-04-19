@@ -14,8 +14,9 @@ const const_fold = @import("const_fold.zig");
 const codegen_c = @import("codegen_c.zig");
 const rasm = @import("rasm.zig");
 const diag_mod = @import("diagnostics.zig");
+const builtin = @import("builtin");
 
-const File = std.fs.File;
+const File = std.Io.File;
 
 pub const Command = enum {
     build,
@@ -57,10 +58,9 @@ pub const RuntimeConfig = union(enum) {
 
 /// Try to locate a pre-built librunrt.a relative to the running binary.
 /// Expected layout: <prefix>/bin/run, <prefix>/lib/librunrt.a, <prefix>/include/run/*.h
-fn findInstalledRuntime(allocator: std.mem.Allocator) ?struct { lib_dir: []const u8, include_dir: []const u8 } {
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const self_exe_path = std.fs.selfExePath(&buf) catch return null;
-    const bin_dir = std.fs.path.dirname(self_exe_path) orelse return null;
+fn findInstalledRuntime(io: std.Io, allocator: std.mem.Allocator) ?struct { lib_dir: []const u8, include_dir: []const u8 } {
+    const bin_dir = std.process.executableDirPathAlloc(io, allocator) catch return null;
+    defer allocator.free(bin_dir);
     const prefix = std.fs.path.dirname(bin_dir) orelse return null;
 
     const lib_dir = std.fs.path.join(allocator, &.{ prefix, "lib" }) catch return null;
@@ -71,11 +71,11 @@ fn findInstalledRuntime(allocator: std.mem.Allocator) ?struct { lib_dir: []const
     defer allocator.free(lib_file);
 
     // Verify librunrt.a exists at the expected location
-    const f = std.fs.cwd().openFile(lib_file, .{}) catch {
+    const f = std.Io.Dir.cwd().openFile(io, lib_file, .{}) catch {
         allocator.free(lib_dir);
         return null;
     };
-    f.close();
+    f.close(io);
 
     const include_dir = std.fs.path.join(allocator, &.{ prefix, "include", "run" }) catch {
         allocator.free(lib_dir);
@@ -87,8 +87,21 @@ fn findInstalledRuntime(allocator: std.mem.Allocator) ?struct { lib_dir: []const
 
 /// Run the full compilation pipeline for the given source file.
 pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileError!void {
+    var io_threaded: std.Io.Threaded = .init(allocator, .{});
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var stdout_buffer: [4096]u8 = undefined;
+    var stderr_buffer: [4096]u8 = undefined;
+    var stdout_writer = File.stdout().writerStreaming(io, &stdout_buffer);
+    var stderr_writer = File.stderr().writerStreaming(io, &stderr_buffer);
+    defer stdout_writer.flush() catch {};
+    defer stderr_writer.flush() catch {};
+    const stdout = &stdout_writer.interface;
+    const stderr = &stderr_writer.interface;
+
     // 1. Read source file
-    const source = readFile(allocator, options.input_path) catch {
+    const source = readFile(io, allocator, options.input_path) catch {
         return CompileError.ReadFailed;
     };
     defer allocator.free(source);
@@ -107,8 +120,6 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     _ = parser.parseFile() catch {
         return CompileError.OutOfMemory;
     };
-
-    const stderr = File.stderr().deprecatedWriter();
 
     if (parser.tree.errors.items.len > 0) {
         const use_color = !options.no_color;
@@ -310,7 +321,6 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
 
     // For "check" command, stop after semantic analysis succeeds.
     if (options.command == .check) {
-        const stdout = File.stdout().deprecatedWriter();
         stdout.print("check: {s} OK ({d} nodes)\n", .{
             options.input_path,
             parser.tree.nodes.items.len,
@@ -374,18 +384,18 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     };
 
     // 9. Write C to a unique temp file and compile with zig cc
-    const tmp_c = createUniqueTempFile(allocator, "run_generated", ".c") catch {
+    const tmp_c = createUniqueTempFile(io, allocator, "run_generated", ".c") catch {
         stderr.writeAll("error: failed to create temp file\n") catch {};
         return CompileError.CCompileFailed;
     };
     const tmp_path = tmp_c.path;
     defer {
-        if (!options.debug) std.fs.deleteFileAbsolute(tmp_path) catch {};
+        if (!options.debug) std.Io.Dir.deleteFileAbsolute(io, tmp_path) catch {};
         allocator.free(tmp_path);
     }
     {
-        defer tmp_c.file.close();
-        tmp_c.file.writeAll(c_source) catch {
+        defer tmp_c.file.close(io);
+        tmp_c.file.writeStreamingAll(io, c_source) catch {
             stderr.writeAll("error: failed to write temp file\n") catch {};
             return CompileError.CCompileFailed;
         };
@@ -399,7 +409,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     };
 
     // Find runtime: prefer pre-built library at install prefix, fall back to source compilation.
-    const runtime_config: RuntimeConfig = if (findInstalledRuntime(allocator)) |installed|
+    const runtime_config: RuntimeConfig = if (findInstalledRuntime(io, allocator)) |installed|
         .{ .installed = .{ .lib_dir = installed.lib_dir, .include_dir = installed.include_dir } }
     else
         .{ .source = "src/runtime" };
@@ -431,7 +441,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     }
 
     for (rasm_files.items) |rasm_path| {
-        const rasm_source = readFile(allocator, rasm_path) catch continue;
+        const rasm_source = readFile(io, allocator, rasm_path) catch continue;
         defer allocator.free(rasm_source);
 
         var parsed = rasm.parseRasmFile(allocator, rasm_source) catch continue;
@@ -441,20 +451,20 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
         defer allocator.free(gas_source);
 
         // Write each generated .S file to its own unique path to avoid races.
-        const asm_temp = createUniqueTempFile(allocator, std.fs.path.stem(rasm_path), ".S") catch continue;
+        const asm_temp = createUniqueTempFile(io, allocator, std.fs.path.stem(rasm_path), ".S") catch continue;
         const asm_path = asm_temp.path;
-        asm_temp.file.writeAll(gas_source) catch {
-            asm_temp.file.close();
-            std.fs.deleteFileAbsolute(asm_path) catch {};
+        asm_temp.file.writeStreamingAll(io, gas_source) catch {
+            asm_temp.file.close(io);
+            std.Io.Dir.deleteFileAbsolute(io, asm_path) catch {};
             allocator.free(asm_path);
             continue;
         };
-        asm_temp.file.close();
+        asm_temp.file.close(io);
 
         rasm_asm_files.append(allocator, asm_path) catch continue;
     }
 
-    invokeZigCC(allocator, tmp_path, out_path, runtime_config, rasm_asm_files.items, options.debug) catch {
+    invokeZigCC(io, allocator, tmp_path, out_path, runtime_config, rasm_asm_files.items, options.debug) catch {
         stderr.writeAll("error: C compilation failed\n") catch {};
         return CompileError.CCompileFailed;
     };
@@ -462,7 +472,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     // Clean up temp assembly files (keep in debug mode for source-level debugging)
     if (!options.debug) {
         for (rasm_asm_files.items) |asm_path| {
-            std.fs.deleteFileAbsolute(asm_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(io, asm_path) catch {};
         }
     }
 
@@ -472,7 +482,7 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
             try std.fmt.allocPrint(allocator, "./{s}", .{out_path})
         else
             out_path;
-        const exit_code = executeAndCleanup(allocator, exec_path) catch {
+        const exit_code = executeAndCleanup(io, allocator, exec_path) catch {
             stderr.writeAll("error: failed to execute compiled binary\n") catch {};
             return CompileError.RunFailed;
         };
@@ -480,7 +490,6 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
             std.process.exit(exit_code);
         }
     } else {
-        const stdout = File.stdout().deprecatedWriter();
         stdout.print("compiled: {s}\n", .{out_path}) catch {};
     }
 }
@@ -662,6 +671,7 @@ fn findParamCount(start: u32, extra: []const u32) u32 {
 /// `output_path` is the desired binary output path.
 /// `runtime` controls how the runtime is linked: pre-built library or source compilation.
 pub fn invokeZigCC(
+    io: std.Io,
     allocator: std.mem.Allocator,
     c_source_path: []const u8,
     output_path: []const u8,
@@ -673,7 +683,13 @@ pub fn invokeZigCC(
     var args: std.ArrayList([]const u8) = .empty;
     defer args.deinit(allocator);
 
-    try args.append(allocator, "zig");
+    var env_map = try createProcessEnvMap(allocator);
+    defer env_map.deinit();
+
+    const zig_exe = try resolveZigExecutable(io, allocator, &env_map);
+    defer allocator.free(zig_exe);
+
+    try args.append(allocator, zig_exe);
     try args.append(allocator, "cc");
     try args.append(allocator, "-o");
     try args.append(allocator, output_path);
@@ -688,7 +704,7 @@ pub fn invokeZigCC(
             // Link the libxev bridge (provides run_xev_* symbols)
             const xev_lib_path = try std.fs.path.join(allocator, &.{ info.lib_dir, "librunxev.a" });
             // Only link if the file exists (not present with legacy-poller builds)
-            if (std.fs.cwd().access(xev_lib_path, .{})) |_| {
+            if (std.Io.Dir.accessAbsolute(io, xev_lib_path, .{})) |_| {
                 try args.append(allocator, xev_lib_path);
             } else |_| {}
 
@@ -697,7 +713,10 @@ pub fn invokeZigCC(
             try args.append(allocator, include_flag);
         },
         .source => |runtime_dir| {
-            // Compile individual runtime source files (development mode)
+            // Compile individual runtime source files in development mode.
+            // This path is exercised by unit/e2e test binaries running from
+            // .zig-cache, so keep it self-contained and avoid requiring the
+            // separately built libxev Zig bridge.
             const runtime_sources = [_][]const u8{
                 "run_main.c",
                 "run_alloc.c",
@@ -714,6 +733,7 @@ pub fn invokeZigCC(
                 "run_signal.c",
                 "run_runtime_api.c",
                 "run_debug_api.c",
+                "run_poller_legacy.c",
             };
 
             for (&runtime_sources) |name| {
@@ -728,6 +748,16 @@ pub fn invokeZigCC(
                 else => null,
             };
             if (asm_source) |asm_name| {
+                const asm_path = try std.fs.path.join(allocator, &.{ runtime_dir, asm_name });
+                try args.append(allocator, asm_path);
+            }
+
+            const preempt_asm_source: ?[]const u8 = switch (@import("builtin").cpu.arch) {
+                .x86_64 => "run_async_preempt_amd64.S",
+                .aarch64 => "run_async_preempt_arm64.S",
+                else => null,
+            };
+            if (preempt_asm_source) |asm_name| {
                 const asm_path = try std.fs.path.join(allocator, &.{ runtime_dir, asm_name });
                 try args.append(allocator, asm_path);
             }
@@ -760,58 +790,129 @@ pub fn invokeZigCC(
     // Link pthread for scheduler
     try args.append(allocator, "-lpthread");
 
-    var child = std.process.Child.init(args.items, allocator);
-    child.stderr_behavior = .Inherit;
-    child.stdout_behavior = .Inherit;
-
-    const term = try child.spawnAndWait();
+    var child = try std.process.spawn(io, .{
+        .argv = args.items,
+        .environ_map = &env_map,
+        .expand_arg0 = .expand,
+        .stderr = .inherit,
+        .stdout = .inherit,
+    });
+    const term = try child.wait(io);
     if (!childExitedSuccessfully(term)) {
         return error.CCompileFailed;
     }
 }
 
+fn createProcessEnvMap(allocator: std.mem.Allocator) !std.process.Environ.Map {
+    if (builtin.os.tag == .windows) {
+        return try std.process.Environ.createMap(.{ .block = .global }, allocator);
+    }
+
+    var env_map = std.process.Environ.Map.init(allocator);
+    errdefer env_map.deinit();
+    if (builtin.link_libc) {
+        var env_len: usize = 0;
+        while (std.c.environ[env_len] != null) : (env_len += 1) {}
+        const env_entries = try allocator.alloc([*:0]const u8, env_len);
+        defer allocator.free(env_entries);
+        for (env_entries, 0..) |*entry, i| {
+            entry.* = std.c.environ[i].?;
+        }
+        try env_map.putPosixBlock(.{ .slice = env_entries });
+    }
+    return env_map;
+}
+
+fn resolveZigExecutable(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    env_map: *const std.process.Environ.Map,
+) ![]u8 {
+    if (env_map.get("PATH")) |path| {
+        var it = std.mem.tokenizeScalar(u8, path, std.fs.path.delimiter);
+        const exe_name = if (builtin.os.tag == .windows) "zig.exe" else "zig";
+
+        while (it.next()) |dir| {
+            const candidate = try std.fs.path.join(allocator, &.{ dir, exe_name });
+            errdefer allocator.free(candidate);
+
+            if (std.fs.path.isAbsolute(candidate)) {
+                if (std.Io.Dir.accessAbsolute(io, candidate, .{})) |_| return candidate else |_| {}
+            } else {
+                if (std.Io.Dir.cwd().access(io, candidate, .{})) |_| return candidate else |_| {}
+            }
+
+            allocator.free(candidate);
+        }
+    }
+
+    const fallbacks: []const []const u8 = switch (builtin.os.tag) {
+        .windows => &.{
+            "C:\\Program Files\\zig\\zig.exe",
+            "C:\\zig\\zig.exe",
+        },
+        else => &.{
+            "/opt/homebrew/bin/zig",
+            "/usr/local/bin/zig",
+            "/usr/bin/zig",
+        },
+    };
+    for (fallbacks) |candidate| {
+        if (std.Io.Dir.accessAbsolute(io, candidate, .{})) |_| {
+            return try allocator.dupe(u8, candidate);
+        } else |_| {}
+    }
+
+    return error.FileNotFound;
+}
+
 /// Execute a compiled binary and return its exit code.
 pub fn executeAndCleanup(
+    io: std.Io,
     allocator: std.mem.Allocator,
     binary_path: []const u8,
 ) !u8 {
-    var child = std.process.Child.init(&.{binary_path}, allocator);
-    child.stderr_behavior = .Inherit;
-    child.stdout_behavior = .Inherit;
+    _ = allocator;
 
-    const result = try child.spawnAndWait();
+    var child = try std.process.spawn(io, .{
+        .argv = &.{binary_path},
+        .stderr = .inherit,
+        .stdout = .inherit,
+    });
+    const result = try child.wait(io);
 
     // Clean up binary after execution for "run" command
-    std.fs.cwd().deleteFile(binary_path) catch {};
+    std.Io.Dir.cwd().deleteFile(io, binary_path) catch {};
 
     return childExitCode(result);
 }
 
-fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    return try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+fn readFile(io: std.Io, allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+    return try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(10 * 1024 * 1024));
 }
 
 const TempFile = struct {
-    file: std.fs.File,
+    file: std.Io.File,
     path: []u8,
 };
 
 fn createUniqueTempFile(
+    io: std.Io,
     allocator: std.mem.Allocator,
     prefix: []const u8,
     suffix: []const u8,
 ) !TempFile {
-    var tmp_dir = try std.fs.openDirAbsolute("/tmp", .{});
-    defer tmp_dir.close();
+    var tmp_dir = try std.Io.Dir.openDirAbsolute(io, "/tmp", .{});
+    defer tmp_dir.close(io);
 
     while (true) {
-        const random_id = std.crypto.random.int(u64);
+        var random_bytes: [@sizeOf(u64)]u8 = undefined;
+        io.random(&random_bytes);
+        const random_id = std.mem.readInt(u64, &random_bytes, .little);
         const basename = try std.fmt.allocPrint(allocator, "run_{s}_{x}{s}", .{ prefix, random_id, suffix });
         errdefer allocator.free(basename);
 
-        const file = tmp_dir.createFile(basename, .{ .exclusive = true }) catch |err| switch (err) {
+        const file = tmp_dir.createFile(io, basename, .{ .exclusive = true }) catch |err| switch (err) {
             error.PathAlreadyExists => {
                 allocator.free(basename);
                 continue;
@@ -827,16 +928,16 @@ fn createUniqueTempFile(
 
 fn childExitedSuccessfully(term: std.process.Child.Term) bool {
     return switch (term) {
-        .Exited => |code| code == 0,
+        .exited => |code| code == 0,
         else => false,
     };
 }
 
 fn childExitCode(term: std.process.Child.Term) u8 {
     return switch (term) {
-        .Exited => |code| code,
-        .Signal => |sig| if (sig + 128 <= std.math.maxInt(u8)) @as(u8, @intCast(sig + 128)) else std.math.maxInt(u8),
-        .Stopped, .Unknown => 1,
+        .exited => |code| code,
+        .signal => |sig| if (@intFromEnum(sig) + 128 <= std.math.maxInt(u8)) @as(u8, @intCast(@intFromEnum(sig) + 128)) else std.math.maxInt(u8),
+        .stopped, .unknown => 1,
     };
 }
 
@@ -845,7 +946,7 @@ test "check performs semantic analysis before succeeding" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    try tmp.dir.writeFile(.{
+    try tmp.dir.writeFile(std.testing.io, .{
         .sub_path = "bad_check.run",
         .data =
         \\package main
@@ -856,7 +957,7 @@ test "check performs semantic analysis before succeeding" {
         ,
     });
 
-    const path = try tmp.dir.realpathAlloc(allocator, "bad_check.run");
+    const path = try tmp.dir.realPathFileAlloc(std.testing.io, "bad_check.run", allocator);
     defer allocator.free(path);
 
     try std.testing.expectError(CompileError.ParseFailed, compile(allocator, .{

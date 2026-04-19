@@ -3,14 +3,16 @@ const std = @import("std");
 /// Probe for the GCC library directory containing sanitizer runtimes.
 /// On Ubuntu/Debian, libasan.a lives under /usr/lib/gcc/<triple>/<version>/
 /// which is not in the standard library search path.
-fn findGccSanitizerLibDir(allocator: std.mem.Allocator) ?[]const u8 {
+fn findGccSanitizerLibDir(b: *std.Build) ?[]const u8 {
+    const allocator = b.allocator;
+    const io = b.graph.io;
     const triplets = [_][]const u8{ "x86_64-linux-gnu", "aarch64-linux-gnu" };
     const versions = [_][]const u8{ "14", "13", "12", "11" };
     for (triplets) |triplet| {
         for (versions) |ver| {
             const path = std.fmt.allocPrint(allocator, "/usr/lib/gcc/{s}/{s}/libasan.a", .{ triplet, ver }) catch continue;
-            if (std.fs.openFileAbsolute(path, .{})) |f| {
-                f.close();
+            if (std.Io.Dir.cwd().openFile(io, path, .{})) |f| {
+                f.close(io);
                 return std.fmt.allocPrint(allocator, "/usr/lib/gcc/{s}/{s}", .{ triplet, ver }) catch null;
             } else |_| {}
         }
@@ -42,10 +44,10 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     exe.root_module.addOptions("build_options", build_options);
-    exe.linkLibC();
     b.installArtifact(exe);
 
     // libxev dependency (cross-platform event loop for async I/O)
@@ -60,6 +62,7 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
 
@@ -162,33 +165,30 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = b.path("src/runtime/run_xev_bridge.zig"),
                 .target = target,
                 .optimize = optimize,
+                .link_libc = true,
             }),
         });
         obj.root_module.addImport("xev", libxev_dep.module("xev"));
-        obj.linkLibC();
         break :blk obj;
     } else null;
     if (xev_bridge_obj) |obj| {
-        runtime_lib.addObject(obj);
-    }
-    if (xev_bridge_obj) |obj| {
+        runtime_lib.root_module.addObject(obj);
         // Bundle the already-compiled object into librunxev.a with `ar` so the
         // driver can still link `-lrunxev`. Going through `ar` directly avoids
-        // the Zig 0.15.2 archiver race that produced truncated archives on
-        // Linux x86_64 when librunxev.a was written and read concurrently.
+        // the Zig archiver race that produced truncated archives on Linux
+        // x86_64 when librunxev.a was written and read concurrently.
         const ar_cmd = b.addSystemCommand(&.{ "ar", "rcs" });
         const archive = ar_cmd.addOutputFileArg("librunxev.a");
         ar_cmd.addArtifactArg(obj);
         const install_xev_lib = b.addInstallFile(archive, "lib/librunxev.a");
         b.getInstallStep().dependOn(&install_xev_lib.step);
     }
-    runtime_lib.linkLibC();
-    runtime_lib.linkSystemLibrary("pthread");
+    runtime_lib.root_module.linkSystemLibrary("pthread", .{});
     // Link libunwind for stack traces with DWARF unwinding.
     // On macOS, libunwind is part of the system (linked automatically).
     // On Linux, it requires the libunwind-dev package.
     if (target_info.os.tag == .linux) {
-        runtime_lib.linkSystemLibrary("unwind");
+        runtime_lib.root_module.linkSystemLibrary("unwind", .{});
     }
     // Note: sanitizer runtime libraries are NOT linked into the static archive.
     // The consuming executable is responsible for linking them.
@@ -217,9 +217,9 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/root.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    tests.linkLibC();
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
@@ -230,6 +230,7 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
 
@@ -277,13 +278,12 @@ pub fn build(b: *std.Build) void {
     runtime_test_exe.root_module.addIncludePath(b.path("src/runtime/tests"));
     // Reuse the same object file produced for runtime_lib (see note above).
     if (xev_bridge_obj) |obj| {
-        runtime_test_exe.addObject(obj);
+        runtime_test_exe.root_module.addObject(obj);
     }
-    runtime_test_exe.linkLibC();
-    runtime_test_exe.linkSystemLibrary("pthread");
+    runtime_test_exe.root_module.linkSystemLibrary("pthread", .{});
     // Link libunwind for stack trace tests (matches runtime_lib linking).
     if (target_info.os.tag == .linux) {
-        runtime_test_exe.linkSystemLibrary("unwind");
+        runtime_test_exe.root_module.linkSystemLibrary("unwind", .{});
         // On Linux, dladdr only resolves symbols exposed through the dynamic
         // symbol table. Without --export-dynamic, stack-trace tests that match
         // on function names (e.g. strstr(trace, "test_runtime_stack")) will
@@ -296,16 +296,16 @@ pub fn build(b: *std.Build) void {
     // (e.g. /usr/lib/gcc/x86_64-linux-gnu/13/) which isn't in the
     // standard search path. Probe for it at configure time.
     if (sanitize or tsan) {
-        if (findGccSanitizerLibDir(b.allocator)) |gcc_dir| {
-            runtime_test_exe.addLibraryPath(.{ .cwd_relative = gcc_dir });
+        if (findGccSanitizerLibDir(b)) |gcc_dir| {
+            runtime_test_exe.root_module.addLibraryPath(.{ .cwd_relative = gcc_dir });
         }
     }
     if (sanitize) {
-        runtime_test_exe.linkSystemLibrary("asan");
-        runtime_test_exe.linkSystemLibrary("ubsan");
+        runtime_test_exe.root_module.linkSystemLibrary("asan", .{});
+        runtime_test_exe.root_module.linkSystemLibrary("ubsan", .{});
     }
     if (tsan) {
-        runtime_test_exe.linkSystemLibrary("tsan");
+        runtime_test_exe.root_module.linkSystemLibrary("tsan", .{});
     }
     b.installArtifact(runtime_test_exe);
 
@@ -320,6 +320,7 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = .ReleaseFast,
+            .link_libc = true,
         }),
     });
     const runtime_bench_sources = .{
@@ -367,17 +368,16 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = b.path("src/runtime/run_xev_bridge.zig"),
                 .target = target,
                 .optimize = .ReleaseFast,
+                .link_libc = true,
             }),
         });
         xev_bench_bridge.root_module.addImport("xev", libxev_dep.module("xev"));
-        xev_bench_bridge.linkLibC();
-        runtime_bench_exe.linkLibrary(xev_bench_bridge);
+        runtime_bench_exe.root_module.linkLibrary(xev_bench_bridge);
     }
-    runtime_bench_exe.linkLibC();
-    runtime_bench_exe.linkSystemLibrary("pthread");
+    runtime_bench_exe.root_module.linkSystemLibrary("pthread", .{});
     // Link libunwind for stack trace support (matches runtime_lib linking).
     if (target_info.os.tag == .linux) {
-        runtime_bench_exe.linkSystemLibrary("unwind");
+        runtime_bench_exe.root_module.linkSystemLibrary("unwind", .{});
     }
     b.installArtifact(runtime_bench_exe);
 
@@ -393,9 +393,9 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/examples/runner.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    examples_test_exe.linkLibC();
     const run_examples_tests = b.addRunArtifact(examples_test_exe);
     run_examples_tests.step.dependOn(b.getInstallStep());
     const examples_test_step = b.step("test-examples", "Build all example programs");
@@ -408,9 +408,9 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/e2e/runner.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    e2e_test_exe.linkLibC();
     const run_e2e_tests = b.addRunArtifact(e2e_test_exe);
     run_e2e_tests.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
@@ -431,9 +431,9 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = b.path(entry[1]),
                 .target = target,
                 .optimize = optimize,
+                .link_libc = true,
             }),
         });
-        fuzz_test.linkLibC();
         const run_fuzz = b.addRunArtifact(fuzz_test);
         const fuzz_step = b.step(entry[0], entry[2]);
         fuzz_step.dependOn(&run_fuzz.step);
@@ -444,6 +444,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("benchmarks/bench.zig"),
         .target = target,
         .optimize = .ReleaseFast,
+        .link_libc = true,
     });
     // Provide compiler as a single module to avoid file-ownership conflicts
     bench_root.addImport("compiler", b.createModule(.{
@@ -455,7 +456,6 @@ pub fn build(b: *std.Build) void {
         .name = "bench",
         .root_module = bench_root,
     });
-    bench_exe.linkLibC();
     // Benchmark depends on compiler binary for pipeline benchmarks
     const run_bench = b.addRunArtifact(bench_exe);
     run_bench.step.dependOn(b.getInstallStep());

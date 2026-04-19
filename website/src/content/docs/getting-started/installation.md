@@ -99,7 +99,7 @@ sudo snap install run-lang
 
 ## From Source
 
-Building from source requires [Zig](https://ziglang.org/) version 0.15 or later.
+Building from source requires [Zig](https://ziglang.org/) version 0.16 or later.
 
 ```bash
 git clone https://github.com/marsolab/runlang.git
@@ -196,7 +196,7 @@ sudo rm /usr/local/bin/run
 
 ## Note about Zig
 
-Run's compiler is written in [Zig](https://ziglang.org/), a systems programming language focused on correctness and performance. If you are building from source, you need Zig version **0.15 or later** installed on your system.
+Run's compiler is written in [Zig](https://ziglang.org/), a systems programming language focused on correctness and performance. If you are building from source, you need Zig version **0.16 or later** installed on your system.
 
 :::caution
 Older versions of Zig (0.14 and below) are not compatible with the Run compiler due to breaking API changes in the Zig standard library.
@@ -212,5 +212,5 @@ brew install zig
 pacman -S zig
 
 # Using zigup (cross-platform)
-zigup 0.15.0
+zigup 0.16.0
 ```

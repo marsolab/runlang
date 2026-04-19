@@ -1,4 +1,5 @@
 const std = @import("std");
+const File = std.Io.File;
 
 /// MI backend type — GDB or LLDB (both speak the MI protocol).
 pub const MiBackend = enum {
@@ -18,12 +19,13 @@ pub const MiBackend = enum {
 ///   - Log output:      &"text"
 pub const GdbMi = struct {
     process: std.process.Child,
-    stdout_reader: std.io.AnyReader,
-    stdin_writer: std.io.AnyWriter,
+    io_threaded: std.Io.Threaded,
+    stdout_reader: File.Reader,
+    stdin_writer: File.Writer,
     allocator: std.mem.Allocator,
     next_token: u32,
-    read_buf: std.ArrayList(u8),
-    line_buf: [4096]u8,
+    stdout_buffer: [4096]u8,
+    stdin_buffer: [1024]u8,
     backend: MiBackend,
 
     pub fn init(allocator: std.mem.Allocator, binary_path: []const u8) !GdbMi {
@@ -35,23 +37,31 @@ pub const GdbMi = struct {
             .gdb => &.{ "gdb", "--interpreter=mi3", "--quiet", binary_path },
             .lldb => &.{ "lldb-mi", "--interpreter=mi2", binary_path },
         };
-        var child = std.process.Child.init(argv, allocator);
-        child.stdin_behavior = .Pipe;
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Pipe;
+        var io_threaded: std.Io.Threaded = .init(allocator, .{});
+        errdefer io_threaded.deinit();
+        const io = io_threaded.io();
+        var child = try std.process.spawn(io, .{
+            .argv = argv,
+            .expand_arg0 = .expand,
+            .stdin = .pipe,
+            .stdout = .pipe,
+            .stderr = .pipe,
+        });
 
-        try child.spawn();
-
-        return .{
+        var result = GdbMi{
             .process = child,
-            .stdout_reader = child.stdout.?.deprecatedReader().any(),
-            .stdin_writer = child.stdin.?.deprecatedWriter().any(),
+            .io_threaded = io_threaded,
+            .stdout_reader = undefined,
+            .stdin_writer = undefined,
             .allocator = allocator,
             .next_token = 1,
-            .read_buf = .empty,
-            .line_buf = undefined,
+            .stdout_buffer = undefined,
+            .stdin_buffer = undefined,
             .backend = backend,
         };
+        result.stdout_reader = child.stdout.?.readerStreaming(io, &result.stdout_buffer);
+        result.stdin_writer = child.stdin.?.writerStreaming(io, &result.stdin_buffer);
+        return result;
     }
 
     /// Auto-detect the best available MI backend.
@@ -65,20 +75,30 @@ pub const GdbMi = struct {
     }
 
     fn canRunCommand(allocator: std.mem.Allocator, argv: []const []const u8) bool {
-        var child = std.process.Child.init(argv, allocator);
-        child.stdin_behavior = .Ignore;
-        child.stdout_behavior = .Ignore;
-        child.stderr_behavior = .Ignore;
-        child.spawn() catch return false;
-        _ = child.wait() catch return false;
-        return true;
+        var io_threaded: std.Io.Threaded = .init(allocator, .{});
+        defer io_threaded.deinit();
+        const io = io_threaded.io();
+        var child = std.process.spawn(io, .{
+            .argv = argv,
+            .expand_arg0 = .expand,
+            .stdin = .ignore,
+            .stdout = .ignore,
+            .stderr = .ignore,
+        }) catch return false;
+        const term = child.wait(io) catch return false;
+        return switch (term) {
+            .exited => |code| code == 0,
+            else => false,
+        };
     }
 
     pub fn deinit(self: *GdbMi) void {
-        self.read_buf.deinit(self.allocator);
         // Send quit command, ignore errors
-        self.stdin_writer.writeAll("-gdb-exit\n") catch {};
-        _ = self.process.wait() catch {};
+        const io = self.io_threaded.io();
+        self.stdin_writer.interface.writeAll("-gdb-exit\n") catch {};
+        self.stdin_writer.interface.flush() catch {};
+        _ = self.process.wait(io) catch {};
+        self.io_threaded.deinit();
     }
 
     /// Send a GDB/MI command and wait for the result record.
@@ -91,7 +111,8 @@ pub const GdbMi = struct {
         var cmd_buf: [4096]u8 = undefined;
         const cmd = std.fmt.bufPrint(&cmd_buf, "{d}{s}\n", .{ token, command }) catch
             return error.CommandTooLong;
-        try self.stdin_writer.writeAll(cmd);
+        try self.stdin_writer.interface.writeAll(cmd);
+        try self.stdin_writer.interface.flush();
 
         // Read responses until we get a result record with our token
         while (true) {
@@ -115,14 +136,15 @@ pub const GdbMi = struct {
 
     /// Send a raw command without token prefix.
     pub fn sendRaw(self: *GdbMi, command: []const u8) !void {
-        try self.stdin_writer.writeAll(command);
-        try self.stdin_writer.writeAll("\n");
+        try self.stdin_writer.interface.writeAll(command);
+        try self.stdin_writer.interface.writeAll("\n");
+        try self.stdin_writer.interface.flush();
     }
 
     /// Read lines until we get a complete GDB/MI response.
     pub fn readResponse(self: *GdbMi) !MiResponse {
         while (true) {
-            const line = self.stdout_reader.readUntilDelimiter(&self.line_buf, '\n') catch |err| switch (err) {
+            const line = self.stdout_reader.interface.takeDelimiterExclusive('\n') catch |err| switch (err) {
                 error.EndOfStream => return error.GdbExited,
                 else => return error.ReadFailed,
             };
