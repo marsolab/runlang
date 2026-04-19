@@ -147,12 +147,32 @@ pub fn build(b: *std.Build) void {
 
     runtime_lib.root_module.addIncludePath(b.path("src/runtime"));
     // Build the Zig bridge that wraps libxev's Zig API for C consumption.
-    // A single shared library is reused by runtime_lib and runtime_test_exe.
-    // Building two libraries from the same source in parallel was observed
-    // to intermittently corrupt the output archive on Linux (race when two
-    // identical compilations write into the cache concurrently).
-    const xev_bridge: ?*std.Build.Step.Compile = if (!legacy_poller) blk: {
-        const lib = b.addLibrary(.{
+    //
+    // The bridge is compiled once as an object file and added directly to
+    // runtime_lib and runtime_test_exe via addObject. Linking it through a
+    // shared static archive read concurrently by two executables produced
+    // "truncated or malformed archive" errors on Linux x86_64 / Zig 0.15.2.
+    //
+    // A separate static library is also installed so the driver can link
+    // -lrunxev when compiling user programs.
+    const xev_bridge_obj: ?*std.Build.Step.Compile = if (!legacy_poller) blk: {
+        const obj = b.addObject(.{
+            .name = "run_xev_bridge",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/runtime/run_xev_bridge.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        obj.root_module.addImport("xev", libxev_dep.module("xev"));
+        obj.linkLibC();
+        break :blk obj;
+    } else null;
+    if (xev_bridge_obj) |obj| {
+        runtime_lib.addObject(obj);
+    }
+    if (!legacy_poller) {
+        const xev_lib = b.addLibrary(.{
             .name = "runxev",
             .linkage = .static,
             .root_module = b.createModule(.{
@@ -161,14 +181,9 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }),
         });
-        lib.root_module.addImport("xev", libxev_dep.module("xev"));
-        lib.linkLibC();
-        // Install xev bridge alongside runtime for the driver to link
-        b.installArtifact(lib);
-        break :blk lib;
-    } else null;
-    if (xev_bridge) |lib| {
-        runtime_lib.linkLibrary(lib);
+        xev_lib.root_module.addImport("xev", libxev_dep.module("xev"));
+        xev_lib.linkLibC();
+        b.installArtifact(xev_lib);
     }
     runtime_lib.linkLibC();
     runtime_lib.linkSystemLibrary("pthread");
@@ -263,17 +278,10 @@ pub fn build(b: *std.Build) void {
 
     runtime_test_exe.root_module.addIncludePath(b.path("src/runtime"));
     runtime_test_exe.root_module.addIncludePath(b.path("src/runtime/tests"));
-    // Reuse the shared xev_bridge library so we don't build the same Zig
-    // module twice in parallel (see note at xev_bridge definition).
-    if (xev_bridge) |lib| {
-        runtime_test_exe.linkLibrary(lib);
+    // Reuse the same object file produced for runtime_lib (see note above).
+    if (xev_bridge_obj) |obj| {
+        runtime_test_exe.addObject(obj);
     }
-    // Serialize runtime_test_exe after runtime_lib. Both link the same
-    // librunxev.a archive; on Linux x86_64 / Zig 0.15.2 we observed
-    // "truncated or malformed archive" errors when two linker invocations
-    // read that archive concurrently. Forcing runtime_test_exe to wait for
-    // runtime_lib eliminates the parallel read window.
-    runtime_test_exe.step.dependOn(&runtime_lib.step);
     runtime_test_exe.linkLibC();
     runtime_test_exe.linkSystemLibrary("pthread");
     // Link libunwind for stack trace tests (matches runtime_lib linking).
