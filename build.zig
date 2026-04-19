@@ -171,19 +171,16 @@ pub fn build(b: *std.Build) void {
     if (xev_bridge_obj) |obj| {
         runtime_lib.addObject(obj);
     }
-    if (!legacy_poller) {
-        const xev_lib = b.addLibrary(.{
-            .name = "runxev",
-            .linkage = .static,
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("src/runtime/run_xev_bridge.zig"),
-                .target = target,
-                .optimize = optimize,
-            }),
-        });
-        xev_lib.root_module.addImport("xev", libxev_dep.module("xev"));
-        xev_lib.linkLibC();
-        b.installArtifact(xev_lib);
+    if (xev_bridge_obj) |obj| {
+        // Bundle the already-compiled object into librunxev.a with `ar` so the
+        // driver can still link `-lrunxev`. Going through `ar` directly avoids
+        // the Zig 0.15.2 archiver race that produced truncated archives on
+        // Linux x86_64 when librunxev.a was written and read concurrently.
+        const ar_cmd = b.addSystemCommand(&.{ "ar", "rcs" });
+        const archive = ar_cmd.addOutputFileArg("librunxev.a");
+        ar_cmd.addArtifactArg(obj);
+        const install_xev_lib = b.addInstallFile(archive, "lib/librunxev.a");
+        b.getInstallStep().dependOn(&install_xev_lib.step);
     }
     runtime_lib.linkLibC();
     runtime_lib.linkSystemLibrary("pthread");
