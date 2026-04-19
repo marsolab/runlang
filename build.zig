@@ -268,6 +268,12 @@ pub fn build(b: *std.Build) void {
     if (xev_bridge) |lib| {
         runtime_test_exe.linkLibrary(lib);
     }
+    // Serialize runtime_test_exe after runtime_lib. Both link the same
+    // librunxev.a archive; on Linux x86_64 / Zig 0.15.2 we observed
+    // "truncated or malformed archive" errors when two linker invocations
+    // read that archive concurrently. Forcing runtime_test_exe to wait for
+    // runtime_lib eliminates the parallel read window.
+    runtime_test_exe.step.dependOn(&runtime_lib.step);
     runtime_test_exe.linkLibC();
     runtime_test_exe.linkSystemLibrary("pthread");
     // Link libunwind for stack trace tests (matches runtime_lib linking).
