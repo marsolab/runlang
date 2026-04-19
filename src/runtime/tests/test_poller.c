@@ -144,9 +144,10 @@ static void test_poller_close_while_waiting(void) {
     RUN_ASSERT(rc == 0);
 
     /* Reader parks on poll_wait; closer yields then calls poll_close
-     * which directly wakes the reader via run_g_ready. */
-    run_spawn(reader_close_fn, &pd);
+     * which directly wakes the reader via run_g_ready.
+     * Spawn closer first so reader is popped first (local queue is LIFO). */
     run_spawn(closer_fn, &pd);
+    run_spawn(reader_close_fn, &pd);
 
     run_scheduler_run();
 
@@ -212,10 +213,11 @@ static void test_poller_multiple_fds(void) {
 void run_test_poller(void) {
     TEST_SUITE("run_poller");
     RUN_TEST(test_poller_has_waiters);
-    /* TODO: fix pipe_read with libxev adapter */
-    /* RUN_TEST(test_poller_pipe_read); */
-    /* TODO: fix these with libxev adapter */
     RUN_TEST(test_poller_open_close);
-    /* RUN_TEST(test_poller_close_while_waiting); */
+    RUN_TEST(test_poller_close_while_waiting);
+    RUN_TEST(test_poller_pipe_read);
+    /* Gated on #424: libxev kqueue adapter only fires one fd's callback per
+     * tick when multiple fds are ready, so this test hangs. Re-enable once
+     * the adapter is fixed. */
     /* RUN_TEST(test_poller_multiple_fds); */
 }
