@@ -146,10 +146,13 @@ pub fn build(b: *std.Build) void {
     }
 
     runtime_lib.root_module.addIncludePath(b.path("src/runtime"));
-    // Link libxev bridge for the poller backend
-    if (!legacy_poller) {
-        // Build the Zig bridge that wraps libxev's Zig API for C consumption
-        const xev_bridge = b.addLibrary(.{
+    // Build the Zig bridge that wraps libxev's Zig API for C consumption.
+    // A single shared library is reused by runtime_lib and runtime_test_exe.
+    // Building two libraries from the same source in parallel was observed
+    // to intermittently corrupt the output archive on Linux (race when two
+    // identical compilations write into the cache concurrently).
+    const xev_bridge: ?*std.Build.Step.Compile = if (!legacy_poller) blk: {
+        const lib = b.addLibrary(.{
             .name = "runxev",
             .linkage = .static,
             .root_module = b.createModule(.{
@@ -158,11 +161,14 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }),
         });
-        xev_bridge.root_module.addImport("xev", libxev_dep.module("xev"));
-        xev_bridge.linkLibC();
-        runtime_lib.linkLibrary(xev_bridge);
+        lib.root_module.addImport("xev", libxev_dep.module("xev"));
+        lib.linkLibC();
         // Install xev bridge alongside runtime for the driver to link
-        b.installArtifact(xev_bridge);
+        b.installArtifact(lib);
+        break :blk lib;
+    } else null;
+    if (xev_bridge) |lib| {
+        runtime_lib.linkLibrary(lib);
     }
     runtime_lib.linkLibC();
     runtime_lib.linkSystemLibrary("pthread");
@@ -257,20 +263,10 @@ pub fn build(b: *std.Build) void {
 
     runtime_test_exe.root_module.addIncludePath(b.path("src/runtime"));
     runtime_test_exe.root_module.addIncludePath(b.path("src/runtime/tests"));
-    // Link libxev bridge for test executable
-    if (!legacy_poller) {
-        const xev_test_bridge = b.addLibrary(.{
-            .name = "runxev-test",
-            .linkage = .static,
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("src/runtime/run_xev_bridge.zig"),
-                .target = target,
-                .optimize = optimize,
-            }),
-        });
-        xev_test_bridge.root_module.addImport("xev", libxev_dep.module("xev"));
-        xev_test_bridge.linkLibC();
-        runtime_test_exe.linkLibrary(xev_test_bridge);
+    // Reuse the shared xev_bridge library so we don't build the same Zig
+    // module twice in parallel (see note at xev_bridge definition).
+    if (xev_bridge) |lib| {
+        runtime_test_exe.linkLibrary(lib);
     }
     runtime_test_exe.linkLibC();
     runtime_test_exe.linkSystemLibrary("pthread");
