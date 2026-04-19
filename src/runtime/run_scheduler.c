@@ -850,8 +850,11 @@ void run_scheduler_run(void) {
     /* Run the scheduling loop */
     run_schedule_loop(m);
 
-    /* Cleanup */
-    run_poller_close();
+    /* Cleanup: stop preemption timers, but keep the poller alive.
+     * The poller is initialized once in run_scheduler_init() and lives
+     * for the process lifetime — closing it here would break subsequent
+     * run_scheduler_run() calls (e.g. across tests) that still need to
+     * register fds. The OS reclaims poller resources on process exit. */
     if (use_preemption) {
         run_preemption_stop();
     }
