@@ -73,6 +73,8 @@ run_string_t run_debug_format_stack(run_slice_t frames) {
             pos += (size_t)written;
     }
 
+    /* run_string_from_parts takes ownership of buf. */
+    // NOLINTNEXTLINE(clang-analyzer-unix.Malloc)
     return run_string_from_parts(buf, pos);
 }
 

@@ -100,8 +100,8 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install clang-tidy
-        run: sudo apt-get install -y clang-tidy
+      - name: Install clang-tidy and dependencies
+        run: sudo apt-get install -y clang-tidy libunwind-dev
 
       - name: Run clang-tidy
         run: clang-tidy src/runtime/*.c -- -Isrc/runtime -D_GNU_SOURCE
