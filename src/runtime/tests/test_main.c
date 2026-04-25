@@ -1,5 +1,5 @@
-#include "test_framework.h"
 #include "../run_scheduler.h"
+#include "test_framework.h"
 
 /* Test framework globals */
 int _test_total = 0;
@@ -23,8 +23,11 @@ int main(void) {
     printf("Run Runtime Test Suite\n");
     printf("======================\n");
 
-    /* Force single-processor mode for deterministic testing. */
-    setenv("RUN_MAXPROCS", "1", 1);
+    /* Default to single-processor mode for deterministic testing, but allow
+     * targeted scheduler tests to opt into multi-P via the environment. */
+    if (getenv("RUN_MAXPROCS") == NULL) {
+        setenv("RUN_MAXPROCS", "1", 1);
+    }
 
     /* Initialize the scheduler (required for scheduler and channel tests) */
     run_scheduler_init();

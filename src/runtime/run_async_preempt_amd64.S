@@ -5,7 +5,8 @@
 _run_async_preempt:
 #endif
 run_async_preempt:
-    /* Save all caller-saved registers (the signal interrupted arbitrary code) */
+    /* Save all general-purpose registers that normal function calls may touch
+       or that run_context_switch would otherwise capture from run_yield. */
     pushq   %rax
     pushq   %rcx
     pushq   %rdx
@@ -15,13 +16,27 @@ run_async_preempt:
     pushq   %r9
     pushq   %r10
     pushq   %r11
+    pushq   %rbx
+    pushq   %rbp
+    pushq   %r12
+    pushq   %r13
+    pushq   %r14
+    pushq   %r15
     /* Call run_yield() */
 #if defined(__APPLE__)
     callq   _run_yield
+    callq   _run_async_preempt_done
 #else
     callq   run_yield
+    callq   run_async_preempt_done
 #endif
-    /* Restore caller-saved registers */
+    /* Restore registers */
+    popq    %r15
+    popq    %r14
+    popq    %r13
+    popq    %r12
+    popq    %rbp
+    popq    %rbx
     popq    %r11
     popq    %r10
     popq    %r9
