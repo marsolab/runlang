@@ -1,6 +1,6 @@
-#include "test_framework.h"
 #include "../run_debug_api.h"
 #include "../run_string.h"
+#include "test_framework.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -21,6 +21,7 @@ static void test_debug_stack_trace(void) {
     run_stack_frame_t *top = (run_stack_frame_t *)frames.ptr;
     RUN_ASSERT(top->function.len > 0);
     RUN_ASSERT(top->file.len > 0);
+    RUN_ASSERT(top->line > 0);
 
     /* At least one frame must resolve to the exported suite dispatcher —
      * dladdr on Linux only sees the dynamic symbol table, so static test
@@ -29,8 +30,7 @@ static void test_debug_stack_trace(void) {
     for (size_t i = 0; i < frames.len; i++) {
         run_stack_frame_t *f =
             (run_stack_frame_t *)((char *)frames.ptr + i * sizeof(run_stack_frame_t));
-        if (f->function.len > 0 &&
-            strstr(f->function.ptr, "run_test_debug_api") != NULL) {
+        if (f->function.len > 0 && strstr(f->function.ptr, "run_test_debug_api") != NULL) {
             found_dispatcher = true;
             break;
         }
