@@ -136,6 +136,7 @@ struct run_m {
     pthread_cond_t park_cond;
     volatile bool parked;
     struct run_m *all_next;
+    struct run_m *idle_next;
 };
 
 /* ---------- P — Processor ---------- */
