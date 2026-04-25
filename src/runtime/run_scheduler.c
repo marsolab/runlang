@@ -34,6 +34,8 @@
 /* Default max for growable stacks */
 #define RUN_DEFAULT_STACK_MAX ((size_t)1024 * 1024) /* 1 MB */
 #define RUN_GROWABLE_INITIAL ((size_t)8 * 1024)     /* 8 KB initial commit */
+#define RUN_STACK_SHRINK_THRESHOLD 4                /* shrink below 25% usage */
+#define RUN_STACK_SHRINK_HYSTERESIS 2               /* keep 2x live usage */
 
 /* ========================================================================
  * Thread-Local Storage
@@ -81,7 +83,11 @@ static _Atomic uint64_t next_g_id = 1;
 static _Atomic int64_t live_g_count = 0;
 
 /* Growable stacks enabled flag */
+#if defined(_WIN32)
 static bool growable_stacks_enabled = false;
+#else
+static bool growable_stacks_enabled = true;
+#endif
 static size_t stack_max_size_cached = 0;
 
 /* Multi-P scheduling enabled — lock-free local queues and atomic state. */
@@ -315,6 +321,119 @@ static void run_stack_free(void *base, size_t size) {
     run_vmem_free(base, size);
 }
 
+static char *run_stack_top(run_g_t *g) {
+    return (char *)g->stack_base + g->stack_size;
+}
+
+static size_t run_align_up_size(size_t value, size_t alignment) {
+    return (value + alignment - 1) & ~(alignment - 1);
+}
+
+static void *run_context_sp(run_context_t *ctx) {
+#if defined(__aarch64__) || defined(__arm64__)
+    return ctx->sp;
+#else
+    return ctx->rsp;
+#endif
+}
+
+static void run_stack_record_sp(run_g_t *g, void *sp) {
+    if (!g || !g->stack_base || !sp)
+        return;
+    char *top = run_stack_top(g);
+    char *cur = (char *)sp;
+    if (cur < (char *)g->stack_base || cur > top)
+        return;
+    size_t used = (size_t)(top - cur);
+    if (used > g->stack_watermark) {
+        g->stack_watermark = used;
+    }
+}
+
+static void run_stack_grow_to_sp(run_g_t *g, void *sp) {
+    if (!growable_stacks_enabled || !g || !g->stack_base || !sp)
+        return;
+
+    char *top = run_stack_top(g);
+    char *cur = (char *)sp;
+    if (cur < (char *)g->stack_base || cur > top) {
+        fprintf(stderr, "run: stack overflow in green thread %llu (sp outside stack)\n",
+                (unsigned long long)g->id);
+        abort();
+    }
+
+    size_t page_size = run_vmem_page_size();
+    size_t used = (size_t)(top - cur);
+    size_t needed = run_align_up_size(used + page_size, page_size);
+    if (needed <= g->stack_committed)
+        return;
+
+    size_t new_committed = g->stack_committed;
+    while (new_committed < needed && new_committed < g->stack_size) {
+        new_committed *= 2;
+    }
+    if (new_committed < needed || new_committed > g->stack_size) {
+        fprintf(stderr, "run: stack overflow in green thread %llu (max %zu bytes)\n",
+                (unsigned long long)g->id, g->stack_size);
+        abort();
+    }
+
+    char *old_lo = top - g->stack_committed;
+    char *new_lo = top - new_committed;
+    run_vmem_protect(new_lo, (size_t)(old_lo - new_lo), RUN_VMEM_READWRITE);
+    g->stack_committed = new_committed;
+    g->stack_lo = new_lo;
+}
+
+static size_t run_stack_used_by_sp(run_g_t *g, void *sp) {
+    if (!g || !g->stack_base || !sp)
+        return 0;
+    char *top = run_stack_top(g);
+    char *cur = (char *)sp;
+    if (cur < (char *)g->stack_base || cur > top)
+        return 0;
+    return (size_t)(top - cur);
+}
+
+static void run_stack_maybe_shrink(run_g_t *g, void *sp) {
+    if (!growable_stacks_enabled || !g || !g->stack_base)
+        return;
+    if (g->stack_committed <= RUN_GROWABLE_INITIAL)
+        return;
+
+    size_t current_used = run_stack_used_by_sp(g, sp);
+    size_t page_size = run_vmem_page_size();
+    size_t watermark = run_align_up_size(g->stack_watermark, page_size);
+    if (watermark < RUN_GROWABLE_INITIAL) {
+        watermark = RUN_GROWABLE_INITIAL;
+    }
+    if (watermark * RUN_STACK_SHRINK_THRESHOLD > g->stack_committed) {
+        g->stack_watermark = current_used;
+        return;
+    }
+
+    size_t target = g->stack_committed / 2;
+    size_t minimum = watermark * RUN_STACK_SHRINK_HYSTERESIS;
+    if (target < minimum) {
+        target = run_align_up_size(minimum, page_size);
+    }
+    if (target < RUN_GROWABLE_INITIAL) {
+        target = RUN_GROWABLE_INITIAL;
+    }
+    if (target >= g->stack_committed)
+        return;
+
+    char *top = run_stack_top(g);
+    char *old_lo = top - g->stack_committed;
+    char *new_lo = top - target;
+    size_t release_size = (size_t)(new_lo - old_lo);
+    run_vmem_release(old_lo, release_size);
+    run_vmem_protect(old_lo, release_size, RUN_VMEM_NONE);
+    g->stack_committed = target;
+    g->stack_lo = new_lo;
+    g->stack_watermark = current_used;
+}
+
 /* Push to a P's local queue with overflow to the global queue. */
 static void run_local_push_or_global(run_local_queue_t *lq, run_g_t *g) {
     if (!run_local_queue_push(lq, g)) {
@@ -348,6 +467,12 @@ static run_g_t *run_g_alloc(void (*fn)(void *), void *arg) {
 
     /* Stack top = base + size (stack grows downward) */
     void *stack_top = (char *)g->stack_base + g->stack_size;
+    if (growable_stacks_enabled) {
+        g->stack_lo = (char *)stack_top - g->stack_committed;
+    } else {
+        g->stack_lo = (char *)g->stack_base + RUN_GUARD_PAGE_SIZE;
+    }
+    g->stack_watermark = 0;
 
     /* Initialize context to start at entry function */
     run_context_init(&g->context, stack_top, fn, arg);
@@ -735,6 +860,8 @@ static void run_schedule_loop(run_m_t *m) {
 
         /* Returned here: g yielded or completed */
         m->current_g = NULL;
+        void *saved_sp = run_context_sp(&g->context);
+        run_stack_record_sp(g, saved_sp);
 
         if (g->status == G_DEAD) {
             atomic_fetch_add_explicit(&scheduler_metrics.complete_count, 1, memory_order_relaxed);
@@ -749,6 +876,8 @@ static void run_schedule_loop(run_m_t *m) {
                 run_unpark_all_idle_ms();
             }
             run_g_free(g);
+        } else {
+            run_stack_maybe_shrink(g, saved_sp);
         }
         /* If g->status is G_RUNNABLE (yield), it's already re-enqueued.
          * If g->status is G_WAITING (channel), the channel code handles it. */
@@ -827,12 +956,9 @@ void run_scheduler_init(void) {
     /* Initialize the network poller (io_uring on Linux, kqueue on macOS) */
     run_poller_init();
 
-    /* Check for growable stacks */
-    const char *stack_env = getenv("RUN_STACK_MAX");
-    if (stack_env) {
-        growable_stacks_enabled = true;
-        run_stack_growth_init();
-    }
+    /* Install growable stack fault handling. RUN_STACK_MAX can override the
+     * default reservation size, but stacks are growable by default. */
+    run_stack_growth_init();
 
     /* Check for trace output (#410) */
     const char *trace_env = getenv("RUN_TRACE");
@@ -1362,27 +1488,13 @@ static run_g_t *run_find_g_by_fault_addr(void *addr) {
 }
 
 static void run_stack_growth_handler(int sig, siginfo_t *info, void *uctx) {
-    (void)sig;
     (void)uctx;
 
     void *fault_addr = info->si_addr;
     run_g_t *g = run_find_g_by_fault_addr(fault_addr);
 
     if (g && growable_stacks_enabled) {
-        size_t page_size = run_vmem_page_size();
-        /* Check if we can grow */
-        size_t max_size = run_stack_max_size();
-        if (g->stack_committed >= max_size) {
-            fprintf(stderr, "run: stack overflow in green thread %llu (max %zu bytes)\n",
-                    (unsigned long long)g->id, max_size);
-            abort();
-        }
-
-        /* Commit the page containing the fault address */
-        // NOLINTNEXTLINE(performance-no-int-to-ptr): page alignment requires uintptr_t masking
-        void *page = (void *)((uintptr_t)fault_addr & ~(page_size - 1));
-        run_vmem_protect(page, page_size, RUN_VMEM_READWRITE);
-        g->stack_committed += page_size;
+        run_stack_grow_to_sp(g, fault_addr);
         return; /* Resume execution */
     }
 
@@ -1391,8 +1503,8 @@ static void run_stack_growth_handler(int sig, siginfo_t *info, void *uctx) {
     sa.sa_handler = SIG_DFL;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
-    sigaction(SIGSEGV, &sa, NULL);
-    raise(SIGSEGV);
+    sigaction(sig, &sa, NULL);
+    raise(sig);
 }
 
 void run_stack_growth_init(void) {
@@ -1413,6 +1525,7 @@ void run_stack_growth_init(void) {
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
     sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
 }
 
 #else /* Windows stub */
@@ -1502,9 +1615,16 @@ void run_debug_run_dump_goroutines(char *buf, size_t buf_size) {
  * ======================================================================== */
 
 void run_morestack(void) {
-    /* Stub: real implementation requires stack copying */
-    fputs("run: stack overflow (morestack not yet implemented)\n", stderr);
-    abort();
+    char marker;
+    run_stack_check(&marker);
+}
+
+void run_stack_check(void *sp) {
+    run_g_t *g = run_current_g();
+    if (g == NULL || g->id == 0)
+        return;
+    run_stack_record_sp(g, sp);
+    run_stack_grow_to_sp(g, sp);
 }
 
 /* ========================================================================
