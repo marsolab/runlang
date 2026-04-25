@@ -332,6 +332,8 @@ pub fn build(b: *std.Build) void {
         "benchmarks/runtime/bench_spawn.c",
         "benchmarks/runtime/bench_context_switch.c",
         "benchmarks/runtime/bench_channel.c",
+        "benchmarks/runtime/bench_steal.c",
+        "benchmarks/runtime/bench_poll.c",
         "benchmarks/runtime/bench_scheduler.c",
     };
     inline for (runtime_bench_sources) |src| {
