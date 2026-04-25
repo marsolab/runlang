@@ -15,7 +15,7 @@
 #elif defined(__APPLE__)
 #define RUN_POLLER_KQUEUE 1
 #else
-#define RUN_POLLER_STUB 1
+#error "legacy runtime poller only supports Linux/macOS; use libxev-backed poller"
 #endif
 
 /* ========================================================================
@@ -666,39 +666,6 @@ void run_poller_wakeup(void) {
 
 bool run_poller_has_waiters(void) {
     return __atomic_load_n(&registered_fd_count, __ATOMIC_SEQ_CST) > 0;
-}
-
-/* ========================================================================
- * Stub (unsupported platforms)
- * ======================================================================== */
-
-#elif defined(RUN_POLLER_STUB)
-
-void run_poller_init(void) {}
-void run_poller_close(void) {}
-int run_poll_open(run_poll_desc_t *pd) {
-    (void)pd;
-    return -1;
-}
-void run_poll_close(run_poll_desc_t *pd) {
-    (void)pd;
-}
-void run_poll_wait(run_poll_desc_t *pd, run_poll_event_t events) {
-    (void)pd;
-    (void)events;
-}
-int run_poller_poll(void) {
-    return 0;
-}
-int run_poller_poll_blocking(int64_t timeout_ns) {
-    (void)timeout_ns;
-    return 0;
-}
-void run_poller_wakeup(void) {
-    /* Stub poller: no-op. */
-}
-bool run_poller_has_waiters(void) {
-    return false;
 }
 
 #endif

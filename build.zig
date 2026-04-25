@@ -171,15 +171,31 @@ pub fn build(b: *std.Build) void {
     } else null;
     if (xev_bridge_obj) |obj| {
         runtime_lib.root_module.addObject(obj);
-        // Bundle the already-compiled object into librunxev.a with `ar` so the
-        // driver can still link `-lrunxev`. Going through `ar` directly avoids
-        // the Zig archiver race that produced truncated archives on Linux
-        // x86_64 when librunxev.a was written and read concurrently.
-        const ar_cmd = b.addSystemCommand(&.{ "ar", "rcs" });
-        const archive = ar_cmd.addOutputFileArg("librunxev.a");
-        ar_cmd.addArtifactArg(obj);
-        const install_xev_lib = b.addInstallFile(archive, "lib/librunxev.a");
-        b.getInstallStep().dependOn(&install_xev_lib.step);
+        if (target_info.os.tag == .windows) {
+            const xev_bridge_lib = b.addLibrary(.{
+                .name = "runxev",
+                .linkage = .static,
+                .root_module = b.createModule(.{
+                    .root_source_file = b.path("src/runtime/run_xev_bridge.zig"),
+                    .target = target,
+                    .optimize = optimize,
+                    .link_libc = true,
+                }),
+            });
+            xev_bridge_lib.root_module.addImport("xev", libxev_dep.module("xev"));
+            b.installArtifact(xev_bridge_lib);
+        } else {
+            // Bundle the already-compiled object into librunxev.a with host
+            // `ar` so the driver can still link `-lrunxev`. Going through `ar`
+            // directly avoids the Zig archiver race that produced truncated
+            // archives on Linux x86_64 when librunxev.a was written and read
+            // concurrently.
+            const ar_cmd = b.addSystemCommand(&.{ "ar", "rcs" });
+            const archive = ar_cmd.addOutputFileArg("librunxev.a");
+            ar_cmd.addArtifactArg(obj);
+            const install_xev_lib = b.addInstallFile(archive, "lib/librunxev.a");
+            b.getInstallStep().dependOn(&install_xev_lib.step);
+        }
     }
     runtime_lib.root_module.linkSystemLibrary("pthread", .{});
     // Link libunwind for stack traces with DWARF unwinding.
