@@ -9,14 +9,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #ifndef RUN_VERSION
 #define RUN_VERSION "0.1.0-dev"
 #endif
 
 int64_t run_runtime_num_cpu(void) {
-    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    long n = run_cpu_count();
     return n > 0 ? (int64_t)n : 1;
 }
 
