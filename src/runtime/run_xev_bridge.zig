@@ -4,6 +4,7 @@
 // wraps the Zig API and exports C functions for the runtime's poller adapter.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const xev = @import("xev");
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -21,6 +22,8 @@ const GPtr = ?*anyopaque;
 // Callback the C adapter provides — called when an fd becomes ready.
 // Arguments: fd, events (bitmask: 1=read, 2=write), the G pointers.
 const ReadyCb = *const fn (c_int, u32, GPtr, GPtr) callconv(.c) void;
+
+extern "c" fn _get_osfhandle(fd: c_int) isize;
 
 // ── Per-fd tracking ────────────────────────────────────────────────
 
@@ -61,6 +64,15 @@ var callbacks_fired: u32 = 0;
 
 // The callback set by the C adapter.
 var ready_callback: ?ReadyCb = null;
+
+fn fileHandleFromFd(fd: c_int) ?std.Io.File.Handle {
+    if (builtin.os.tag == .windows) {
+        const handle = _get_osfhandle(fd);
+        if (handle == -1) return null;
+        return @ptrFromInt(@as(usize, @intCast(handle)));
+    }
+    return fd;
+}
 
 // ── C exports ──────────────────────────────────────────────────────
 
@@ -175,21 +187,27 @@ export fn run_xev_close_fd(fd: c_int) void {
 /// Submit read interest for an fd. The associated G will be woken via the callback.
 export fn run_xev_poll_read(fd: c_int, g: GPtr) void {
     if (fd < 0 or fd >= MaxFds) return;
+    const handle = fileHandleFromFd(fd) orelse return;
     const idx: u32 = @intCast(@as(u32, @bitCast(fd)));
     const slot = &fd_slots[idx];
     if (!slot.active) return;
 
-    slot.read_g = g;
-    if (slot.read_armed and slot.read_completion.state() == .active) return;
-
-    slot.read_completion = .{};
-    slot.read_ctx = .{
-        .slot = slot,
-        .generation = slot.generation,
-    };
-    slot.read_armed = true;
-    const file = File.initFd(fd);
-    file.poll(&loop, &slot.read_completion, .read, CompletionContext, &slot.read_ctx, &pollCallback);
+    if (builtin.os.tag == .windows) {
+        slot.read_completion = .{
+            .op = .{
+                .read = .{
+                    .fd = handle,
+                    .buffer = .{ .slice = &.{} },
+                },
+            },
+            .userdata = slot,
+            .callback = readPollCallback,
+        };
+        loop.add(&slot.read_completion);
+    } else {
+        const file = File.initFd(handle);
+        file.poll(&loop, &slot.read_completion, .read, FdSlot, slot, &pollCallback);
+    }
 }
 
 /// Submit write interest for an fd. The associated G will be woken via the
@@ -201,6 +219,7 @@ export fn run_xev_poll_read(fd: c_int, g: GPtr) void {
 /// we care about, and we ignore the returned byte count.
 export fn run_xev_poll_write(fd: c_int, g: GPtr) void {
     if (fd < 0 or fd >= MaxFds) return;
+    const handle = fileHandleFromFd(fd) orelse return;
     const idx: u32 = @intCast(@as(u32, @bitCast(fd)));
     const slot = &fd_slots[idx];
     if (!slot.active) return;
@@ -215,7 +234,7 @@ export fn run_xev_poll_write(fd: c_int, g: GPtr) void {
     slot.write_completion = .{
         .op = .{
             .write = .{
-                .fd = fd,
+                .fd = handle,
                 .buffer = .{ .slice = &.{} },
             },
         },
@@ -224,6 +243,31 @@ export fn run_xev_poll_write(fd: c_int, g: GPtr) void {
     };
     slot.write_armed = true;
     loop.add(&slot.write_completion);
+}
+
+fn readPollCallback(
+    userdata: ?*anyopaque,
+    _: *Loop,
+    _: *Completion,
+    result: xev.Result,
+) CallbackAction {
+    const s: *FdSlot = @ptrCast(@alignCast(userdata orelse return .disarm));
+    if (ready_callback) |cb| {
+        const idx = (@intFromPtr(s) - @intFromPtr(&fd_slots[0])) / @sizeOf(FdSlot);
+        const fd: c_int = @intCast(idx);
+        _ = result.read catch {
+            const rg = s.read_g;
+            const wg = s.write_g;
+            s.read_g = null;
+            s.write_g = null;
+            cb(fd, 3, rg, wg);
+            return .disarm;
+        };
+        const rg = s.read_g;
+        s.read_g = null;
+        cb(fd, 1, rg, null);
+    }
+    return .disarm;
 }
 
 fn writePollCallback(
