@@ -10,6 +10,10 @@ static _Atomic int g_counter = 0;
 static _Atomic int multi_p_counter = 0;
 static _Atomic int tight_loop_entered = 0;
 static _Atomic int tight_loop_stop = 0;
+static volatile size_t stack_growth_committed = 0;
+static volatile size_t stack_growth_watermark = 0;
+static volatile size_t stack_shrink_before = 0;
+static volatile size_t stack_shrink_after = 0;
 
 static void increment_fn(void *arg) {
     (void)arg;
@@ -49,6 +53,36 @@ static void stop_tight_loop_fn(void *arg) {
         run_yield();
     }
     atomic_store_explicit(&tight_loop_stop, 1, memory_order_release);
+}
+
+static void consume_stack(int depth) {
+    char probe;
+    volatile char buf[2048];
+    for (size_t i = 0; i < sizeof(buf); i++) {
+        buf[i] = (char)(depth + (int)i);
+    }
+    run_stack_check(&probe);
+    if (depth > 0) {
+        consume_stack(depth - 1);
+    }
+}
+
+static void stack_growth_fn(void *arg) {
+    (void)arg;
+    consume_stack(32);
+    run_g_t *g = run_current_g();
+    stack_growth_committed = g->stack_committed;
+    stack_growth_watermark = g->stack_watermark;
+}
+
+static void stack_shrink_fn(void *arg) {
+    (void)arg;
+    consume_stack(32);
+    run_yield();
+    run_g_t *g = run_current_g();
+    stack_shrink_before = g->stack_committed;
+    run_yield();
+    stack_shrink_after = g->stack_committed;
 }
 
 /* --- Tests --- */
@@ -120,6 +154,24 @@ static void test_multi_p_progress(void) {
     }
     run_scheduler_run();
     RUN_ASSERT_EQ(atomic_load_explicit(&multi_p_counter, memory_order_relaxed), 64 * 4);
+}
+
+static void test_stack_growth(void) {
+    stack_growth_committed = 0;
+    stack_growth_watermark = 0;
+    run_spawn(stack_growth_fn, NULL);
+    run_scheduler_run();
+    RUN_ASSERT(stack_growth_committed > 8 * 1024);
+    RUN_ASSERT(stack_growth_watermark > 8 * 1024);
+}
+
+static void test_stack_shrink(void) {
+    stack_shrink_before = 0;
+    stack_shrink_after = 0;
+    run_spawn(stack_shrink_fn, NULL);
+    run_scheduler_run();
+    RUN_ASSERT(stack_shrink_before > 8 * 1024);
+    RUN_ASSERT(stack_shrink_after < stack_shrink_before);
 }
 
 /* --- G Queue Tests --- */
@@ -244,6 +296,8 @@ void run_test_scheduler(void) {
     RUN_TEST(test_yield);
     RUN_TEST(test_spawn_many);
     RUN_TEST(test_multi_p_progress);
+    RUN_TEST(test_stack_growth);
+    RUN_TEST(test_stack_shrink);
     RUN_TEST(test_runtime_metrics);
     RUN_TEST(test_signal_preemption_tight_loop);
 }
