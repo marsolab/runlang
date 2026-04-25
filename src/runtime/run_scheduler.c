@@ -4,15 +4,14 @@
 #include "run_poller.h"
 #include "run_vmem.h"
 
-#include <signal.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 
 #if defined(__linux__) || defined(__APPLE__)
+#include <signal.h>
 #include <sys/time.h>
 #endif
 
@@ -41,7 +40,7 @@
  * Thread-Local Storage
  * ======================================================================== */
 
-static __thread run_m_t *tls_current_m = NULL;
+static RUN_THREAD_LOCAL run_m_t *tls_current_m = NULL;
 
 run_g_t *run_current_g(void) {
     return tls_current_m ? tls_current_m->current_g : NULL;
@@ -60,21 +59,21 @@ static uint32_t num_ps = 0;
 
 /* Global run queue */
 static run_g_queue_t global_queue;
-static pthread_mutex_t global_queue_lock = PTHREAD_MUTEX_INITIALIZER;
+static run_mutex_t global_queue_lock = RUN_MUTEX_INITIALIZER;
 
 /* Idle lists */
 static uint32_t idle_p_stack[RUN_MAX_P_COUNT]; /* stack of idle P indices */
 static uint32_t idle_p_count = 0;
-static pthread_mutex_t idle_p_lock = PTHREAD_MUTEX_INITIALIZER;
+static run_mutex_t idle_p_lock = RUN_MUTEX_INITIALIZER;
 
 /* All Ms */
 static run_m_t *all_ms = NULL;
 static uint32_t num_ms = 0;
-static pthread_mutex_t all_ms_lock = PTHREAD_MUTEX_INITIALIZER;
+static run_mutex_t all_ms_lock = RUN_MUTEX_INITIALIZER;
 
 /* Idle Ms waiting to be woken */
 static run_m_t *idle_m_head = NULL;
-static pthread_mutex_t idle_m_lock = PTHREAD_MUTEX_INITIALIZER;
+static run_mutex_t idle_m_lock = RUN_MUTEX_INITIALIZER;
 
 /* G ID counter */
 static _Atomic uint64_t next_g_id = 1;
@@ -95,6 +94,9 @@ static bool scheduler_initialized = false;
 
 /* Preemption timer active */
 static bool preemption_timer_active = false;
+#if defined(_WIN32)
+static run_platform_timer_t preemption_timer;
+#endif
 
 /* Signal preemption active */
 static bool signal_preemption_active = false;
@@ -268,6 +270,7 @@ static void run_pin_m_to_node(run_m_t *m, uint32_t node_id) {
     }
     pthread_setaffinity_np(m->thread, sizeof(cpuset), &cpuset);
 #elif defined(_WIN32)
+    (void)m;
     uint32_t cpu_count;
     const uint32_t *cpus = run_numa_cpus_on_node(node_id, &cpu_count);
     if (cpu_count == 0)
@@ -517,14 +520,14 @@ static run_m_t *run_m_alloc(void) {
         abort();
     }
 
-    pthread_mutex_lock(&all_ms_lock);
+    run_mutex_lock(&all_ms_lock);
     m->id = num_ms++;
     m->all_next = all_ms;
     all_ms = m;
-    pthread_mutex_unlock(&all_ms_lock);
+    run_mutex_unlock(&all_ms_lock);
 
-    pthread_mutex_init(&m->park_mutex, NULL);
-    pthread_cond_init(&m->park_cond, NULL);
+    run_mutex_init(&m->park_mutex);
+    run_cond_init(&m->park_cond);
     m->parked = false;
 
     /* Allocate g0 (scheduler goroutine) with its own stack */
@@ -548,13 +551,13 @@ static run_m_t *run_m_alloc(void) {
  * ======================================================================== */
 
 static run_p_t *run_acquire_idle_p(void) {
-    pthread_mutex_lock(&idle_p_lock);
+    run_mutex_lock(&idle_p_lock);
     if (idle_p_count == 0) {
-        pthread_mutex_unlock(&idle_p_lock);
+        run_mutex_unlock(&idle_p_lock);
         return NULL;
     }
     uint32_t idx = idle_p_stack[--idle_p_count];
-    pthread_mutex_unlock(&idle_p_lock);
+    run_mutex_unlock(&idle_p_lock);
 
     run_p_t *p = &all_ps[idx];
     p->status = P_RUNNING;
@@ -562,18 +565,18 @@ static run_p_t *run_acquire_idle_p(void) {
 }
 
 static bool run_has_idle_p(void) {
-    pthread_mutex_lock(&idle_p_lock);
+    run_mutex_lock(&idle_p_lock);
     bool has_idle = idle_p_count > 0;
-    pthread_mutex_unlock(&idle_p_lock);
+    run_mutex_unlock(&idle_p_lock);
     return has_idle;
 }
 
 static void run_release_p(run_p_t *p) {
     p->status = P_IDLE;
     p->bound_m = NULL;
-    pthread_mutex_lock(&idle_p_lock);
+    run_mutex_lock(&idle_p_lock);
     idle_p_stack[idle_p_count++] = p->id;
-    pthread_mutex_unlock(&idle_p_lock);
+    run_mutex_unlock(&idle_p_lock);
 }
 
 /* ========================================================================
@@ -581,22 +584,22 @@ static void run_release_p(run_p_t *p) {
  * ======================================================================== */
 
 void run_global_queue_push(run_g_t *g) {
-    pthread_mutex_lock(&global_queue_lock);
+    run_mutex_lock(&global_queue_lock);
     run_g_queue_push(&global_queue, g);
-    pthread_mutex_unlock(&global_queue_lock);
+    run_mutex_unlock(&global_queue_lock);
 }
 
 run_g_t *run_global_queue_pop(void) {
-    pthread_mutex_lock(&global_queue_lock);
+    run_mutex_lock(&global_queue_lock);
     run_g_t *g = run_g_queue_pop(&global_queue);
-    pthread_mutex_unlock(&global_queue_lock);
+    run_mutex_unlock(&global_queue_lock);
     return g;
 }
 
 uint32_t run_global_queue_len(void) {
-    pthread_mutex_lock(&global_queue_lock);
+    run_mutex_lock(&global_queue_lock);
     uint32_t len = global_queue.len;
-    pthread_mutex_unlock(&global_queue_lock);
+    run_mutex_unlock(&global_queue_lock);
     return len;
 }
 
@@ -605,12 +608,12 @@ uint32_t run_global_queue_len(void) {
  * ======================================================================== */
 
 /* Simple xorshift RNG for work stealing victim selection. */
-static __thread uint32_t steal_rng_state = 0;
+static RUN_THREAD_LOCAL uint32_t steal_rng_state = 0;
 
 static uint32_t run_steal_random(void) {
     if (steal_rng_state == 0) {
         /* Seed from thread ID */
-        steal_rng_state = (uint32_t)(uintptr_t)pthread_self() ^ 0xDEADBEEF;
+        steal_rng_state = (uint32_t)run_thread_seed() ^ 0xDEADBEEF;
     }
     uint32_t x = steal_rng_state;
     x ^= x << 13;
@@ -686,19 +689,19 @@ static void run_park_m(run_m_t *m) {
                 (long long)run_metrics_global_queue_len(), (long long)run_metrics_local_queue_len(),
                 (long long)run_metrics_poll_waiter_count());
     }
-    pthread_mutex_lock(&m->park_mutex);
+    run_mutex_lock(&m->park_mutex);
     m->parked = true;
 
     /* Add to idle M list */
-    pthread_mutex_lock(&idle_m_lock);
+    run_mutex_lock(&idle_m_lock);
     m->idle_next = idle_m_head;
     idle_m_head = m;
-    pthread_mutex_unlock(&idle_m_lock);
+    run_mutex_unlock(&idle_m_lock);
 
     while (m->parked) {
-        pthread_cond_wait(&m->park_cond, &m->park_mutex);
+        run_cond_wait(&m->park_cond, &m->park_mutex);
     }
-    pthread_mutex_unlock(&m->park_mutex);
+    run_mutex_unlock(&m->park_mutex);
 }
 
 static void run_unpark_m(run_m_t *m) {
@@ -711,17 +714,17 @@ static void run_unpark_m(run_m_t *m) {
                 (long long)run_metrics_local_queue_len(),
                 (long long)run_metrics_poll_waiter_count());
     }
-    pthread_mutex_lock(&m->park_mutex);
+    run_mutex_lock(&m->park_mutex);
     m->parked = false;
-    pthread_cond_signal(&m->park_cond);
-    pthread_mutex_unlock(&m->park_mutex);
+    run_cond_signal(&m->park_cond);
+    run_mutex_unlock(&m->park_mutex);
 }
 
 static void run_unpark_all_idle_ms(void) {
-    pthread_mutex_lock(&idle_m_lock);
+    run_mutex_lock(&idle_m_lock);
     run_m_t *m = idle_m_head;
     idle_m_head = NULL;
-    pthread_mutex_unlock(&idle_m_lock);
+    run_mutex_unlock(&idle_m_lock);
 
     while (m != NULL) {
         run_m_t *next = m->idle_next;
@@ -733,13 +736,13 @@ static void run_unpark_all_idle_ms(void) {
 
 void run_wake_m(void) {
     /* Try to wake an idle M */
-    pthread_mutex_lock(&idle_m_lock);
+    run_mutex_lock(&idle_m_lock);
     run_m_t *m = idle_m_head;
     if (m) {
         idle_m_head = m->idle_next;
         m->idle_next = NULL;
     }
-    pthread_mutex_unlock(&idle_m_lock);
+    run_mutex_unlock(&idle_m_lock);
 
     if (m) {
         /* Get an idle P for this M */
@@ -750,18 +753,18 @@ void run_wake_m(void) {
             run_unpark_m(m);
         } else {
             /* No idle P — put M back */
-            pthread_mutex_lock(&idle_m_lock);
+            run_mutex_lock(&idle_m_lock);
             m->idle_next = idle_m_head;
             idle_m_head = m;
-            pthread_mutex_unlock(&idle_m_lock);
+            run_mutex_unlock(&idle_m_lock);
         }
         return;
     }
 
     /* No idle M — create a new one if under limit */
-    pthread_mutex_lock(&all_ms_lock);
+    run_mutex_lock(&all_ms_lock);
     uint32_t current_ms = num_ms;
-    pthread_mutex_unlock(&all_ms_lock);
+    run_mutex_unlock(&all_ms_lock);
 
     if (current_ms >= RUN_MAX_M_COUNT)
         return;
@@ -777,8 +780,12 @@ void run_wake_m(void) {
     new_m->current_p = p;
     p->bound_m = new_m;
 
-    pthread_create(&new_m->thread, NULL, run_m_thread_entry, new_m);
-    pthread_detach(new_m->thread);
+    if (run_thread_create(&new_m->thread, run_m_thread_entry, new_m) != 0) {
+        p->bound_m = NULL;
+        run_release_p(p);
+        return;
+    }
+    run_thread_detach(new_m->thread);
 }
 
 /* ========================================================================
@@ -949,7 +956,7 @@ void run_scheduler_init(void) {
 
     /* Multi-P: default to CPU count. */
     {
-        long cpus = sysconf(_SC_NPROCESSORS_ONLN);
+        long cpus = run_cpu_count();
         num_ps = (cpus > 0 && cpus <= RUN_MAX_P_COUNT) ? (uint32_t)cpus : 1;
     }
     const char *maxprocs_env = getenv("RUN_MAXPROCS");
@@ -981,7 +988,7 @@ void run_scheduler_init(void) {
 
     /* Create M0 wrapping the main OS thread */
     run_m_t *m0 = run_m_alloc();
-    m0->thread = pthread_self();
+    m0->thread = run_thread_self();
     m0->current_p = &all_ps[0];
     all_ps[0].status = P_RUNNING;
     all_ps[0].bound_m = m0;
@@ -1265,7 +1272,40 @@ void run_numa_pin(uint32_t node_id) {
  * Cooperative Preemption (#84) — Timer-based
  * ======================================================================== */
 
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(_WIN32)
+
+static void run_preempt_timer_callback(void *arg) {
+    (void)arg;
+
+    run_mutex_lock(&all_ms_lock);
+    for (run_m_t *m = all_ms; m != NULL; m = m->all_next) {
+        run_g_t *g = m->current_g;
+        if (g && g->status == G_RUNNING) {
+            g->preempt = true;
+        }
+    }
+    run_mutex_unlock(&all_ms_lock);
+}
+
+void run_preemption_start(void) {
+    if (preemption_timer_active)
+        return;
+
+    if (run_timer_start(&preemption_timer, RUN_PREEMPT_INTERVAL_US, run_preempt_timer_callback,
+                        NULL)) {
+        preemption_timer_active = true;
+    }
+}
+
+void run_preemption_stop(void) {
+    if (!preemption_timer_active)
+        return;
+
+    run_timer_stop(&preemption_timer);
+    preemption_timer_active = false;
+}
+
+#elif defined(__linux__) || defined(__APPLE__)
 
 static void run_preempt_timer_handler(int sig) {
     (void)sig;
@@ -1305,9 +1345,9 @@ void run_preemption_stop(void) {
     preemption_timer_active = false;
 }
 
-#else /* Windows stub */
+#else
 
-void run_preemption_start(void) { /* TODO: Windows timer */ }
+void run_preemption_start(void) {}
 void run_preemption_stop(void) {}
 
 #endif
@@ -1332,9 +1372,9 @@ void run_entersyscall(void) {
     p->bound_m = NULL;
 
     /* Put P in idle list so another M can pick it up */
-    pthread_mutex_lock(&idle_p_lock);
+    run_mutex_lock(&idle_p_lock);
     idle_p_stack[idle_p_count++] = p->id;
-    pthread_mutex_unlock(&idle_p_lock);
+    run_mutex_unlock(&idle_p_lock);
 
     /* Wake an M to take over this P's work */
     if (run_local_queue_len(&p->local_queue) > 0) {
@@ -1462,7 +1502,7 @@ static void *run_signal_preemption_thread_entry(void *arg) {
     while (atomic_load_explicit(&signal_preemption_thread_running, memory_order_acquire)) {
         nanosleep(&interval, NULL);
 
-        pthread_mutex_lock(&all_ms_lock);
+        run_mutex_lock(&all_ms_lock);
         for (run_m_t *m = all_ms; m != NULL; m = m->all_next) {
             run_g_t *g = m->current_g;
             if (g == NULL || g->status != G_RUNNING)
@@ -1471,7 +1511,7 @@ static void *run_signal_preemption_thread_entry(void *arg) {
                 continue;
             pthread_kill(m->thread, SIGURG);
         }
-        pthread_mutex_unlock(&all_ms_lock);
+        run_mutex_unlock(&all_ms_lock);
     }
 
     return NULL;

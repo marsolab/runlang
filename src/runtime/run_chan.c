@@ -2,7 +2,6 @@
 
 #include "run_scheduler.h"
 
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,7 +11,7 @@
  * ======================================================================== */
 
 struct run_chan {
-    pthread_mutex_t lock;
+    run_mutex_t lock;
 
     size_t elem_size;  /* size of each element in bytes */
     size_t buffer_cap; /* buffer capacity (0 = unbuffered) */
@@ -38,7 +37,7 @@ run_chan_t *run_chan_new(size_t elem_size, size_t buffer_cap) {
         abort();
     }
 
-    pthread_mutex_init(&ch->lock, NULL);
+    run_mutex_init(&ch->lock);
     ch->elem_size = elem_size;
     ch->buffer_cap = buffer_cap;
     ch->buffer_len = 0;
@@ -63,7 +62,7 @@ run_chan_t *run_chan_new(size_t elem_size, size_t buffer_cap) {
 void run_chan_free(run_chan_t *ch) {
     if (!ch)
         return;
-    pthread_mutex_destroy(&ch->lock);
+    run_mutex_destroy(&ch->lock);
     free(ch->buffer);
     free(ch);
 }
@@ -79,10 +78,10 @@ void run_chan_free(run_chan_t *ch) {
  * ======================================================================== */
 
 void run_chan_send(run_chan_t *ch, const void *data) {
-    pthread_mutex_lock(&ch->lock);
+    run_mutex_lock(&ch->lock);
 
     if (ch->closed) {
-        pthread_mutex_unlock(&ch->lock);
+        run_mutex_unlock(&ch->lock);
         fprintf(stderr, "run: send on closed channel\n");
         abort();
     }
@@ -92,7 +91,7 @@ void run_chan_send(run_chan_t *ch, const void *data) {
         run_g_t *receiver = run_g_queue_pop(&ch->recv_q);
         /* Direct copy: data -> receiver's waiting slot */
         memcpy(receiver->chan_data_ptr, data, ch->elem_size);
-        pthread_mutex_unlock(&ch->lock);
+        run_mutex_unlock(&ch->lock);
         run_g_ready(receiver);
         return;
     }
@@ -103,7 +102,7 @@ void run_chan_send(run_chan_t *ch, const void *data) {
         memcpy(slot, data, ch->elem_size);
         ch->send_idx = (ch->send_idx + 1) % ch->buffer_cap;
         ch->buffer_len++;
-        pthread_mutex_unlock(&ch->lock);
+        run_mutex_unlock(&ch->lock);
         return;
     }
 
@@ -112,7 +111,7 @@ void run_chan_send(run_chan_t *ch, const void *data) {
     if (!g) {
         /* Called from main thread before scheduler is running --
          * this would deadlock. */
-        pthread_mutex_unlock(&ch->lock);
+        run_mutex_unlock(&ch->lock);
         fprintf(stderr, "run: channel send would block on main thread\n");
         abort();
     }
@@ -121,7 +120,7 @@ void run_chan_send(run_chan_t *ch, const void *data) {
     g->chan_data_ptr = (void *)data; /* sender's data stays in place */
     g->chan_panic = false;
     run_g_queue_push(&ch->send_q, g);
-    pthread_mutex_unlock(&ch->lock);
+    run_mutex_unlock(&ch->lock);
 
     run_schedule(); /* context switch to scheduler */
     /* Resumed here after a receiver copies our data */
@@ -138,7 +137,7 @@ void run_chan_send(run_chan_t *ch, const void *data) {
  * ======================================================================== */
 
 void run_chan_recv(run_chan_t *ch, void *data) {
-    pthread_mutex_lock(&ch->lock);
+    run_mutex_lock(&ch->lock);
 
     /* Fast path: waiting sender exists */
     if (ch->send_q.len > 0) {
@@ -158,7 +157,7 @@ void run_chan_recv(run_chan_t *ch, void *data) {
             /* Unbuffered: direct copy from sender */
             memcpy(data, sender->chan_data_ptr, ch->elem_size);
         }
-        pthread_mutex_unlock(&ch->lock);
+        run_mutex_unlock(&ch->lock);
         run_g_ready(sender);
         return;
     }
@@ -169,21 +168,21 @@ void run_chan_recv(run_chan_t *ch, void *data) {
         memcpy(data, slot, ch->elem_size);
         ch->recv_idx = (ch->recv_idx + 1) % ch->buffer_cap;
         ch->buffer_len--;
-        pthread_mutex_unlock(&ch->lock);
+        run_mutex_unlock(&ch->lock);
         return;
     }
 
     /* Channel is closed and empty */
     if (ch->closed) {
         memset(data, 0, ch->elem_size); /* zero value */
-        pthread_mutex_unlock(&ch->lock);
+        run_mutex_unlock(&ch->lock);
         return;
     }
 
     /* Must block: buffer empty (or unbuffered with no sender) */
     run_g_t *g = run_current_g();
     if (!g) {
-        pthread_mutex_unlock(&ch->lock);
+        run_mutex_unlock(&ch->lock);
         fprintf(stderr, "run: channel recv would block on main thread\n");
         abort();
     }
@@ -192,7 +191,7 @@ void run_chan_recv(run_chan_t *ch, void *data) {
     g->chan_data_ptr = data; /* receiver provides the destination */
     g->chan_panic = false;
     run_g_queue_push(&ch->recv_q, g);
-    pthread_mutex_unlock(&ch->lock);
+    run_mutex_unlock(&ch->lock);
 
     run_schedule(); /* context switch to scheduler */
     /* Resumed here after a sender copies data to our slot */
@@ -203,10 +202,10 @@ void run_chan_recv(run_chan_t *ch, void *data) {
  * ======================================================================== */
 
 void run_chan_close(run_chan_t *ch) {
-    pthread_mutex_lock(&ch->lock);
+    run_mutex_lock(&ch->lock);
 
     if (ch->closed) {
-        pthread_mutex_unlock(&ch->lock);
+        run_mutex_unlock(&ch->lock);
         fprintf(stderr, "run: close of closed channel\n");
         abort();
     }
@@ -232,7 +231,7 @@ void run_chan_close(run_chan_t *ch) {
         run_g_queue_push(&wake_list, g);
     }
 
-    pthread_mutex_unlock(&ch->lock);
+    run_mutex_unlock(&ch->lock);
 
     /* Make all collected Gs runnable (outside the channel lock) */
     run_g_t *g;
