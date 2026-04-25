@@ -272,11 +272,13 @@ fn readPollCallback(
             const wg = s.write_g;
             s.read_g = null;
             s.write_g = null;
+            if (rg != null or wg != null) callbacks_fired += 1;
             cb(fd, 3, rg, wg);
             return .disarm;
         };
         const rg = s.read_g;
         s.read_g = null;
+        if (rg != null) callbacks_fired += 1;
         cb(fd, 1, rg, null);
     }
     return .disarm;
@@ -348,6 +350,9 @@ export fn run_xev_tick() c_int {
     if (!loop_initialized) return 0;
     if (registered_count <= 0) return 0;
 
+    // Drain all currently-ready completions in this tick. On kqueue, a single
+    // no_wait run can report only one completion even when multiple fds are
+    // already ready; bounded draining ensures fairness and avoids dropped wakeups.
     callbacks_fired = 0;
     var previous_callbacks: u32 = 0;
     var i: u8 = 0;
