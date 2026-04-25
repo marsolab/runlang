@@ -244,6 +244,7 @@ pub fn build(b: *std.Build) void {
         "src/runtime/tests/test_runtime_api.c",
         "src/runtime/tests/test_debug_api.c",
         "src/runtime/tests/test_poller.c",
+        "src/runtime/tests/test_stress.c",
     };
     inline for (runtime_test_sources) |src| {
         runtime_test_exe.root_module.addCSourceFile(.{

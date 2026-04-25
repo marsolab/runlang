@@ -18,6 +18,7 @@ extern void run_test_numa(void);
 extern void run_test_runtime_api(void);
 extern void run_test_debug_api(void);
 extern void run_test_poller(void);
+extern void run_test_stress(void);
 
 int main(void) {
     printf("Run Runtime Test Suite\n");
@@ -42,6 +43,7 @@ int main(void) {
     run_test_scheduler();
     run_test_chan();
     run_test_poller();
+    run_test_stress();
 
     TEST_SUMMARY();
 }
