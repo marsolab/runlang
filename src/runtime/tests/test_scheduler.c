@@ -265,6 +265,12 @@ static void test_runtime_metrics(void) {
     /* context_switches should have increased (at least one per G) */
     int64_t switches = after.context_switches - before.context_switches;
     RUN_ASSERT((int)switches >= spawn_n);
+
+    /* Snapshot gauges should expose scheduler, queue, and poller visibility. */
+    RUN_ASSERT(after.global_queue_len >= 0);
+    RUN_ASSERT(after.local_queue_len >= 0);
+    RUN_ASSERT(after.live_g_count == 0);
+    RUN_ASSERT(after.poll_waiter_count >= 0);
 }
 
 static void test_signal_preemption_tight_loop(void) {
