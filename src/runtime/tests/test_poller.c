@@ -305,24 +305,20 @@ static void test_poller_write_park(void) {
     close(fds[1]);
 }
 
+static void test_poller_write_then_pipe_read(void) {
+    test_poller_write_park();
+    test_poller_pipe_read();
+}
+
 /* --- Suite entry point --- */
 
 void run_test_poller(void) {
     TEST_SUITE("run_poller");
     RUN_TEST(test_poller_has_waiters);
     RUN_TEST(test_poller_open_close);
-    /* Gated on #426: hangs on Linux x86_64 CI due to libxev epoll state leaking
-     * across tests (passes in isolation and on macOS). Re-enable once #426 is fixed. */
-    /* RUN_TEST(test_poller_close_while_waiting); */
-    /* Gated on #426: hangs on macOS CI due to libxev kqueue state leaking from
-     * prior tests (passes in isolation). Re-enable once #426 is fixed. */
-    /* RUN_TEST(test_poller_pipe_read); */
-    /* Gated on #426: passes in isolation, but running it in the same suite as
-     * test_poller_pipe_read in either order causes the second test to hang due
-     * to inter-test libxev state leak. Re-enable once #426 is fixed. */
-    /* RUN_TEST(test_poller_write_park); */
-    /* Gated on #424: libxev kqueue adapter only fires one fd's callback per
-     * tick when multiple fds are ready, so this test hangs. Re-enable once
-     * the adapter is fixed. */
-    /* RUN_TEST(test_poller_multiple_fds); */
+    RUN_TEST(test_poller_close_while_waiting);
+    RUN_TEST(test_poller_pipe_read);
+    RUN_TEST(test_poller_write_park);
+    RUN_TEST(test_poller_write_then_pipe_read);
+    RUN_TEST(test_poller_multiple_fds);
 }
