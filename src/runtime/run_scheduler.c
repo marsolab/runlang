@@ -98,6 +98,8 @@ static bool preemption_timer_active = false;
 
 /* Signal preemption active */
 static bool signal_preemption_active = false;
+static pthread_t signal_preemption_thread;
+static _Atomic bool signal_preemption_thread_running = false;
 
 /* Runtime metrics (#410) */
 static run_metrics_t scheduler_metrics = {0};
@@ -541,6 +543,13 @@ static run_p_t *run_acquire_idle_p(void) {
     return p;
 }
 
+static bool run_has_idle_p(void) {
+    pthread_mutex_lock(&idle_p_lock);
+    bool has_idle = idle_p_count > 0;
+    pthread_mutex_unlock(&idle_p_lock);
+    return has_idle;
+}
+
 static void run_release_p(run_p_t *p) {
     p->status = P_IDLE;
     p->bound_m = NULL;
@@ -658,7 +667,7 @@ static void run_park_m(run_m_t *m) {
 
     /* Add to idle M list */
     pthread_mutex_lock(&idle_m_lock);
-    m->all_next = idle_m_head; /* reuse all_next for idle list */
+    m->idle_next = idle_m_head;
     idle_m_head = m;
     pthread_mutex_unlock(&idle_m_lock);
 
@@ -679,12 +688,27 @@ static void run_unpark_m(run_m_t *m) {
     pthread_mutex_unlock(&m->park_mutex);
 }
 
+static void run_unpark_all_idle_ms(void) {
+    pthread_mutex_lock(&idle_m_lock);
+    run_m_t *m = idle_m_head;
+    idle_m_head = NULL;
+    pthread_mutex_unlock(&idle_m_lock);
+
+    while (m != NULL) {
+        run_m_t *next = m->idle_next;
+        m->idle_next = NULL;
+        run_unpark_m(m);
+        m = next;
+    }
+}
+
 void run_wake_m(void) {
     /* Try to wake an idle M */
     pthread_mutex_lock(&idle_m_lock);
     run_m_t *m = idle_m_head;
     if (m) {
-        idle_m_head = m->all_next;
+        idle_m_head = m->idle_next;
+        m->idle_next = NULL;
     }
     pthread_mutex_unlock(&idle_m_lock);
 
@@ -698,7 +722,7 @@ void run_wake_m(void) {
         } else {
             /* No idle P — put M back */
             pthread_mutex_lock(&idle_m_lock);
-            m->all_next = idle_m_head;
+            m->idle_next = idle_m_head;
             idle_m_head = m;
             pthread_mutex_unlock(&idle_m_lock);
         }
@@ -845,7 +869,12 @@ static void run_schedule_loop(run_m_t *m) {
                 fprintf(stderr, "{\"event\":\"complete\",\"g_id\":%llu}\n",
                         (unsigned long long)g->id);
             }
-            atomic_fetch_sub_explicit(&live_g_count, 1, memory_order_release);
+            int64_t remaining =
+                atomic_fetch_sub_explicit(&live_g_count, 1, memory_order_release) - 1;
+            if (remaining <= 0) {
+                run_poller_wakeup();
+                run_unpark_all_idle_ms();
+            }
             run_g_free(g);
         } else {
             run_stack_maybe_shrink(g, saved_sp);
@@ -1019,7 +1048,7 @@ void run_spawn(void (*fn)(void *), void *arg) {
 
     /* If there are idle Ps, wake an M to handle the new work.
      * Only safe from the main thread or scheduler context. */
-    if (idle_p_count > 0 && m && m->current_g == NULL) {
+    if (m && m->current_g == NULL && run_has_idle_p()) {
         run_wake_m();
     }
 }
@@ -1031,10 +1060,14 @@ void run_yield(void) {
 
     run_g_t *g = m->current_g;
     g->status = G_RUNNABLE;
+    bool was_preempted = g->preempt;
     g->preempt = false;
 
-    /* Re-enqueue to local queue */
-    if (m->current_p) {
+    /* Voluntary yields preserve local LIFO behavior. Preemptive yields go
+     * through the global FIFO queue so another runnable G on this P can run. */
+    if (was_preempted) {
+        run_global_queue_push(g);
+    } else if (m->current_p) {
         run_local_push_or_global(&m->current_p->local_queue, g);
     } else {
         run_global_queue_push(g);
@@ -1112,7 +1145,7 @@ void run_g_ready(run_g_t *g) {
 
 wake:
     /* Wake an M if there are idle Ps. */
-    if (idle_p_count > 0) {
+    if (run_has_idle_p()) {
         run_poller_wakeup(); /* Unblock M in poll_blocking */
         run_wake_m();
     }
@@ -1163,7 +1196,7 @@ void run_spawn_on_node(void (*fn)(void *), void *arg, int32_t node_id) {
 
 wake:
     /* Wake an M if there are idle Ps. */
-    if (idle_p_count > 0) {
+    if (run_has_idle_p()) {
         run_poller_wakeup(); /* Unblock M in poll_blocking */
         run_wake_m();
     }
@@ -1293,6 +1326,51 @@ void run_exitsyscall(void) {
 
 extern void run_async_preempt(void);
 
+static bool run_install_async_preempt_frame(ucontext_t *uc) {
+#if defined(__APPLE__)
+#if defined(__aarch64__)
+    uint64_t pc = uc->uc_mcontext->__ss.__pc;
+    uint64_t sp = uc->uc_mcontext->__ss.__sp - 16;
+    *(uint64_t *)sp = uc->uc_mcontext->__ss.__lr;
+    uc->uc_mcontext->__ss.__sp = sp;
+    uc->uc_mcontext->__ss.__lr = pc;
+    uc->uc_mcontext->__ss.__pc = (uint64_t)run_async_preempt;
+    return true;
+#elif defined(__x86_64__)
+    uint64_t pc = uc->uc_mcontext->__ss.__rip;
+    uint64_t sp = uc->uc_mcontext->__ss.__rsp - sizeof(uint64_t);
+    *(uint64_t *)sp = pc;
+    uc->uc_mcontext->__ss.__rsp = sp;
+    uc->uc_mcontext->__ss.__rip = (uint64_t)run_async_preempt;
+    return true;
+#else
+    return false;
+#endif
+#elif defined(__linux__)
+#if defined(__aarch64__)
+    uint64_t pc = uc->uc_mcontext.pc;
+    uint64_t sp = uc->uc_mcontext.sp - 16;
+    *(uint64_t *)sp = uc->uc_mcontext.regs[30];
+    uc->uc_mcontext.sp = sp;
+    uc->uc_mcontext.regs[30] = pc;
+    uc->uc_mcontext.pc = (uint64_t)run_async_preempt;
+    return true;
+#elif defined(__x86_64__)
+    greg_t pc = uc->uc_mcontext.gregs[REG_RIP];
+    greg_t sp = uc->uc_mcontext.gregs[REG_RSP] - (greg_t)sizeof(greg_t);
+    *(greg_t *)sp = pc;
+    uc->uc_mcontext.gregs[REG_RSP] = sp;
+    uc->uc_mcontext.gregs[REG_RIP] = (greg_t)(uintptr_t)run_async_preempt;
+    return true;
+#else
+    return false;
+#endif
+#else
+    (void)uc;
+    return false;
+#endif
+}
+
 static void run_sigurg_handler(int sig, siginfo_t *info, void *uctx) {
     (void)sig;
     (void)info;
@@ -1310,24 +1388,49 @@ static void run_sigurg_handler(int sig, siginfo_t *info, void *uctx) {
     /* Set preempt flag for cooperative check */
     g->preempt = true;
 
-    /* Rewrite PC to async preemption trampoline */
+    /* Rewrite PC to async preemption trampoline. */
     ucontext_t *uc = (ucontext_t *)uctx;
-#if defined(__APPLE__)
-#if defined(__aarch64__)
-    uc->uc_mcontext->__ss.__pc = (uint64_t)run_async_preempt;
-#else
-    uc->uc_mcontext->__ss.__rip = (uint64_t)run_async_preempt;
-#endif
-#elif defined(__linux__)
-#if defined(__aarch64__)
-    uc->uc_mcontext.pc = (uint64_t)run_async_preempt;
-#else
-    uc->uc_mcontext.gregs[REG_RIP] = (greg_t)(uintptr_t)run_async_preempt;
-#endif
-#endif
+    if (!run_install_async_preempt_frame(uc))
+        return;
+    g->preempt_safe = true;
+}
+
+void run_async_preempt_done(void) {
+    run_g_t *g = run_current_g();
+    if (g != NULL) {
+        g->preempt_safe = false;
+    }
+}
+
+static void *run_signal_preemption_thread_entry(void *arg) {
+    (void)arg;
+    const struct timespec interval = {
+        .tv_sec = 0,
+        .tv_nsec = RUN_PREEMPT_INTERVAL_US * 1000,
+    };
+
+    while (atomic_load_explicit(&signal_preemption_thread_running, memory_order_acquire)) {
+        nanosleep(&interval, NULL);
+
+        pthread_mutex_lock(&all_ms_lock);
+        for (run_m_t *m = all_ms; m != NULL; m = m->all_next) {
+            run_g_t *g = m->current_g;
+            if (g == NULL || g->status != G_RUNNING)
+                continue;
+            if (g->in_syscall || g->preempt_safe)
+                continue;
+            pthread_kill(m->thread, SIGURG);
+        }
+        pthread_mutex_unlock(&all_ms_lock);
+    }
+
+    return NULL;
 }
 
 void run_signal_preemption_start(void) {
+    if (signal_preemption_active)
+        return;
+
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = run_sigurg_handler;
@@ -1335,12 +1438,22 @@ void run_signal_preemption_start(void) {
     sa.sa_flags = SA_SIGINFO | SA_RESTART;
     sigaction(SIGURG, &sa, NULL);
 
+    atomic_store_explicit(&signal_preemption_thread_running, true, memory_order_release);
+    if (pthread_create(&signal_preemption_thread, NULL, run_signal_preemption_thread_entry, NULL) !=
+        0) {
+        atomic_store_explicit(&signal_preemption_thread_running, false, memory_order_release);
+        signal(SIGURG, SIG_DFL);
+        return;
+    }
+
     signal_preemption_active = true;
 }
 
 void run_signal_preemption_stop(void) {
     if (!signal_preemption_active)
         return;
+    atomic_store_explicit(&signal_preemption_thread_running, false, memory_order_release);
+    pthread_join(signal_preemption_thread, NULL);
     signal(SIGURG, SIG_DFL);
     signal_preemption_active = false;
 }
