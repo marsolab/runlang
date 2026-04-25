@@ -133,6 +133,7 @@ pub const CCodegen = struct {
 
         // Declare all temporaries used in the function
         try self.emitTempDeclarations(func);
+        try self.emitStackCheck();
 
         // Emit basic blocks
         for (func.blocks.items, 0..) |*block, i| {
@@ -194,6 +195,11 @@ pub const CCodegen = struct {
                 try self.writer().print("{s} _t{d};\n", .{ type_name, inst.result });
             }
         }
+    }
+
+    fn emitStackCheck(self: *CCodegen) !void {
+        try self.emitIndent();
+        try self.writer().print("{{ char _run_stack_probe; run_stack_check(&_run_stack_probe); }}\n", .{});
     }
 
     fn inferCType(self: *const CCodegen, inst: ir.Inst) []const u8 {
@@ -820,6 +826,8 @@ test "CCodegen: hello world" {
     try std.testing.expect(std.mem.indexOf(u8, result, "void run_main__main(void)") != null);
     // Should contain the string constant creation
     try std.testing.expect(std.mem.indexOf(u8, result, "run_string_from_cstr(\"Hello, World!\")") != null);
+    // Should contain the stack growth probe
+    try std.testing.expect(std.mem.indexOf(u8, result, "run_stack_check(&_run_stack_probe)") != null);
     // Should contain return
     try std.testing.expect(std.mem.indexOf(u8, result, "return;") != null);
 }

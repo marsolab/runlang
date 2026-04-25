@@ -206,6 +206,7 @@ void run_signal_preemption_stop(void);
 /* ---------- Growable stacks ---------- */
 size_t run_stack_max_size(void);
 void run_stack_growth_init(void);
+void run_stack_check(void *sp);
 void run_morestack(void);
 
 /* ---------- Debug helpers ---------- */
