@@ -195,6 +195,12 @@ export fn run_xev_poll_read(fd: c_int, g: GPtr) void {
     slot.read_g = g;
     if (slot.read_armed and slot.read_completion.state() == .active) return;
 
+    slot.read_completion = .{};
+    slot.read_ctx = .{
+        .slot = slot,
+        .generation = slot.generation,
+    };
+    slot.read_armed = true;
     if (builtin.os.tag == .windows) {
         slot.read_completion = .{
             .op = .{
@@ -203,13 +209,13 @@ export fn run_xev_poll_read(fd: c_int, g: GPtr) void {
                     .buffer = .{ .slice = &.{} },
                 },
             },
-            .userdata = slot,
+            .userdata = &slot.read_ctx,
             .callback = readPollCallback,
         };
         loop.add(&slot.read_completion);
     } else {
         const file = File.initFd(handle);
-        file.poll(&loop, &slot.read_completion, .read, FdSlot, slot, &pollCallback);
+        file.poll(&loop, &slot.read_completion, .read, CompletionContext, &slot.read_ctx, &pollCallback);
     }
 }
 
@@ -254,7 +260,10 @@ fn readPollCallback(
     _: *Completion,
     result: xev.Result,
 ) CallbackAction {
-    const s: *FdSlot = @ptrCast(@alignCast(userdata orelse return .disarm));
+    const ctx: *CompletionContext = @ptrCast(@alignCast(userdata orelse return .disarm));
+    const s = ctx.slot orelse return .disarm;
+    if (!s.active or ctx.generation != s.generation) return .disarm;
+
     if (ready_callback) |cb| {
         const idx = (@intFromPtr(s) - @intFromPtr(&fd_slots[0])) / @sizeOf(FdSlot);
         const fd: c_int = @intCast(idx);
