@@ -30,13 +30,23 @@ extern "c" fn _get_osfhandle(fd: c_int) isize;
 const MaxFds = 4096;
 
 const FdSlot = struct {
+    generation: u64 = 0,
     read_g: GPtr = null,
     write_g: GPtr = null,
     read_completion: Completion = .{},
     write_completion: Completion = .{},
     read_cancel: Completion = .{},
     write_cancel: Completion = .{},
+    read_ctx: CompletionContext = .{},
+    write_ctx: CompletionContext = .{},
+    read_armed: bool = false,
+    write_armed: bool = false,
     active: bool = false,
+};
+
+const CompletionContext = struct {
+    slot: ?*FdSlot = null,
+    generation: u64 = 0,
 };
 
 // ── Global state ───────────────────────────────────────────────────
@@ -50,6 +60,7 @@ var async_initialized: bool = false;
 // Fixed-size fd table. Keeps things simple and allocation-free.
 var fd_slots: [MaxFds]FdSlot = [_]FdSlot{.{}} ** MaxFds;
 var registered_count: i32 = 0;
+var callbacks_fired: u32 = 0;
 
 // The callback set by the C adapter.
 var ready_callback: ?ReadyCb = null;
@@ -84,13 +95,21 @@ export fn run_xev_close() void {
         loop_initialized = false;
     }
     registered_count = 0;
+    fd_slots = [_]FdSlot{.{}} ** MaxFds;
 }
 
 /// Register an fd. Currently a no-op bookkeeping call.
 export fn run_xev_open(fd: c_int) c_int {
     if (fd < 0 or fd >= MaxFds) return -1;
-    fd_slots[@intCast(@as(u32, @bitCast(fd)))] = .{ .active = true };
-    registered_count += 1;
+    const idx: u32 = @intCast(@as(u32, @bitCast(fd)));
+    const slot = &fd_slots[idx];
+
+    if (!slot.active) registered_count += 1;
+    const next_generation = slot.generation + 1;
+    slot.* = .{
+        .generation = next_generation,
+        .active = true,
+    };
     return 0;
 }
 
@@ -104,7 +123,13 @@ export fn run_xev_open(fd: c_int) c_int {
 export fn run_xev_close_fd(fd: c_int) void {
     if (fd < 0 or fd >= MaxFds) return;
     const idx: u32 = @intCast(@as(u32, @bitCast(fd)));
-    var slot = &fd_slots[idx];
+    const slot = &fd_slots[idx];
+    if (!slot.active) return;
+
+    slot.active = false;
+    slot.generation += 1;
+    slot.read_g = null;
+    slot.write_g = null;
 
     if (slot.read_completion.state() == .active) {
         slot.read_cancel = .{ .op = .{ .cancel = .{ .c = &slot.read_completion } } };
@@ -115,16 +140,47 @@ export fn run_xev_close_fd(fd: c_int) void {
         loop.add(&slot.write_cancel);
     }
 
-    // Drain the loop so cancels process before we clear the slot.
-    loop.run(.no_wait) catch {};
+    // Drain the loop so cancel operations retire before the fd number can be
+    // reused by a later test. kqueue may need more than one no-wait pass when
+    // cancellation completions enqueue follow-up work. We must also wait for
+    // the cancel completions themselves to retire — overwriting their storage
+    // while a CQE is still pending in the io_uring ring would later cause
+    // libxev to invoke a completion whose op has been reset to .noop, hitting
+    // an unreachable in Completion.invoke().
+    var drain_count: u8 = 0;
+    while (drain_count < 64) : (drain_count += 1) {
+        const read_active = slot.read_completion.state() == .active;
+        const write_active = slot.write_completion.state() == .active;
+        const read_cancel_active = slot.read_cancel.state() == .active;
+        const write_cancel_active = slot.write_cancel.state() == .active;
+        if (!read_active and !write_active and !read_cancel_active and !write_cancel_active) break;
+        loop.run(.no_wait) catch {};
+    }
 
-    slot.read_g = null;
-    slot.write_g = null;
-    slot.read_completion = .{};
-    slot.write_completion = .{};
-    slot.read_cancel = .{};
-    slot.write_cancel = .{};
-    slot.active = false;
+    // kqueue can still report readiness for an event that was deleted in the
+    // same tick. Run a few extra no-wait passes before resetting completion
+    // storage so those stale events still see a valid callback and userdata.
+    var flush_count: u8 = 0;
+    while (flush_count < 8) : (flush_count += 1) {
+        loop.run(.no_wait) catch {};
+    }
+
+    const next_generation = slot.generation;
+    // Only reset completion storage that has retired. If a cancel completion
+    // is somehow still active (e.g., the kernel hasn't reaped it yet after
+    // exhausting our drain budget), leave it alone so its eventual CQE finds
+    // a valid op rather than .noop. The slot is marked inactive, so the
+    // pollCallback/writePollCallback guards (active/generation checks) will
+    // disarm safely.
+    if (slot.read_completion.state() != .active) slot.read_completion = .{};
+    if (slot.write_completion.state() != .active) slot.write_completion = .{};
+    if (slot.read_cancel.state() != .active) slot.read_cancel = .{};
+    if (slot.write_cancel.state() != .active) slot.write_cancel = .{};
+    slot.read_ctx = .{};
+    slot.write_ctx = .{};
+    slot.read_armed = false;
+    slot.write_armed = false;
+    slot.generation = next_generation;
     registered_count -= 1;
 }
 
@@ -133,9 +189,11 @@ export fn run_xev_poll_read(fd: c_int, g: GPtr) void {
     if (fd < 0 or fd >= MaxFds) return;
     const handle = fileHandleFromFd(fd) orelse return;
     const idx: u32 = @intCast(@as(u32, @bitCast(fd)));
-    var slot = &fd_slots[idx];
+    const slot = &fd_slots[idx];
+    if (!slot.active) return;
+
     slot.read_g = g;
-    slot.read_completion = .{};
+    if (slot.read_armed and slot.read_completion.state() == .active) return;
 
     if (builtin.os.tag == .windows) {
         slot.read_completion = .{
@@ -166,8 +224,16 @@ export fn run_xev_poll_write(fd: c_int, g: GPtr) void {
     if (fd < 0 or fd >= MaxFds) return;
     const handle = fileHandleFromFd(fd) orelse return;
     const idx: u32 = @intCast(@as(u32, @bitCast(fd)));
-    var slot = &fd_slots[idx];
+    const slot = &fd_slots[idx];
+    if (!slot.active) return;
+
     slot.write_g = g;
+    if (slot.write_armed and slot.write_completion.state() == .active) return;
+
+    slot.write_ctx = .{
+        .slot = slot,
+        .generation = slot.generation,
+    };
     slot.write_completion = .{
         .op = .{
             .write = .{
@@ -175,9 +241,10 @@ export fn run_xev_poll_write(fd: c_int, g: GPtr) void {
                 .buffer = .{ .slice = &.{} },
             },
         },
-        .userdata = slot,
+        .userdata = &slot.write_ctx,
         .callback = writePollCallback,
     };
+    slot.write_armed = true;
     loop.add(&slot.write_completion);
 }
 
@@ -212,7 +279,10 @@ fn writePollCallback(
     _: *Completion,
     result: xev.Result,
 ) CallbackAction {
-    const s: *FdSlot = @ptrCast(@alignCast(userdata orelse return .disarm));
+    const ctx: *CompletionContext = @ptrCast(@alignCast(userdata orelse return .disarm));
+    const s = ctx.slot orelse return .disarm;
+    if (!s.active or ctx.generation != s.generation) return .disarm;
+
     if (ready_callback) |cb| {
         const idx = (@intFromPtr(s) - @intFromPtr(&fd_slots[0])) / @sizeOf(FdSlot);
         const fd: c_int = @intCast(idx);
@@ -221,24 +291,29 @@ fn writePollCallback(
             const wg = s.write_g;
             s.read_g = null;
             s.write_g = null;
+            if (rg != null or wg != null) callbacks_fired += 1;
             cb(fd, 3, rg, wg);
-            return .disarm;
+            return .rearm;
         };
         const wg = s.write_g;
         s.write_g = null;
+        if (wg != null) callbacks_fired += 1;
         cb(fd, 2, null, wg);
     }
-    return .disarm;
+    return .rearm;
 }
 
 fn pollCallback(
-    slot: ?*FdSlot,
+    ctx: ?*CompletionContext,
     _: *Loop,
     _: *Completion,
     _: File,
     result: xev.PollError!xev.PollEvent,
 ) CallbackAction {
-    const s = slot orelse return .disarm;
+    const c = ctx orelse return .disarm;
+    const s = c.slot orelse return .disarm;
+    if (!s.active or c.generation != s.generation) return .disarm;
+
     if (ready_callback) |cb| {
         const idx = (@intFromPtr(s) - @intFromPtr(&fd_slots[0])) / @sizeOf(FdSlot);
         const fd: c_int = @intCast(idx);
@@ -247,21 +322,32 @@ fn pollCallback(
             const wg = s.write_g;
             s.read_g = null;
             s.write_g = null;
+            if (rg != null or wg != null) callbacks_fired += 1;
             cb(fd, 3, rg, wg);
-            return .disarm;
+            return .rearm;
         };
         const rg = s.read_g;
         s.read_g = null;
+        if (rg != null) callbacks_fired += 1;
         cb(fd, 1, rg, null);
     }
-    return .disarm;
+    return .rearm;
 }
 
 /// Run the event loop without blocking (tick once).
 export fn run_xev_tick() c_int {
     if (!loop_initialized) return 0;
     if (registered_count <= 0) return 0;
-    loop.run(.no_wait) catch return -1;
+
+    callbacks_fired = 0;
+    var previous_callbacks: u32 = 0;
+    var i: u8 = 0;
+    while (i < 64) : (i += 1) {
+        loop.run(.no_wait) catch return -1;
+        if (callbacks_fired == previous_callbacks) break;
+        previous_callbacks = callbacks_fired;
+    }
+
     return 0;
 }
 

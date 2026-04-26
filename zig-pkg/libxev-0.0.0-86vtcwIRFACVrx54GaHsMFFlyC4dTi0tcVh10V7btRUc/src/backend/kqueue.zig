@@ -534,6 +534,7 @@ pub const Loop = struct {
                 wait_rem -|= 1;
 
                 const c: *Completion = @ptrFromInt(@as(usize, @intCast(ev.udata)));
+                if (c.flags.state != .active) continue;
 
                 // c is ready to be reused rigt away if we're dearming
                 // so we mark it as dead.

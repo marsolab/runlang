@@ -4,15 +4,14 @@
 #include "run_poller.h"
 #include "run_vmem.h"
 
-#include <signal.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 
 #if defined(__linux__) || defined(__APPLE__)
+#include <signal.h>
 #include <sys/time.h>
 #endif
 
@@ -34,12 +33,14 @@
 /* Default max for growable stacks */
 #define RUN_DEFAULT_STACK_MAX ((size_t)1024 * 1024) /* 1 MB */
 #define RUN_GROWABLE_INITIAL ((size_t)8 * 1024)     /* 8 KB initial commit */
+#define RUN_STACK_SHRINK_THRESHOLD 4                /* shrink below 25% usage */
+#define RUN_STACK_SHRINK_HYSTERESIS 2               /* keep 2x live usage */
 
 /* ========================================================================
  * Thread-Local Storage
  * ======================================================================== */
 
-static __thread run_m_t *tls_current_m = NULL;
+static RUN_THREAD_LOCAL run_m_t *tls_current_m = NULL;
 
 run_g_t *run_current_g(void) {
     return tls_current_m ? tls_current_m->current_g : NULL;
@@ -58,21 +59,21 @@ static uint32_t num_ps = 0;
 
 /* Global run queue */
 static run_g_queue_t global_queue;
-static pthread_mutex_t global_queue_lock = PTHREAD_MUTEX_INITIALIZER;
+static run_mutex_t global_queue_lock = RUN_MUTEX_INITIALIZER;
 
 /* Idle lists */
 static uint32_t idle_p_stack[RUN_MAX_P_COUNT]; /* stack of idle P indices */
 static uint32_t idle_p_count = 0;
-static pthread_mutex_t idle_p_lock = PTHREAD_MUTEX_INITIALIZER;
+static run_mutex_t idle_p_lock = RUN_MUTEX_INITIALIZER;
 
 /* All Ms */
 static run_m_t *all_ms = NULL;
 static uint32_t num_ms = 0;
-static pthread_mutex_t all_ms_lock = PTHREAD_MUTEX_INITIALIZER;
+static run_mutex_t all_ms_lock = RUN_MUTEX_INITIALIZER;
 
 /* Idle Ms waiting to be woken */
 static run_m_t *idle_m_head = NULL;
-static pthread_mutex_t idle_m_lock = PTHREAD_MUTEX_INITIALIZER;
+static run_mutex_t idle_m_lock = RUN_MUTEX_INITIALIZER;
 
 /* G ID counter */
 static _Atomic uint64_t next_g_id = 1;
@@ -81,7 +82,11 @@ static _Atomic uint64_t next_g_id = 1;
 static _Atomic int64_t live_g_count = 0;
 
 /* Growable stacks enabled flag */
+#if defined(_WIN32)
 static bool growable_stacks_enabled = false;
+#else
+static bool growable_stacks_enabled = true;
+#endif
 static size_t stack_max_size_cached = 0;
 
 /* Multi-P scheduling enabled — lock-free local queues and atomic state. */
@@ -89,15 +94,38 @@ static bool scheduler_initialized = false;
 
 /* Preemption timer active */
 static bool preemption_timer_active = false;
+#if defined(_WIN32)
+static run_platform_timer_t preemption_timer;
+#endif
 
 /* Signal preemption active */
 static bool signal_preemption_active = false;
+static pthread_t signal_preemption_thread;
+static _Atomic bool signal_preemption_thread_running = false;
 
 /* Runtime metrics (#410) */
 static run_metrics_t scheduler_metrics = {0};
 
 /* Trace output enabled via RUN_TRACE=1 (#410) */
 static bool trace_enabled = false;
+
+static int64_t run_metrics_global_queue_len(void) {
+    return (int64_t)run_global_queue_len();
+}
+
+static int64_t run_metrics_local_queue_len(void) {
+    int64_t len = 0;
+    for (uint32_t i = 0; i < num_ps; i++) {
+        len += (int64_t)run_local_queue_len(&all_ps[i].local_queue);
+    }
+    return len;
+}
+
+static int64_t run_metrics_poll_waiter_count(void) {
+    if (!scheduler_initialized)
+        return 0;
+    return run_poller_has_waiters() ? 1 : 0;
+}
 
 /* ========================================================================
  * G Queue Operations
@@ -242,6 +270,7 @@ static void run_pin_m_to_node(run_m_t *m, uint32_t node_id) {
     }
     pthread_setaffinity_np(m->thread, sizeof(cpuset), &cpuset);
 #elif defined(_WIN32)
+    (void)m;
     uint32_t cpu_count;
     const uint32_t *cpus = run_numa_cpus_on_node(node_id, &cpu_count);
     if (cpu_count == 0)
@@ -313,6 +342,119 @@ static void run_stack_free(void *base, size_t size) {
     run_vmem_free(base, size);
 }
 
+static char *run_stack_top(run_g_t *g) {
+    return (char *)g->stack_base + g->stack_size;
+}
+
+static size_t run_align_up_size(size_t value, size_t alignment) {
+    return (value + alignment - 1) & ~(alignment - 1);
+}
+
+static void *run_context_sp(run_context_t *ctx) {
+#if defined(__aarch64__) || defined(__arm64__)
+    return ctx->sp;
+#else
+    return ctx->rsp;
+#endif
+}
+
+static void run_stack_record_sp(run_g_t *g, void *sp) {
+    if (!g || !g->stack_base || !sp)
+        return;
+    char *top = run_stack_top(g);
+    char *cur = (char *)sp;
+    if (cur < (char *)g->stack_base || cur > top)
+        return;
+    size_t used = (size_t)(top - cur);
+    if (used > g->stack_watermark) {
+        g->stack_watermark = used;
+    }
+}
+
+static void run_stack_grow_to_sp(run_g_t *g, void *sp) {
+    if (!growable_stacks_enabled || !g || !g->stack_base || !sp)
+        return;
+
+    char *top = run_stack_top(g);
+    char *cur = (char *)sp;
+    if (cur < (char *)g->stack_base || cur > top) {
+        fprintf(stderr, "run: stack overflow in green thread %llu (sp outside stack)\n",
+                (unsigned long long)g->id);
+        abort();
+    }
+
+    size_t page_size = run_vmem_page_size();
+    size_t used = (size_t)(top - cur);
+    size_t needed = run_align_up_size(used + page_size, page_size);
+    if (needed <= g->stack_committed)
+        return;
+
+    size_t new_committed = g->stack_committed;
+    while (new_committed < needed && new_committed < g->stack_size) {
+        new_committed *= 2;
+    }
+    if (new_committed < needed || new_committed > g->stack_size) {
+        fprintf(stderr, "run: stack overflow in green thread %llu (max %zu bytes)\n",
+                (unsigned long long)g->id, g->stack_size);
+        abort();
+    }
+
+    char *old_lo = top - g->stack_committed;
+    char *new_lo = top - new_committed;
+    run_vmem_protect(new_lo, (size_t)(old_lo - new_lo), RUN_VMEM_READWRITE);
+    g->stack_committed = new_committed;
+    g->stack_lo = new_lo;
+}
+
+static size_t run_stack_used_by_sp(run_g_t *g, void *sp) {
+    if (!g || !g->stack_base || !sp)
+        return 0;
+    char *top = run_stack_top(g);
+    char *cur = (char *)sp;
+    if (cur < (char *)g->stack_base || cur > top)
+        return 0;
+    return (size_t)(top - cur);
+}
+
+static void run_stack_maybe_shrink(run_g_t *g, void *sp) {
+    if (!growable_stacks_enabled || !g || !g->stack_base)
+        return;
+    if (g->stack_committed <= RUN_GROWABLE_INITIAL)
+        return;
+
+    size_t current_used = run_stack_used_by_sp(g, sp);
+    size_t page_size = run_vmem_page_size();
+    size_t watermark = run_align_up_size(g->stack_watermark, page_size);
+    if (watermark < RUN_GROWABLE_INITIAL) {
+        watermark = RUN_GROWABLE_INITIAL;
+    }
+    if (watermark * RUN_STACK_SHRINK_THRESHOLD > g->stack_committed) {
+        g->stack_watermark = current_used;
+        return;
+    }
+
+    size_t target = g->stack_committed / 2;
+    size_t minimum = watermark * RUN_STACK_SHRINK_HYSTERESIS;
+    if (target < minimum) {
+        target = run_align_up_size(minimum, page_size);
+    }
+    if (target < RUN_GROWABLE_INITIAL) {
+        target = RUN_GROWABLE_INITIAL;
+    }
+    if (target >= g->stack_committed)
+        return;
+
+    char *top = run_stack_top(g);
+    char *old_lo = top - g->stack_committed;
+    char *new_lo = top - target;
+    size_t release_size = (size_t)(new_lo - old_lo);
+    run_vmem_release(old_lo, release_size);
+    run_vmem_protect(old_lo, release_size, RUN_VMEM_NONE);
+    g->stack_committed = target;
+    g->stack_lo = new_lo;
+    g->stack_watermark = current_used;
+}
+
 /* Push to a P's local queue with overflow to the global queue. */
 static void run_local_push_or_global(run_local_queue_t *lq, run_g_t *g) {
     if (!run_local_queue_push(lq, g)) {
@@ -346,6 +488,12 @@ static run_g_t *run_g_alloc(void (*fn)(void *), void *arg) {
 
     /* Stack top = base + size (stack grows downward) */
     void *stack_top = (char *)g->stack_base + g->stack_size;
+    if (growable_stacks_enabled) {
+        g->stack_lo = (char *)stack_top - g->stack_committed;
+    } else {
+        g->stack_lo = (char *)g->stack_base + RUN_GUARD_PAGE_SIZE;
+    }
+    g->stack_watermark = 0;
 
     /* Initialize context to start at entry function */
     run_context_init(&g->context, stack_top, fn, arg);
@@ -372,14 +520,14 @@ static run_m_t *run_m_alloc(void) {
         abort();
     }
 
-    pthread_mutex_lock(&all_ms_lock);
+    run_mutex_lock(&all_ms_lock);
     m->id = num_ms++;
     m->all_next = all_ms;
     all_ms = m;
-    pthread_mutex_unlock(&all_ms_lock);
+    run_mutex_unlock(&all_ms_lock);
 
-    pthread_mutex_init(&m->park_mutex, NULL);
-    pthread_cond_init(&m->park_cond, NULL);
+    run_mutex_init(&m->park_mutex);
+    run_cond_init(&m->park_cond);
     m->parked = false;
 
     /* Allocate g0 (scheduler goroutine) with its own stack */
@@ -403,25 +551,32 @@ static run_m_t *run_m_alloc(void) {
  * ======================================================================== */
 
 static run_p_t *run_acquire_idle_p(void) {
-    pthread_mutex_lock(&idle_p_lock);
+    run_mutex_lock(&idle_p_lock);
     if (idle_p_count == 0) {
-        pthread_mutex_unlock(&idle_p_lock);
+        run_mutex_unlock(&idle_p_lock);
         return NULL;
     }
     uint32_t idx = idle_p_stack[--idle_p_count];
-    pthread_mutex_unlock(&idle_p_lock);
+    run_mutex_unlock(&idle_p_lock);
 
     run_p_t *p = &all_ps[idx];
     p->status = P_RUNNING;
     return p;
 }
 
+static bool run_has_idle_p(void) {
+    run_mutex_lock(&idle_p_lock);
+    bool has_idle = idle_p_count > 0;
+    run_mutex_unlock(&idle_p_lock);
+    return has_idle;
+}
+
 static void run_release_p(run_p_t *p) {
     p->status = P_IDLE;
     p->bound_m = NULL;
-    pthread_mutex_lock(&idle_p_lock);
+    run_mutex_lock(&idle_p_lock);
     idle_p_stack[idle_p_count++] = p->id;
-    pthread_mutex_unlock(&idle_p_lock);
+    run_mutex_unlock(&idle_p_lock);
 }
 
 /* ========================================================================
@@ -429,22 +584,22 @@ static void run_release_p(run_p_t *p) {
  * ======================================================================== */
 
 void run_global_queue_push(run_g_t *g) {
-    pthread_mutex_lock(&global_queue_lock);
+    run_mutex_lock(&global_queue_lock);
     run_g_queue_push(&global_queue, g);
-    pthread_mutex_unlock(&global_queue_lock);
+    run_mutex_unlock(&global_queue_lock);
 }
 
 run_g_t *run_global_queue_pop(void) {
-    pthread_mutex_lock(&global_queue_lock);
+    run_mutex_lock(&global_queue_lock);
     run_g_t *g = run_g_queue_pop(&global_queue);
-    pthread_mutex_unlock(&global_queue_lock);
+    run_mutex_unlock(&global_queue_lock);
     return g;
 }
 
 uint32_t run_global_queue_len(void) {
-    pthread_mutex_lock(&global_queue_lock);
+    run_mutex_lock(&global_queue_lock);
     uint32_t len = global_queue.len;
-    pthread_mutex_unlock(&global_queue_lock);
+    run_mutex_unlock(&global_queue_lock);
     return len;
 }
 
@@ -453,12 +608,12 @@ uint32_t run_global_queue_len(void) {
  * ======================================================================== */
 
 /* Simple xorshift RNG for work stealing victim selection. */
-static __thread uint32_t steal_rng_state = 0;
+static RUN_THREAD_LOCAL uint32_t steal_rng_state = 0;
 
 static uint32_t run_steal_random(void) {
     if (steal_rng_state == 0) {
         /* Seed from thread ID */
-        steal_rng_state = (uint32_t)(uintptr_t)pthread_self() ^ 0xDEADBEEF;
+        steal_rng_state = (uint32_t)run_thread_seed() ^ 0xDEADBEEF;
     }
     uint32_t x = steal_rng_state;
     x ^= x << 13;
@@ -526,42 +681,68 @@ static run_g_t *run_try_steal(run_p_t *self_p) {
 static void run_park_m(run_m_t *m) {
     atomic_fetch_add_explicit(&scheduler_metrics.park_count, 1, memory_order_relaxed);
     if (trace_enabled) {
-        fprintf(stderr, "{\"event\":\"park\",\"m_id\":%llu}\n", (unsigned long long)m->id);
+        fprintf(stderr,
+                "{\"event\":\"park\",\"m_id\":%llu,\"live_g\":%lld,"
+                "\"global_queue\":%lld,\"local_queue\":%lld,\"poll_waiters\":%lld}\n",
+                (unsigned long long)m->id,
+                (long long)atomic_load_explicit(&live_g_count, memory_order_relaxed),
+                (long long)run_metrics_global_queue_len(), (long long)run_metrics_local_queue_len(),
+                (long long)run_metrics_poll_waiter_count());
     }
-    pthread_mutex_lock(&m->park_mutex);
+    run_mutex_lock(&m->park_mutex);
     m->parked = true;
 
     /* Add to idle M list */
-    pthread_mutex_lock(&idle_m_lock);
-    m->all_next = idle_m_head; /* reuse all_next for idle list */
+    run_mutex_lock(&idle_m_lock);
+    m->idle_next = idle_m_head;
     idle_m_head = m;
-    pthread_mutex_unlock(&idle_m_lock);
+    run_mutex_unlock(&idle_m_lock);
 
     while (m->parked) {
-        pthread_cond_wait(&m->park_cond, &m->park_mutex);
+        run_cond_wait(&m->park_cond, &m->park_mutex);
     }
-    pthread_mutex_unlock(&m->park_mutex);
+    run_mutex_unlock(&m->park_mutex);
 }
 
 static void run_unpark_m(run_m_t *m) {
     atomic_fetch_add_explicit(&scheduler_metrics.unpark_count, 1, memory_order_relaxed);
     if (trace_enabled) {
-        fprintf(stderr, "{\"event\":\"unpark\",\"m_id\":%llu}\n", (unsigned long long)m->id);
+        fprintf(stderr,
+                "{\"event\":\"unpark\",\"m_id\":%llu,\"global_queue\":%lld,"
+                "\"local_queue\":%lld,\"poll_waiters\":%lld}\n",
+                (unsigned long long)m->id, (long long)run_metrics_global_queue_len(),
+                (long long)run_metrics_local_queue_len(),
+                (long long)run_metrics_poll_waiter_count());
     }
-    pthread_mutex_lock(&m->park_mutex);
+    run_mutex_lock(&m->park_mutex);
     m->parked = false;
-    pthread_cond_signal(&m->park_cond);
-    pthread_mutex_unlock(&m->park_mutex);
+    run_cond_signal(&m->park_cond);
+    run_mutex_unlock(&m->park_mutex);
+}
+
+static void run_unpark_all_idle_ms(void) {
+    run_mutex_lock(&idle_m_lock);
+    run_m_t *m = idle_m_head;
+    idle_m_head = NULL;
+    run_mutex_unlock(&idle_m_lock);
+
+    while (m != NULL) {
+        run_m_t *next = m->idle_next;
+        m->idle_next = NULL;
+        run_unpark_m(m);
+        m = next;
+    }
 }
 
 void run_wake_m(void) {
     /* Try to wake an idle M */
-    pthread_mutex_lock(&idle_m_lock);
+    run_mutex_lock(&idle_m_lock);
     run_m_t *m = idle_m_head;
     if (m) {
-        idle_m_head = m->all_next;
+        idle_m_head = m->idle_next;
+        m->idle_next = NULL;
     }
-    pthread_mutex_unlock(&idle_m_lock);
+    run_mutex_unlock(&idle_m_lock);
 
     if (m) {
         /* Get an idle P for this M */
@@ -572,18 +753,18 @@ void run_wake_m(void) {
             run_unpark_m(m);
         } else {
             /* No idle P — put M back */
-            pthread_mutex_lock(&idle_m_lock);
-            m->all_next = idle_m_head;
+            run_mutex_lock(&idle_m_lock);
+            m->idle_next = idle_m_head;
             idle_m_head = m;
-            pthread_mutex_unlock(&idle_m_lock);
+            run_mutex_unlock(&idle_m_lock);
         }
         return;
     }
 
     /* No idle M — create a new one if under limit */
-    pthread_mutex_lock(&all_ms_lock);
+    run_mutex_lock(&all_ms_lock);
     uint32_t current_ms = num_ms;
-    pthread_mutex_unlock(&all_ms_lock);
+    run_mutex_unlock(&all_ms_lock);
 
     if (current_ms >= RUN_MAX_M_COUNT)
         return;
@@ -599,8 +780,12 @@ void run_wake_m(void) {
     new_m->current_p = p;
     p->bound_m = new_m;
 
-    pthread_create(&new_m->thread, NULL, run_m_thread_entry, new_m);
-    pthread_detach(new_m->thread);
+    if (run_thread_create(&new_m->thread, run_m_thread_entry, new_m) != 0) {
+        p->bound_m = NULL;
+        run_release_p(p);
+        return;
+    }
+    run_thread_detach(new_m->thread);
 }
 
 /* ========================================================================
@@ -623,7 +808,12 @@ static run_g_t *run_find_runnable(run_p_t *p) {
      * This may make Gs runnable by pushing them to run queues. */
     atomic_fetch_add_explicit(&scheduler_metrics.poll_count, 1, memory_order_relaxed);
     if (trace_enabled) {
-        fprintf(stderr, "{\"event\":\"poll\"}\n");
+        fprintf(stderr,
+                "{\"event\":\"poll\",\"p_id\":%u,\"global_queue\":%lld,"
+                "\"local_queue\":%lld,\"poll_waiters\":%lld}\n",
+                p->id, (long long)run_metrics_global_queue_len(),
+                (long long)run_metrics_local_queue_len(),
+                (long long)run_metrics_poll_waiter_count());
     }
     if (run_poller_poll() > 0) {
         g = run_local_queue_pop(&p->local_queue);
@@ -704,22 +894,35 @@ static void run_schedule_loop(run_m_t *m) {
         /* Context switch from g0 to g */
         atomic_fetch_add_explicit(&scheduler_metrics.context_switches, 1, memory_order_relaxed);
         if (trace_enabled) {
-            fprintf(stderr, "{\"event\":\"context_switch\",\"g_id\":%llu}\n",
-                    (unsigned long long)g->id);
+            fprintf(stderr,
+                    "{\"event\":\"context_switch\",\"g_id\":%llu,\"p_id\":%u,"
+                    "\"global_queue\":%lld,\"local_queue\":%lld}\n",
+                    (unsigned long long)g->id, p->id, (long long)run_metrics_global_queue_len(),
+                    (long long)run_metrics_local_queue_len());
         }
         run_context_switch(&m->g0->context, &g->context);
 
         /* Returned here: g yielded or completed */
         m->current_g = NULL;
+        void *saved_sp = run_context_sp(&g->context);
+        run_stack_record_sp(g, saved_sp);
 
         if (g->status == G_DEAD) {
             atomic_fetch_add_explicit(&scheduler_metrics.complete_count, 1, memory_order_relaxed);
             if (trace_enabled) {
-                fprintf(stderr, "{\"event\":\"complete\",\"g_id\":%llu}\n",
-                        (unsigned long long)g->id);
+                fprintf(stderr, "{\"event\":\"complete\",\"g_id\":%llu,\"live_g\":%lld}\n",
+                        (unsigned long long)g->id,
+                        (long long)atomic_load_explicit(&live_g_count, memory_order_relaxed) - 1);
             }
-            atomic_fetch_sub_explicit(&live_g_count, 1, memory_order_release);
+            int64_t remaining =
+                atomic_fetch_sub_explicit(&live_g_count, 1, memory_order_release) - 1;
+            if (remaining <= 0) {
+                run_poller_wakeup();
+                run_unpark_all_idle_ms();
+            }
             run_g_free(g);
+        } else {
+            run_stack_maybe_shrink(g, saved_sp);
         }
         /* If g->status is G_RUNNABLE (yield), it's already re-enqueued.
          * If g->status is G_WAITING (channel), the channel code handles it. */
@@ -753,7 +956,7 @@ void run_scheduler_init(void) {
 
     /* Multi-P: default to CPU count. */
     {
-        long cpus = sysconf(_SC_NPROCESSORS_ONLN);
+        long cpus = run_cpu_count();
         num_ps = (cpus > 0 && cpus <= RUN_MAX_P_COUNT) ? (uint32_t)cpus : 1;
     }
     const char *maxprocs_env = getenv("RUN_MAXPROCS");
@@ -785,7 +988,7 @@ void run_scheduler_init(void) {
 
     /* Create M0 wrapping the main OS thread */
     run_m_t *m0 = run_m_alloc();
-    m0->thread = pthread_self();
+    m0->thread = run_thread_self();
     m0->current_p = &all_ps[0];
     all_ps[0].status = P_RUNNING;
     all_ps[0].bound_m = m0;
@@ -798,12 +1001,9 @@ void run_scheduler_init(void) {
     /* Initialize the network poller (io_uring on Linux, kqueue on macOS) */
     run_poller_init();
 
-    /* Check for growable stacks */
-    const char *stack_env = getenv("RUN_STACK_MAX");
-    if (stack_env) {
-        growable_stacks_enabled = true;
-        run_stack_growth_init();
-    }
+    /* Install growable stack fault handling. RUN_STACK_MAX can override the
+     * default reservation size, but stacks are growable by default. */
+    run_stack_growth_init();
 
     /* Check for trace output (#410) */
     const char *trace_env = getenv("RUN_TRACE");
@@ -865,9 +1065,6 @@ void run_scheduler_run(void) {
 
 void run_spawn(void (*fn)(void *), void *arg) {
     atomic_fetch_add_explicit(&scheduler_metrics.spawn_count, 1, memory_order_relaxed);
-    if (trace_enabled) {
-        fprintf(stderr, "{\"event\":\"spawn\"}\n");
-    }
     run_g_t *g = run_g_alloc(fn, arg);
     atomic_fetch_add_explicit(&live_g_count, 1, memory_order_release);
 
@@ -891,9 +1088,19 @@ void run_spawn(void (*fn)(void *), void *arg) {
         run_global_queue_push(g);
     }
 
+    if (trace_enabled) {
+        fprintf(stderr,
+                "{\"event\":\"spawn\",\"g_id\":%llu,\"live_g\":%lld,"
+                "\"global_queue\":%lld,\"local_queue\":%lld}\n",
+                (unsigned long long)g->id,
+                (long long)atomic_load_explicit(&live_g_count, memory_order_relaxed),
+                (long long)run_metrics_global_queue_len(),
+                (long long)run_metrics_local_queue_len());
+    }
+
     /* If there are idle Ps, wake an M to handle the new work.
      * Only safe from the main thread or scheduler context. */
-    if (idle_p_count > 0 && m && m->current_g == NULL) {
+    if (m && m->current_g == NULL && run_has_idle_p()) {
         run_wake_m();
     }
 }
@@ -905,10 +1112,12 @@ void run_yield(void) {
 
     run_g_t *g = m->current_g;
     g->status = G_RUNNABLE;
+    bool was_preempted = g->preempt;
     g->preempt = false;
 
-    /* Re-enqueue to local queue */
-    if (m->current_p) {
+    /* Voluntary yields preserve local LIFO behavior. Preemptive yields go
+     * through the global FIFO queue so another runnable G on this P can run. */
+    if (!was_preempted && m->current_p) {
         run_local_push_or_global(&m->current_p->local_queue, g);
     } else {
         run_global_queue_push(g);
@@ -986,7 +1195,7 @@ void run_g_ready(run_g_t *g) {
 
 wake:
     /* Wake an M if there are idle Ps. */
-    if (idle_p_count > 0) {
+    if (run_has_idle_p()) {
         run_poller_wakeup(); /* Unblock M in poll_blocking */
         run_wake_m();
     }
@@ -998,9 +1207,6 @@ wake:
 
 void run_spawn_on_node(void (*fn)(void *), void *arg, int32_t node_id) {
     atomic_fetch_add_explicit(&scheduler_metrics.spawn_count, 1, memory_order_relaxed);
-    if (trace_enabled) {
-        fprintf(stderr, "{\"event\":\"spawn_on_node\",\"node_id\":%d}\n", node_id);
-    }
     run_g_t *g = run_g_alloc(fn, arg);
     g->preferred_node = node_id;
     atomic_fetch_add_explicit(&live_g_count, 1, memory_order_release);
@@ -1036,8 +1242,18 @@ void run_spawn_on_node(void (*fn)(void *), void *arg, int32_t node_id) {
     }
 
 wake:
+    if (trace_enabled) {
+        fprintf(stderr,
+                "{\"event\":\"spawn_on_node\",\"g_id\":%llu,\"node_id\":%d,"
+                "\"live_g\":%lld,\"global_queue\":%lld,\"local_queue\":%lld}\n",
+                (unsigned long long)g->id, node_id,
+                (long long)atomic_load_explicit(&live_g_count, memory_order_relaxed),
+                (long long)run_metrics_global_queue_len(),
+                (long long)run_metrics_local_queue_len());
+    }
+
     /* Wake an M if there are idle Ps. */
-    if (idle_p_count > 0) {
+    if (run_has_idle_p()) {
         run_poller_wakeup(); /* Unblock M in poll_blocking */
         run_wake_m();
     }
@@ -1056,7 +1272,40 @@ void run_numa_pin(uint32_t node_id) {
  * Cooperative Preemption (#84) — Timer-based
  * ======================================================================== */
 
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(_WIN32)
+
+static void run_preempt_timer_callback(void *arg) {
+    (void)arg;
+
+    run_mutex_lock(&all_ms_lock);
+    for (run_m_t *m = all_ms; m != NULL; m = m->all_next) {
+        run_g_t *g = m->current_g;
+        if (g && g->status == G_RUNNING) {
+            g->preempt = true;
+        }
+    }
+    run_mutex_unlock(&all_ms_lock);
+}
+
+void run_preemption_start(void) {
+    if (preemption_timer_active)
+        return;
+
+    if (run_timer_start(&preemption_timer, RUN_PREEMPT_INTERVAL_US, run_preempt_timer_callback,
+                        NULL)) {
+        preemption_timer_active = true;
+    }
+}
+
+void run_preemption_stop(void) {
+    if (!preemption_timer_active)
+        return;
+
+    run_timer_stop(&preemption_timer);
+    preemption_timer_active = false;
+}
+
+#elif defined(__linux__) || defined(__APPLE__)
 
 static void run_preempt_timer_handler(int sig) {
     (void)sig;
@@ -1096,9 +1345,9 @@ void run_preemption_stop(void) {
     preemption_timer_active = false;
 }
 
-#else /* Windows stub */
+#else
 
-void run_preemption_start(void) { /* TODO: Windows timer */ }
+void run_preemption_start(void) {}
 void run_preemption_stop(void) {}
 
 #endif
@@ -1123,9 +1372,9 @@ void run_entersyscall(void) {
     p->bound_m = NULL;
 
     /* Put P in idle list so another M can pick it up */
-    pthread_mutex_lock(&idle_p_lock);
+    run_mutex_lock(&idle_p_lock);
     idle_p_stack[idle_p_count++] = p->id;
-    pthread_mutex_unlock(&idle_p_lock);
+    run_mutex_unlock(&idle_p_lock);
 
     /* Wake an M to take over this P's work */
     if (run_local_queue_len(&p->local_queue) > 0) {
@@ -1167,6 +1416,51 @@ void run_exitsyscall(void) {
 
 extern void run_async_preempt(void);
 
+static bool run_install_async_preempt_frame(ucontext_t *uc) {
+#if defined(__APPLE__)
+#if defined(__aarch64__)
+    uint64_t pc = uc->uc_mcontext->__ss.__pc;
+    uint64_t sp = uc->uc_mcontext->__ss.__sp - 16;
+    *(uint64_t *)sp = uc->uc_mcontext->__ss.__lr;
+    uc->uc_mcontext->__ss.__sp = sp;
+    uc->uc_mcontext->__ss.__lr = pc;
+    uc->uc_mcontext->__ss.__pc = (uint64_t)run_async_preempt;
+    return true;
+#elif defined(__x86_64__)
+    uint64_t pc = uc->uc_mcontext->__ss.__rip;
+    uint64_t sp = uc->uc_mcontext->__ss.__rsp - sizeof(uint64_t);
+    *(uint64_t *)sp = pc;
+    uc->uc_mcontext->__ss.__rsp = sp;
+    uc->uc_mcontext->__ss.__rip = (uint64_t)run_async_preempt;
+    return true;
+#else
+    return false;
+#endif
+#elif defined(__linux__)
+#if defined(__aarch64__)
+    uint64_t pc = uc->uc_mcontext.pc;
+    uint64_t sp = uc->uc_mcontext.sp - 16;
+    *(uint64_t *)sp = uc->uc_mcontext.regs[30];
+    uc->uc_mcontext.sp = sp;
+    uc->uc_mcontext.regs[30] = pc;
+    uc->uc_mcontext.pc = (uint64_t)run_async_preempt;
+    return true;
+#elif defined(__x86_64__)
+    greg_t pc = uc->uc_mcontext.gregs[REG_RIP];
+    greg_t sp = uc->uc_mcontext.gregs[REG_RSP] - (greg_t)sizeof(greg_t);
+    *(greg_t *)sp = pc;
+    uc->uc_mcontext.gregs[REG_RSP] = sp;
+    uc->uc_mcontext.gregs[REG_RIP] = (greg_t)(uintptr_t)run_async_preempt;
+    return true;
+#else
+    return false;
+#endif
+#else
+    (void)uc;
+    return false;
+#endif
+}
+
 static void run_sigurg_handler(int sig, siginfo_t *info, void *uctx) {
     (void)sig;
     (void)info;
@@ -1184,24 +1478,49 @@ static void run_sigurg_handler(int sig, siginfo_t *info, void *uctx) {
     /* Set preempt flag for cooperative check */
     g->preempt = true;
 
-    /* Rewrite PC to async preemption trampoline */
+    /* Rewrite PC to async preemption trampoline. */
     ucontext_t *uc = (ucontext_t *)uctx;
-#if defined(__APPLE__)
-#if defined(__aarch64__)
-    uc->uc_mcontext->__ss.__pc = (uint64_t)run_async_preempt;
-#else
-    uc->uc_mcontext->__ss.__rip = (uint64_t)run_async_preempt;
-#endif
-#elif defined(__linux__)
-#if defined(__aarch64__)
-    uc->uc_mcontext.pc = (uint64_t)run_async_preempt;
-#else
-    uc->uc_mcontext.gregs[REG_RIP] = (greg_t)(uintptr_t)run_async_preempt;
-#endif
-#endif
+    if (!run_install_async_preempt_frame(uc))
+        return;
+    g->preempt_safe = true;
+}
+
+void run_async_preempt_done(void) {
+    run_g_t *g = run_current_g();
+    if (g != NULL) {
+        g->preempt_safe = false;
+    }
+}
+
+static void *run_signal_preemption_thread_entry(void *arg) {
+    (void)arg;
+    const struct timespec interval = {
+        .tv_sec = 0,
+        .tv_nsec = (long)RUN_PREEMPT_INTERVAL_US * 1000L,
+    };
+
+    while (atomic_load_explicit(&signal_preemption_thread_running, memory_order_acquire)) {
+        nanosleep(&interval, NULL);
+
+        run_mutex_lock(&all_ms_lock);
+        for (run_m_t *m = all_ms; m != NULL; m = m->all_next) {
+            run_g_t *g = m->current_g;
+            if (g == NULL || g->status != G_RUNNING)
+                continue;
+            if (g->in_syscall || g->preempt_safe)
+                continue;
+            pthread_kill(m->thread, SIGURG);
+        }
+        run_mutex_unlock(&all_ms_lock);
+    }
+
+    return NULL;
 }
 
 void run_signal_preemption_start(void) {
+    if (signal_preemption_active)
+        return;
+
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = run_sigurg_handler;
@@ -1209,12 +1528,22 @@ void run_signal_preemption_start(void) {
     sa.sa_flags = SA_SIGINFO | SA_RESTART;
     sigaction(SIGURG, &sa, NULL);
 
+    atomic_store_explicit(&signal_preemption_thread_running, true, memory_order_release);
+    if (pthread_create(&signal_preemption_thread, NULL, run_signal_preemption_thread_entry, NULL) !=
+        0) {
+        atomic_store_explicit(&signal_preemption_thread_running, false, memory_order_release);
+        signal(SIGURG, SIG_DFL);
+        return;
+    }
+
     signal_preemption_active = true;
 }
 
 void run_signal_preemption_stop(void) {
     if (!signal_preemption_active)
         return;
+    atomic_store_explicit(&signal_preemption_thread_running, false, memory_order_release);
+    pthread_join(signal_preemption_thread, NULL);
     signal(SIGURG, SIG_DFL);
     signal_preemption_active = false;
 }
@@ -1251,27 +1580,13 @@ static run_g_t *run_find_g_by_fault_addr(void *addr) {
 }
 
 static void run_stack_growth_handler(int sig, siginfo_t *info, void *uctx) {
-    (void)sig;
     (void)uctx;
 
     void *fault_addr = info->si_addr;
     run_g_t *g = run_find_g_by_fault_addr(fault_addr);
 
     if (g && growable_stacks_enabled) {
-        size_t page_size = run_vmem_page_size();
-        /* Check if we can grow */
-        size_t max_size = run_stack_max_size();
-        if (g->stack_committed >= max_size) {
-            fprintf(stderr, "run: stack overflow in green thread %llu (max %zu bytes)\n",
-                    (unsigned long long)g->id, max_size);
-            abort();
-        }
-
-        /* Commit the page containing the fault address */
-        // NOLINTNEXTLINE(performance-no-int-to-ptr): page alignment requires uintptr_t masking
-        void *page = (void *)((uintptr_t)fault_addr & ~(page_size - 1));
-        run_vmem_protect(page, page_size, RUN_VMEM_READWRITE);
-        g->stack_committed += page_size;
+        run_stack_grow_to_sp(g, fault_addr);
         return; /* Resume execution */
     }
 
@@ -1280,8 +1595,8 @@ static void run_stack_growth_handler(int sig, siginfo_t *info, void *uctx) {
     sa.sa_handler = SIG_DFL;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
-    sigaction(SIGSEGV, &sa, NULL);
-    raise(SIGSEGV);
+    sigaction(sig, &sa, NULL);
+    raise(sig);
 }
 
 void run_stack_growth_init(void) {
@@ -1302,6 +1617,7 @@ void run_stack_growth_init(void) {
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
     sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
 }
 
 #else /* Windows stub */
@@ -1391,9 +1707,16 @@ void run_debug_run_dump_goroutines(char *buf, size_t buf_size) {
  * ======================================================================== */
 
 void run_morestack(void) {
-    /* Stub: real implementation requires stack copying */
-    fputs("run: stack overflow (morestack not yet implemented)\n", stderr);
-    abort();
+    char marker;
+    run_stack_check(&marker);
+}
+
+void run_stack_check(void *sp) {
+    run_g_t *g = run_current_g();
+    if (g == NULL || g->id == 0)
+        return;
+    run_stack_record_sp(g, sp);
+    run_stack_grow_to_sp(g, sp);
 }
 
 /* ========================================================================
@@ -1431,5 +1754,9 @@ run_metrics_t run_runtime_metrics(void) {
     m.park_count = atomic_load_explicit(&scheduler_metrics.park_count, memory_order_relaxed);
     m.unpark_count = atomic_load_explicit(&scheduler_metrics.unpark_count, memory_order_relaxed);
     m.poll_count = atomic_load_explicit(&scheduler_metrics.poll_count, memory_order_relaxed);
+    m.global_queue_len = run_metrics_global_queue_len();
+    m.local_queue_len = run_metrics_local_queue_len();
+    m.live_g_count = atomic_load_explicit(&live_g_count, memory_order_relaxed);
+    m.poll_waiter_count = run_metrics_poll_waiter_count();
     return m;
 }
