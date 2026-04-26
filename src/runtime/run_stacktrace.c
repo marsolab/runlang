@@ -28,9 +28,12 @@ typedef struct {
 } run_phdr_lookup_t;
 
 /* Convert a runtime IP into the ELF VMA the linker assigned to that
- * instruction — the address `addr2line` expects. The runtime IP differs from
- * the ELF VMA by the module's ASLR slide minus the first PT_LOAD's p_vaddr;
- * iterating program headers is the standard way to recover both. */
+ * instruction — the address `addr2line` expects. dlpi_addr is the module's
+ * "load slide" (zero for ET_EXEC, the ASLR offset for ET_DYN/PIE), so
+ * `ip - dlpi_addr` is the ELF VMA. dladdr's dli_fbase isn't usable for this
+ * because glibc reports it as l_map_start (the lowest mapped address), which
+ * for an ET_EXEC binary with text at 0x1000000 is 0x1000000 — subtracting it
+ * yields a file-relative offset rather than the ELF VMA addr2line wants. */
 static int run_phdr_lookup_cb(struct dl_phdr_info *info, size_t size, void *data) {
     (void)size;
     run_phdr_lookup_t *q = (run_phdr_lookup_t *)data;
@@ -41,7 +44,7 @@ static int run_phdr_lookup_cb(struct dl_phdr_info *info, size_t size, void *data
         uintptr_t seg_start = (uintptr_t)info->dlpi_addr + (uintptr_t)ph->p_vaddr;
         uintptr_t seg_end = seg_start + (uintptr_t)ph->p_memsz;
         if (q->ip >= seg_start && q->ip < seg_end) {
-            q->elf_vma = (unsigned long long)(q->ip - (uintptr_t)info->dlpi_addr) + ph->p_vaddr;
+            q->elf_vma = (unsigned long long)(q->ip - (uintptr_t)info->dlpi_addr);
             q->found = 1;
             return 1; /* stop iteration */
         }
@@ -177,9 +180,9 @@ static void run_stacktrace_symbolize_source(run_stack_entry_t *entry, const Dl_i
 #else
     run_phdr_lookup_t q = {.ip = (uintptr_t)ip, .elf_vma = 0, .found = 0};
     dl_iterate_phdr(run_phdr_lookup_cb, &q);
-    unsigned long long addr =
-        q.found ? q.elf_vma : (unsigned long long)(ip - (unw_word_t)(uintptr_t)dl->dli_fbase);
-    snprintf(addr_buf, sizeof(addr_buf), "0x%llx", addr);
+    if (!q.found)
+        return;
+    snprintf(addr_buf, sizeof(addr_buf), "0x%llx", q.elf_vma);
     char *argv[] = {(char *)"addr2line",   (char *)"-f", (char *)"-C", (char *)"-e",
                     (char *)dl->dli_fname, addr_buf,     (char *)NULL};
 #endif
