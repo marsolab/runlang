@@ -1065,9 +1065,7 @@ void run_yield(void) {
 
     /* Voluntary yields preserve local LIFO behavior. Preemptive yields go
      * through the global FIFO queue so another runnable G on this P can run. */
-    if (was_preempted) {
-        run_global_queue_push(g);
-    } else if (m->current_p) {
+    if (!was_preempted && m->current_p) {
         run_local_push_or_global(&m->current_p->local_queue, g);
     } else {
         run_global_queue_push(g);
@@ -1406,7 +1404,7 @@ static void *run_signal_preemption_thread_entry(void *arg) {
     (void)arg;
     const struct timespec interval = {
         .tv_sec = 0,
-        .tv_nsec = RUN_PREEMPT_INTERVAL_US * 1000,
+        .tv_nsec = (long)RUN_PREEMPT_INTERVAL_US * 1000L,
     };
 
     while (atomic_load_explicit(&signal_preemption_thread_running, memory_order_acquire)) {
