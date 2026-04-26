@@ -9,8 +9,7 @@
  *
  * Walks the current thread's call stack using libunwind where available
  * and symbolizes each frame with function name, binary path, and line
- * number (line numbers require DWARF parsing and are currently 0 — see
- * #409 follow-up).
+ * number when platform symbolication tools can resolve DWARF line tables.
  *
  * Supported platforms: macOS and Linux (both link against libunwind).
  * On unsupported platforms these functions return 0/empty and callers

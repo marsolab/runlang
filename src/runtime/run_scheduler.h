@@ -136,6 +136,7 @@ struct run_m {
     pthread_cond_t park_cond;
     volatile bool parked;
     struct run_m *all_next;
+    struct run_m *idle_next;
 };
 
 /* ---------- P — Processor ---------- */
@@ -159,6 +160,10 @@ typedef struct {
     _Atomic int64_t park_count;
     _Atomic int64_t unpark_count;
     _Atomic int64_t poll_count;
+    _Atomic int64_t global_queue_len;
+    _Atomic int64_t local_queue_len;
+    _Atomic int64_t live_g_count;
+    _Atomic int64_t poll_waiter_count;
 } run_metrics_t;
 run_metrics_t run_runtime_metrics(void);
 
@@ -206,6 +211,7 @@ void run_signal_preemption_stop(void);
 /* ---------- Growable stacks ---------- */
 size_t run_stack_max_size(void);
 void run_stack_growth_init(void);
+void run_stack_check(void *sp);
 void run_morestack(void);
 
 /* ---------- Debug helpers ---------- */

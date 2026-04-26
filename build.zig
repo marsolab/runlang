@@ -96,18 +96,16 @@ pub fn build(b: *std.Build) void {
     // Enable GNU extensions (sched_getcpu, CPU_ZERO, pthread_setaffinity_np, etc.)
     sanitizer_flag_buf[sanitizer_flag_count] = "-D_GNU_SOURCE";
     sanitizer_flag_count += 1;
+    sanitizer_flag_buf[sanitizer_flag_count] = "-g";
+    sanitizer_flag_count += 1;
     if (sanitize) {
         sanitizer_flag_buf[sanitizer_flag_count] = "-fsanitize=address,undefined";
         sanitizer_flag_count += 1;
         sanitizer_flag_buf[sanitizer_flag_count] = "-fno-omit-frame-pointer";
         sanitizer_flag_count += 1;
-        sanitizer_flag_buf[sanitizer_flag_count] = "-g";
-        sanitizer_flag_count += 1;
     }
     if (tsan) {
         sanitizer_flag_buf[sanitizer_flag_count] = "-fsanitize=thread";
-        sanitizer_flag_count += 1;
-        sanitizer_flag_buf[sanitizer_flag_count] = "-g";
         sanitizer_flag_count += 1;
     }
     if (no_gen_checks) {
@@ -246,6 +244,7 @@ pub fn build(b: *std.Build) void {
         "src/runtime/tests/test_runtime_api.c",
         "src/runtime/tests/test_debug_api.c",
         "src/runtime/tests/test_poller.c",
+        "src/runtime/tests/test_stress.c",
     };
     inline for (runtime_test_sources) |src| {
         runtime_test_exe.root_module.addCSourceFile(.{
@@ -311,6 +310,11 @@ pub fn build(b: *std.Build) void {
 
     const run_runtime_tests = b.addRunArtifact(runtime_test_exe);
     run_runtime_tests.step.dependOn(&runtime_test_exe.step);
+    if (target_info.os.tag == .macos) {
+        const runtime_tests_dsym = b.addSystemCommand(&.{"dsymutil"});
+        runtime_tests_dsym.addArtifactArg(runtime_test_exe);
+        run_runtime_tests.step.dependOn(&runtime_tests_dsym.step);
+    }
     const runtime_test_step = b.step("test-runtime", "Run runtime C tests");
     runtime_test_step.dependOn(&run_runtime_tests.step);
 
