@@ -256,10 +256,10 @@ pub const Loop = struct {
             self.batch.array[0] = .{
                 .userdata = 0,
                 .u = .{
-                    .tag = wasi.EVENTTYPE_CLOCK,
+                    .tag = wasi.eventtype_t.CLOCK,
                     .u = .{
                         .clock = .{
-                            .id = @as(u32, @bitCast(posix.CLOCK.MONOTONIC)),
+                            .id = wasi.clockid_t.MONOTONIC,
                             .timeout = timeout,
                             .precision = 1 * std.time.ns_per_ms,
                             .flags = wasi.SUBSCRIPTION_CLOCK_ABSTIME,
@@ -378,9 +378,9 @@ pub const Loop = struct {
 
             .shutdown => |v| res: {
                 const how: wasi.sdflags_t = switch (v.how) {
-                    .both => wasi.SHUT.WR | wasi.SHUT.RD,
-                    .recv => wasi.SHUT.RD,
-                    .send => wasi.SHUT.WR,
+                    .both => .{ .RD = true, .WR = true },
+                    .recv => .{ .RD = true },
+                    .send => .{ .WR = true },
                 };
 
                 break :res .{
@@ -392,8 +392,12 @@ pub const Loop = struct {
             },
 
             .close => |v| res: {
-                posix.close(v.fd);
-                break :res .{ .close = {} };
+                break :res .{
+                    .close = switch (wasi.fd_close(v.fd)) {
+                        .SUCCESS => {},
+                        else => error.Unknown,
+                    },
+                };
             },
 
             .async_wait => res: {
@@ -584,7 +588,7 @@ pub const Loop = struct {
     fn timer_next(next_ms: u64) wasi.timestamp_t {
         // Get the absolute time we'll execute this timer next.
         var now_ts: wasi.timestamp_t = undefined;
-        switch (wasi.clock_time_get(@as(u32, @bitCast(posix.CLOCK.MONOTONIC)), 1, &now_ts)) {
+        switch (wasi.clock_time_get(wasi.clockid_t.MONOTONIC, 1, &now_ts)) {
             .SUCCESS => {},
             .INVAL => unreachable,
             else => unreachable,
@@ -597,13 +601,89 @@ pub const Loop = struct {
 
     fn get_now() !wasi.timestamp_t {
         var ts: wasi.timestamp_t = undefined;
-        return switch (wasi.clock_time_get(posix.CLOCK.MONOTONIC, 1, &ts)) {
+        return switch (wasi.clock_time_get(wasi.clockid_t.MONOTONIC, 1, &ts)) {
             .SUCCESS => ts,
             .INVAL => error.UnsupportedClock,
             else => |err| posix.unexpectedErrno(err),
         };
     }
 };
+
+fn wasiRead(fd: posix.fd_t, buf: []u8) ReadError!usize {
+    if (buf.len == 0) return 0;
+    var iov = wasi.iovec_t{ .base = buf.ptr, .len = buf.len };
+    var nread: usize = 0;
+    return switch (wasi.fd_read(fd, @ptrCast(&iov), 1, &nread)) {
+        .SUCCESS => nread,
+        else => |err| mapWasiReadError(err),
+    };
+}
+
+fn wasiPRead(fd: posix.fd_t, buf: []u8, offset: u64) ReadError!usize {
+    if (buf.len == 0) return 0;
+    var iov = wasi.iovec_t{ .base = buf.ptr, .len = buf.len };
+    var nread: usize = 0;
+    return switch (wasi.fd_pread(fd, @ptrCast(&iov), 1, offset, &nread)) {
+        .SUCCESS => nread,
+        else => |err| mapWasiReadError(err),
+    };
+}
+
+fn wasiWrite(fd: posix.fd_t, bytes: []const u8) WriteError!usize {
+    if (bytes.len == 0) return 0;
+    var iov = wasi.ciovec_t{ .base = bytes.ptr, .len = bytes.len };
+    var nwritten: usize = 0;
+    return switch (wasi.fd_write(fd, @ptrCast(&iov), 1, &nwritten)) {
+        .SUCCESS => nwritten,
+        else => |err| mapWasiWriteError(err),
+    };
+}
+
+fn wasiPWrite(fd: posix.fd_t, bytes: []const u8, offset: u64) WriteError!usize {
+    if (bytes.len == 0) return 0;
+    var iov = wasi.ciovec_t{ .base = bytes.ptr, .len = bytes.len };
+    var nwritten: usize = 0;
+    return switch (wasi.fd_pwrite(fd, @ptrCast(&iov), 1, offset, &nwritten)) {
+        .SUCCESS => nwritten,
+        else => |err| mapWasiWriteError(err),
+    };
+}
+
+fn mapWasiReadError(err: wasi.errno_t) ReadError {
+    return switch (err) {
+        .ACCES, .NOTCAPABLE => error.AccessDenied,
+        .AGAIN => error.WouldBlock,
+        .BADF => error.NotOpenForReading,
+        .CONNRESET => error.ConnectionResetByPeer,
+        .IO => error.InputOutput,
+        .ISDIR => error.IsDir,
+        .NOMEM, .NOBUFS => error.SystemResources,
+        .NOTCONN => error.SocketNotConnected,
+        .SRCH => error.ProcessNotFound,
+        .TIMEDOUT => error.ConnectionTimedOut,
+        else => error.Unexpected,
+    };
+}
+
+fn mapWasiWriteError(err: wasi.errno_t) WriteError {
+    return switch (err) {
+        .ACCES, .NOTCAPABLE => error.AccessDenied,
+        .AGAIN => error.WouldBlock,
+        .BADF => error.NotOpenForWriting,
+        .CONNRESET => error.ConnectionResetByPeer,
+        .DQUOT => error.DiskQuota,
+        .FBIG => error.FileTooBig,
+        .IO => error.InputOutput,
+        .INVAL => error.InvalidArgument,
+        .MSGSIZE => error.MessageTooBig,
+        .NOMEM, .NOBUFS => error.SystemResources,
+        .NOSPC => error.NoSpaceLeft,
+        .PERM => error.PermissionDenied,
+        .PIPE => error.BrokenPipe,
+        .SRCH => error.ProcessNotFound,
+        else => error.Unexpected,
+    };
+}
 
 pub const Completion = struct {
     /// Operation to execute. This is only safe to read BEFORE the completion
@@ -669,7 +749,7 @@ pub const Completion = struct {
             .read => |v| .{
                 .userdata = @intFromPtr(self),
                 .u = .{
-                    .tag = wasi.EVENTTYPE_FD_READ,
+                    .tag = wasi.eventtype_t.FD_READ,
                     .u = .{
                         .fd_read = .{
                             .fd = v.fd,
@@ -681,7 +761,7 @@ pub const Completion = struct {
             .pread => |v| .{
                 .userdata = @intFromPtr(self),
                 .u = .{
-                    .tag = wasi.EVENTTYPE_FD_READ,
+                    .tag = wasi.eventtype_t.FD_READ,
                     .u = .{
                         .fd_read = .{
                             .fd = v.fd,
@@ -693,7 +773,7 @@ pub const Completion = struct {
             .write => |v| .{
                 .userdata = @intFromPtr(self),
                 .u = .{
-                    .tag = wasi.EVENTTYPE_FD_WRITE,
+                    .tag = wasi.eventtype_t.FD_WRITE,
                     .u = .{
                         .fd_write = .{
                             .fd = v.fd,
@@ -705,7 +785,7 @@ pub const Completion = struct {
             .pwrite => |v| .{
                 .userdata = @intFromPtr(self),
                 .u = .{
-                    .tag = wasi.EVENTTYPE_FD_WRITE,
+                    .tag = wasi.eventtype_t.FD_WRITE,
                     .u = .{
                         .fd_write = .{
                             .fd = v.fd,
@@ -717,7 +797,7 @@ pub const Completion = struct {
             .accept => |v| .{
                 .userdata = @intFromPtr(self),
                 .u = .{
-                    .tag = wasi.EVENTTYPE_FD_READ,
+                    .tag = wasi.eventtype_t.FD_READ,
                     .u = .{
                         .fd_read = .{
                             .fd = v.socket,
@@ -729,7 +809,7 @@ pub const Completion = struct {
             .recv => |v| .{
                 .userdata = @intFromPtr(self),
                 .u = .{
-                    .tag = wasi.EVENTTYPE_FD_READ,
+                    .tag = wasi.eventtype_t.FD_READ,
                     .u = .{
                         .fd_read = .{
                             .fd = v.fd,
@@ -741,7 +821,7 @@ pub const Completion = struct {
             .send => |v| .{
                 .userdata = @intFromPtr(self),
                 .u = .{
-                    .tag = wasi.EVENTTYPE_FD_WRITE,
+                    .tag = wasi.eventtype_t.FD_WRITE,
                     .u = .{
                         .fd_write = .{
                             .fd = v.fd,
@@ -777,7 +857,7 @@ pub const Completion = struct {
             .accept => |*op| res: {
                 var out_fd: posix.fd_t = undefined;
                 break :res .{
-                    .accept = switch (wasi.sock_accept(op.socket, 0, &out_fd)) {
+                    .accept = switch (wasi.sock_accept(op.socket, .{}, &out_fd)) {
                         .SUCCESS => out_fd,
                         else => |err| posix.unexpectedErrno(err),
                     },
@@ -786,8 +866,8 @@ pub const Completion = struct {
 
             .read => |*op| res: {
                 const n_ = switch (op.buffer) {
-                    .slice => |v| posix.read(op.fd, v),
-                    .array => |*v| posix.read(op.fd, v),
+                    .slice => |v| wasiRead(op.fd, v),
+                    .array => |*v| wasiRead(op.fd, v),
                 };
 
                 break :res .{
@@ -800,8 +880,8 @@ pub const Completion = struct {
 
             .pread => |*op| res: {
                 const n_ = switch (op.buffer) {
-                    .slice => |v| posix.pread(op.fd, v, op.offset),
-                    .array => |*v| posix.pread(op.fd, v, op.offset),
+                    .slice => |v| wasiPRead(op.fd, v, op.offset),
+                    .array => |*v| wasiPRead(op.fd, v, op.offset),
                 };
 
                 break :res .{
@@ -814,8 +894,8 @@ pub const Completion = struct {
 
             .write => |*op| res: {
                 const n_ = switch (op.buffer) {
-                    .slice => |v| posix.write(op.fd, v),
-                    .array => |*v| posix.write(op.fd, v.array[0..v.len]),
+                    .slice => |v| wasiWrite(op.fd, v),
+                    .array => |*v| wasiWrite(op.fd, v.array[0..v.len]),
                 };
 
                 break :res .{
@@ -825,8 +905,8 @@ pub const Completion = struct {
 
             .pwrite => |*op| res: {
                 const n_ = switch (op.buffer) {
-                    .slice => |v| posix.pwrite(op.fd, v, op.offset),
-                    .array => |*v| posix.pwrite(op.fd, v.array[0..v.len], op.offset),
+                    .slice => |v| wasiPWrite(op.fd, v, op.offset),
+                    .array => |*v| wasiPWrite(op.fd, v.array[0..v.len], op.offset),
                 };
 
                 break :res .{

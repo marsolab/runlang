@@ -71,7 +71,7 @@ fn fileHandleFromFd(fd: c_int) ?std.Io.File.Handle {
         if (handle == -1) return null;
         return @ptrFromInt(@as(usize, @intCast(handle)));
     }
-    return fd;
+    return @intCast(fd);
 }
 
 // ── C exports ──────────────────────────────────────────────────────
@@ -201,7 +201,7 @@ export fn run_xev_poll_read(fd: c_int, g: GPtr) void {
         .generation = slot.generation,
     };
     slot.read_armed = true;
-    if (builtin.os.tag == .windows) {
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi) {
         slot.read_completion = .{
             .op = .{
                 .read = .{

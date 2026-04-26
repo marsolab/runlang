@@ -110,8 +110,8 @@ pub fn build(b: *std.Build) !void {
     const man = try manPages(b);
 
     // Benchmarks and examples
-    const benchmarks = try buildBenchmarks(b, target);
-    const examples = try buildExamples(b, target, optimize, static_lib);
+    const benchmarks = if (emit_bench) try buildBenchmarks(b, target) else &.{};
+    const examples = if (emit_examples) try buildExamples(b, target, optimize, static_lib) else &.{};
 
     // Test Executable
     const test_exe: *Step.Compile = test_exe: {

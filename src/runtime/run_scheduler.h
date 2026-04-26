@@ -13,7 +13,11 @@ typedef struct run_m run_m_t;
 typedef struct run_p run_p_t;
 
 /* ---------- Context (platform-specific) ---------- */
-#if defined(__aarch64__) || defined(__arm64__)
+#if defined(__wasi__)
+typedef struct {
+    void *unused;
+} run_context_t;
+#elif defined(__aarch64__) || defined(__arm64__)
 typedef struct {
     void *sp;
     void *lr;
@@ -74,8 +78,10 @@ typedef struct {
 } run_context_t;
 #endif
 
+#if !defined(__wasi__)
 extern void run_context_switch(run_context_t *from, run_context_t *to);
 extern void run_context_init(run_context_t *ctx, void *stack_top, void (*entry)(void *), void *arg);
+#endif
 
 /* ---------- G — Green Thread ---------- */
 typedef enum { G_IDLE, G_RUNNABLE, G_RUNNING, G_WAITING, G_DEAD } run_g_status_t;

@@ -23,6 +23,8 @@ fn findGccSanitizerLibDir(b: *std.Build) ?[]const u8 {
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const target_info = target.result;
+    const is_wasi = target_info.os.tag == .wasi;
 
     // Sanitizer options for runtime C code
     const sanitize = b.option(bool, "sanitize", "Enable ASan+UBSan for runtime C code") orelse false;
@@ -37,18 +39,29 @@ pub fn build(b: *std.Build) void {
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "version", version);
 
-    // Main compiler executable
-    const exe = b.addExecutable(.{
-        .name = "run",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        }),
-    });
-    exe.root_module.addOptions("build_options", build_options);
-    b.installArtifact(exe);
+    if (!is_wasi) {
+        // Main compiler executable
+        const exe = b.addExecutable(.{
+            .name = "run",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/main.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+        });
+        exe.root_module.addOptions("build_options", build_options);
+        b.installArtifact(exe);
+
+        // Run command: `zig build run -- <args>`
+        const run_cmd = b.addRunArtifact(exe);
+        run_cmd.step.dependOn(b.getInstallStep());
+        if (b.args) |args| {
+            run_cmd.addArgs(args);
+        }
+        const run_step = b.step("run", "Compile and run the Run compiler");
+        run_step.dependOn(&run_cmd.step);
+    }
 
     // libxev dependency (cross-platform event loop for async I/O)
     const libxev_dep = b.dependency("libxev", .{
@@ -77,7 +90,7 @@ pub fn build(b: *std.Build) void {
         "src/runtime/run_string.c",
         "src/runtime/run_slice.c",
         "src/runtime/run_fmt.c",
-        "src/runtime/run_scheduler.c",
+        if (is_wasi) "src/runtime/run_scheduler_wasi.c" else "src/runtime/run_scheduler.c",
         "src/runtime/run_chan.c",
         "src/runtime/run_vmem.c",
         "src/runtime/run_map.c",
@@ -137,7 +150,6 @@ pub fn build(b: *std.Build) void {
     });
 
     // Add platform-specific assembly for context switching
-    const target_info = target.result;
     if (target_info.cpu.arch == .x86_64) {
         runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
         runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_amd64.S"));
@@ -171,7 +183,7 @@ pub fn build(b: *std.Build) void {
     } else null;
     if (xev_bridge_obj) |obj| {
         runtime_lib.root_module.addObject(obj);
-        if (target_info.os.tag == .windows) {
+        if (target_info.os.tag == .windows or is_wasi) {
             const xev_bridge_lib = b.addLibrary(.{
                 .name = "runxev",
                 .linkage = .static,
@@ -197,7 +209,9 @@ pub fn build(b: *std.Build) void {
             b.getInstallStep().dependOn(&install_xev_lib.step);
         }
     }
-    runtime_lib.root_module.linkSystemLibrary("pthread", .{});
+    if (!is_wasi) {
+        runtime_lib.root_module.linkSystemLibrary("pthread", .{});
+    }
     // Link libunwind for stack traces with DWARF unwinding.
     // On macOS, libunwind is part of the system (linked automatically).
     // On Linux, it requires the libunwind-dev package.
@@ -216,15 +230,6 @@ pub fn build(b: *std.Build) void {
         .include_extensions = &.{".h"},
     });
 
-    // Run command: `zig build run -- <args>`
-    const run_cmd = b.addRunArtifact(exe);
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-    const run_step = b.step("run", "Compile and run the Run compiler");
-    run_step.dependOn(&run_cmd.step);
-
     // Tests (via root.zig which re-exports all modules)
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -238,175 +243,206 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
 
-    // Runtime C tests
-    const runtime_test_exe = b.addExecutable(.{
-        .name = "runtime-tests",
-        .root_module = b.createModule(.{
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        }),
-    });
-
-    const runtime_test_sources = .{
-        "src/runtime/tests/test_main.c",
-        "src/runtime/tests/test_vmem.c",
-        "src/runtime/tests/test_scheduler.c",
-        "src/runtime/tests/test_chan.c",
-        "src/runtime/tests/test_map.c",
-        "src/runtime/tests/test_fmt.c",
-        "src/runtime/tests/test_simd.c",
-        "src/runtime/tests/test_numa.c",
-        "src/runtime/tests/test_runtime_api.c",
-        "src/runtime/tests/test_debug_api.c",
-        "src/runtime/tests/test_poller.c",
-        "src/runtime/tests/test_stress.c",
-    };
-    inline for (runtime_test_sources) |src| {
-        runtime_test_exe.root_module.addCSourceFile(.{
-            .file = b.path(src),
-            .flags = sanitizer_flags,
-        });
-    }
-    inline for (runtime_c_sources) |src| {
-        runtime_test_exe.root_module.addCSourceFile(.{
-            .file = b.path(src),
-            .flags = sanitizer_flags,
-        });
-    }
-    // Add selected poller implementation for tests
-    runtime_test_exe.root_module.addCSourceFile(.{
-        .file = b.path(poller_source),
-        .flags = sanitizer_flags,
-    });
-
-    // Add assembly for runtime tests too
-    if (target_info.cpu.arch == .x86_64) {
-        runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
-        runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_amd64.S"));
-    } else if (target_info.cpu.arch == .aarch64) {
-        runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_arm64.S"));
-        runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_arm64.S"));
-    }
-
-    runtime_test_exe.root_module.addIncludePath(b.path("src/runtime"));
-    runtime_test_exe.root_module.addIncludePath(b.path("src/runtime/tests"));
-    // Reuse the same object file produced for runtime_lib (see note above).
-    if (xev_bridge_obj) |obj| {
-        runtime_test_exe.root_module.addObject(obj);
-    }
-    runtime_test_exe.root_module.linkSystemLibrary("pthread", .{});
-    // Link libunwind for stack trace tests (matches runtime_lib linking).
-    if (target_info.os.tag == .linux) {
-        runtime_test_exe.root_module.linkSystemLibrary("unwind", .{});
-        // On Linux, dladdr only resolves symbols exposed through the dynamic
-        // symbol table. Without --export-dynamic, stack-trace tests that match
-        // on function names (e.g. strstr(trace, "test_runtime_stack")) will
-        // fail because the static test functions aren't visible to dladdr.
-        runtime_test_exe.rdynamic = true;
-    }
-
-    // Link sanitizer runtime libraries for the test executable.
-    // On Ubuntu/Debian, these live in GCC's versioned lib directory
-    // (e.g. /usr/lib/gcc/x86_64-linux-gnu/13/) which isn't in the
-    // standard search path. Probe for it at configure time.
-    if (sanitize or tsan) {
-        if (findGccSanitizerLibDir(b)) |gcc_dir| {
-            runtime_test_exe.root_module.addLibraryPath(.{ .cwd_relative = gcc_dir });
-        }
-    }
-    if (sanitize) {
-        runtime_test_exe.root_module.linkSystemLibrary("asan", .{});
-        runtime_test_exe.root_module.linkSystemLibrary("ubsan", .{});
-    }
-    if (tsan) {
-        runtime_test_exe.root_module.linkSystemLibrary("tsan", .{});
-    }
-    b.installArtifact(runtime_test_exe);
-
-    const run_runtime_tests = b.addRunArtifact(runtime_test_exe);
-    run_runtime_tests.step.dependOn(&runtime_test_exe.step);
-    if (target_info.os.tag == .macos) {
-        const runtime_tests_dsym = b.addSystemCommand(&.{"dsymutil"});
-        runtime_tests_dsym.addArtifactArg(runtime_test_exe);
-        run_runtime_tests.step.dependOn(&runtime_tests_dsym.step);
-    }
-    const runtime_test_step = b.step("test-runtime", "Run runtime C tests");
-    runtime_test_step.dependOn(&run_runtime_tests.step);
-
-    // Runtime benchmarks
-    const runtime_bench_exe = b.addExecutable(.{
-        .name = "runtime-bench",
-        .root_module = b.createModule(.{
-            .target = target,
-            .optimize = .ReleaseFast,
-            .link_libc = true,
-        }),
-    });
-    const runtime_bench_sources = .{
-        "benchmarks/runtime/bench_main.c",
-        "benchmarks/runtime/bench_spawn.c",
-        "benchmarks/runtime/bench_context_switch.c",
-        "benchmarks/runtime/bench_channel.c",
-        "benchmarks/runtime/bench_steal.c",
-        "benchmarks/runtime/bench_poll.c",
-        "benchmarks/runtime/bench_scheduler.c",
-    };
-    inline for (runtime_bench_sources) |src| {
-        runtime_bench_exe.root_module.addCSourceFile(.{
-            .file = b.path(src),
-            .flags = &.{"-D_GNU_SOURCE"},
-        });
-    }
-    inline for (runtime_c_sources) |src| {
-        runtime_bench_exe.root_module.addCSourceFile(.{
-            .file = b.path(src),
-            .flags = &.{"-D_GNU_SOURCE"},
-        });
-    }
-    runtime_bench_exe.root_module.addCSourceFile(.{
-        .file = b.path(poller_source),
-        .flags = &.{"-D_GNU_SOURCE"},
-    });
-    // Note: run_main.c is NOT included in benchmarks — bench_main.c provides main()
-    if (target_info.cpu.arch == .x86_64) {
-        if (target_info.os.tag == .windows) {
-            runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_win64.S"));
-        } else {
-            runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
-            runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_amd64.S"));
-        }
-    } else if (target_info.cpu.arch == .aarch64) {
-        runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_arm64.S"));
-        runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_arm64.S"));
-    }
-    runtime_bench_exe.root_module.addIncludePath(b.path("src/runtime"));
-    runtime_bench_exe.root_module.addIncludePath(b.path("benchmarks/runtime"));
-    if (!legacy_poller) {
-        const xev_bench_bridge = b.addLibrary(.{
-            .name = "runxev-bench",
-            .linkage = .static,
+    if (!is_wasi) {
+        // Runtime C tests
+        const runtime_test_exe = b.addExecutable(.{
+            .name = "runtime-tests",
             .root_module = b.createModule(.{
-                .root_source_file = b.path("src/runtime/run_xev_bridge.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+        });
+
+        const runtime_test_sources = .{
+            "src/runtime/tests/test_main.c",
+            "src/runtime/tests/test_vmem.c",
+            "src/runtime/tests/test_scheduler.c",
+            "src/runtime/tests/test_chan.c",
+            "src/runtime/tests/test_map.c",
+            "src/runtime/tests/test_fmt.c",
+            "src/runtime/tests/test_simd.c",
+            "src/runtime/tests/test_numa.c",
+            "src/runtime/tests/test_runtime_api.c",
+            "src/runtime/tests/test_debug_api.c",
+            "src/runtime/tests/test_poller.c",
+            "src/runtime/tests/test_stress.c",
+        };
+        inline for (runtime_test_sources) |src| {
+            runtime_test_exe.root_module.addCSourceFile(.{
+                .file = b.path(src),
+                .flags = sanitizer_flags,
+            });
+        }
+        inline for (runtime_c_sources) |src| {
+            runtime_test_exe.root_module.addCSourceFile(.{
+                .file = b.path(src),
+                .flags = sanitizer_flags,
+            });
+        }
+        // Add selected poller implementation for tests
+        runtime_test_exe.root_module.addCSourceFile(.{
+            .file = b.path(poller_source),
+            .flags = sanitizer_flags,
+        });
+
+        // Add assembly for runtime tests too
+        if (target_info.cpu.arch == .x86_64) {
+            runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
+            runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_amd64.S"));
+        } else if (target_info.cpu.arch == .aarch64) {
+            runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_arm64.S"));
+            runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_arm64.S"));
+        }
+
+        runtime_test_exe.root_module.addIncludePath(b.path("src/runtime"));
+        runtime_test_exe.root_module.addIncludePath(b.path("src/runtime/tests"));
+        // Reuse the same object file produced for runtime_lib (see note above).
+        if (xev_bridge_obj) |obj| {
+            runtime_test_exe.root_module.addObject(obj);
+        }
+        runtime_test_exe.root_module.linkSystemLibrary("pthread", .{});
+        // Link libunwind for stack trace tests (matches runtime_lib linking).
+        if (target_info.os.tag == .linux) {
+            runtime_test_exe.root_module.linkSystemLibrary("unwind", .{});
+            // On Linux, dladdr only resolves symbols exposed through the dynamic
+            // symbol table. Without --export-dynamic, stack-trace tests that match
+            // on function names (e.g. strstr(trace, "test_runtime_stack")) will
+            // fail because the static test functions aren't visible to dladdr.
+            runtime_test_exe.rdynamic = true;
+        }
+
+        // Link sanitizer runtime libraries for the test executable.
+        // On Ubuntu/Debian, these live in GCC's versioned lib directory
+        // (e.g. /usr/lib/gcc/x86_64-linux-gnu/13/) which isn't in the
+        // standard search path. Probe for it at configure time.
+        if (sanitize or tsan) {
+            if (findGccSanitizerLibDir(b)) |gcc_dir| {
+                runtime_test_exe.root_module.addLibraryPath(.{ .cwd_relative = gcc_dir });
+            }
+        }
+        if (sanitize) {
+            runtime_test_exe.root_module.linkSystemLibrary("asan", .{});
+            runtime_test_exe.root_module.linkSystemLibrary("ubsan", .{});
+        }
+        if (tsan) {
+            runtime_test_exe.root_module.linkSystemLibrary("tsan", .{});
+        }
+        b.installArtifact(runtime_test_exe);
+
+        const run_runtime_tests = b.addRunArtifact(runtime_test_exe);
+        run_runtime_tests.step.dependOn(&runtime_test_exe.step);
+        if (target_info.os.tag == .macos) {
+            const runtime_tests_dsym = b.addSystemCommand(&.{"dsymutil"});
+            runtime_tests_dsym.addArtifactArg(runtime_test_exe);
+            run_runtime_tests.step.dependOn(&runtime_tests_dsym.step);
+        }
+        const runtime_test_step = b.step("test-runtime", "Run runtime C tests");
+        runtime_test_step.dependOn(&run_runtime_tests.step);
+
+        // Runtime benchmarks
+        const runtime_bench_exe = b.addExecutable(.{
+            .name = "runtime-bench",
+            .root_module = b.createModule(.{
                 .target = target,
                 .optimize = .ReleaseFast,
                 .link_libc = true,
             }),
         });
-        xev_bench_bridge.root_module.addImport("xev", libxev_dep.module("xev"));
-        runtime_bench_exe.root_module.linkLibrary(xev_bench_bridge);
-    }
-    runtime_bench_exe.root_module.linkSystemLibrary("pthread", .{});
-    // Link libunwind for stack trace support (matches runtime_lib linking).
-    if (target_info.os.tag == .linux) {
-        runtime_bench_exe.root_module.linkSystemLibrary("unwind", .{});
-    }
-    b.installArtifact(runtime_bench_exe);
+        const runtime_bench_sources = .{
+            "benchmarks/runtime/bench_main.c",
+            "benchmarks/runtime/bench_spawn.c",
+            "benchmarks/runtime/bench_context_switch.c",
+            "benchmarks/runtime/bench_channel.c",
+            "benchmarks/runtime/bench_steal.c",
+            "benchmarks/runtime/bench_poll.c",
+            "benchmarks/runtime/bench_scheduler.c",
+        };
+        inline for (runtime_bench_sources) |src| {
+            runtime_bench_exe.root_module.addCSourceFile(.{
+                .file = b.path(src),
+                .flags = &.{"-D_GNU_SOURCE"},
+            });
+        }
+        inline for (runtime_c_sources) |src| {
+            runtime_bench_exe.root_module.addCSourceFile(.{
+                .file = b.path(src),
+                .flags = &.{"-D_GNU_SOURCE"},
+            });
+        }
+        runtime_bench_exe.root_module.addCSourceFile(.{
+            .file = b.path(poller_source),
+            .flags = &.{"-D_GNU_SOURCE"},
+        });
+        // Note: run_main.c is NOT included in benchmarks — bench_main.c provides main()
+        if (target_info.cpu.arch == .x86_64) {
+            if (target_info.os.tag == .windows) {
+                runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_win64.S"));
+            } else {
+                runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
+                runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_amd64.S"));
+            }
+        } else if (target_info.cpu.arch == .aarch64) {
+            runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_arm64.S"));
+            runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_arm64.S"));
+        }
+        runtime_bench_exe.root_module.addIncludePath(b.path("src/runtime"));
+        runtime_bench_exe.root_module.addIncludePath(b.path("benchmarks/runtime"));
+        if (!legacy_poller) {
+            const xev_bench_bridge = b.addLibrary(.{
+                .name = "runxev-bench",
+                .linkage = .static,
+                .root_module = b.createModule(.{
+                    .root_source_file = b.path("src/runtime/run_xev_bridge.zig"),
+                    .target = target,
+                    .optimize = .ReleaseFast,
+                    .link_libc = true,
+                }),
+            });
+            xev_bench_bridge.root_module.addImport("xev", libxev_dep.module("xev"));
+            runtime_bench_exe.root_module.linkLibrary(xev_bench_bridge);
+        }
+        runtime_bench_exe.root_module.linkSystemLibrary("pthread", .{});
+        // Link libunwind for stack trace support (matches runtime_lib linking).
+        if (target_info.os.tag == .linux) {
+            runtime_bench_exe.root_module.linkSystemLibrary("unwind", .{});
+        }
+        b.installArtifact(runtime_bench_exe);
 
-    const run_runtime_bench = b.addRunArtifact(runtime_bench_exe);
-    run_runtime_bench.step.dependOn(&runtime_bench_exe.step);
-    const runtime_bench_step = b.step("bench-runtime", "Run runtime benchmarks");
-    runtime_bench_step.dependOn(&run_runtime_bench.step);
+        const run_runtime_bench = b.addRunArtifact(runtime_bench_exe);
+        run_runtime_bench.step.dependOn(&runtime_bench_exe.step);
+        const runtime_bench_step = b.step("bench-runtime", "Run runtime benchmarks");
+        runtime_bench_step.dependOn(&run_runtime_bench.step);
+    } else {
+        _ = b.step("test-runtime", "Runtime C tests are not available for WASI");
+        _ = b.step("bench-runtime", "Runtime benchmarks are not available for WASI");
+
+        const wasi_smoke_exe = b.addExecutable(.{
+            .name = "runtime-wasi-smoke",
+            .root_module = b.createModule(.{
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+        });
+        wasi_smoke_exe.root_module.addCSourceFile(.{
+            .file = b.path("src/runtime/tests/wasi_smoke.c"),
+            .flags = sanitizer_flags,
+        });
+        wasi_smoke_exe.root_module.addIncludePath(b.path("src/runtime"));
+        wasi_smoke_exe.root_module.linkLibrary(runtime_lib);
+        b.installArtifact(wasi_smoke_exe);
+
+        const wasi_smoke_step = b.step("test-wasi-runtime", "Run WASI runtime smoke test with wasmtime");
+        if (b.findProgram(&.{"wasmtime"}, &.{})) |wasmtime| {
+            const run_wasi_smoke = b.addSystemCommand(&.{wasmtime});
+            run_wasi_smoke.addArtifactArg(wasi_smoke_exe);
+            wasi_smoke_step.dependOn(&run_wasi_smoke.step);
+        } else |_| {
+            const missing_wasmtime = b.addFail("wasmtime not found; install wasmtime to run test-wasi-runtime");
+            wasi_smoke_step.dependOn(&missing_wasmtime.step);
+        }
+    }
 
     // Example build tests
     const examples_test_exe = b.addExecutable(.{
