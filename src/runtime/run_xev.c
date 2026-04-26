@@ -2,11 +2,20 @@
 
 #include "run_poller.h"
 
-#include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#if defined(__wasi__)
+#define RUN_XEV_LOCK() ((void)0)
+#define RUN_XEV_UNLOCK() ((void)0)
+#else
+#include <pthread.h>
+static pthread_mutex_t xev_lock = PTHREAD_MUTEX_INITIALIZER;
+#define RUN_XEV_LOCK() pthread_mutex_lock(&xev_lock)
+#define RUN_XEV_UNLOCK() pthread_mutex_unlock(&xev_lock)
+#endif
 
 /* ========================================================================
  * libxev-backed Network Poller
@@ -25,7 +34,6 @@
 
 /* ---------- Internal state ---------- */
 
-static pthread_mutex_t xev_lock = PTHREAD_MUTEX_INITIALIZER;
 static volatile int32_t woken_count = 0;
 
 /* ---------- Readiness callback ---------- */
@@ -64,7 +72,7 @@ int run_poll_open(run_poll_desc_t *pd) {
 }
 
 void run_poll_close(run_poll_desc_t *pd) {
-    pthread_mutex_lock(&xev_lock);
+    RUN_XEV_LOCK();
     pd->closing = true;
 
     /* Wake any Gs still waiting */
@@ -80,7 +88,7 @@ void run_poll_close(run_poll_desc_t *pd) {
     }
 
     run_xev_close_fd(pd->fd);
-    pthread_mutex_unlock(&xev_lock);
+    RUN_XEV_UNLOCK();
 }
 
 void run_poll_wait(run_poll_desc_t *pd, run_poll_event_t events) {
@@ -88,7 +96,7 @@ void run_poll_wait(run_poll_desc_t *pd, run_poll_event_t events) {
     if (!g)
         return;
 
-    pthread_mutex_lock(&xev_lock);
+    RUN_XEV_LOCK();
 
     if (events & RUN_POLL_READ) {
         pd->read_g = g;
@@ -101,28 +109,28 @@ void run_poll_wait(run_poll_desc_t *pd, run_poll_event_t events) {
 
     /* Park the G */
     g->status = G_WAITING;
-    pthread_mutex_unlock(&xev_lock);
+    RUN_XEV_UNLOCK();
     run_schedule();
 
-    pthread_mutex_lock(&xev_lock);
+    RUN_XEV_LOCK();
     if ((events & RUN_POLL_READ) && pd->read_g == g) {
         pd->read_g = NULL;
     }
     if ((events & RUN_POLL_WRITE) && pd->write_g == g) {
         pd->write_g = NULL;
     }
-    pthread_mutex_unlock(&xev_lock);
+    RUN_XEV_UNLOCK();
 }
 
 int run_poller_poll(void) {
     if (!run_xev_has_waiters())
         return 0;
 
-    pthread_mutex_lock(&xev_lock);
+    RUN_XEV_LOCK();
     __atomic_store_n(&woken_count, 0, __ATOMIC_SEQ_CST);
     run_xev_tick();
     int woken = __atomic_load_n(&woken_count, __ATOMIC_SEQ_CST);
-    pthread_mutex_unlock(&xev_lock);
+    RUN_XEV_UNLOCK();
     return woken;
 }
 
@@ -130,7 +138,7 @@ int run_poller_poll_blocking(int64_t timeout_ns) {
     if (!run_xev_has_waiters())
         return 0;
 
-    pthread_mutex_lock(&xev_lock);
+    RUN_XEV_LOCK();
     __atomic_store_n(&woken_count, 0, __ATOMIC_SEQ_CST);
 
     /* Convert nanoseconds to milliseconds for libxev */
@@ -147,7 +155,7 @@ int run_poller_poll_blocking(int64_t timeout_ns) {
 
     run_xev_tick_blocking(timeout_ms);
     int woken = __atomic_load_n(&woken_count, __ATOMIC_SEQ_CST);
-    pthread_mutex_unlock(&xev_lock);
+    RUN_XEV_UNLOCK();
     return woken;
 }
 

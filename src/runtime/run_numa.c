@@ -400,6 +400,47 @@ int run_numa_set_memory_policy(uint32_t policy, uint32_t node_id) {
     return 0; /* Windows does not expose per-thread memory policy */
 }
 
+#elif defined(__wasi__)
+
+void run_numa_init(void) {
+    if (topology.initialized)
+        return;
+
+    memset(&topology, 0, sizeof(topology));
+    topology.node_count = 1;
+    topology.total_cpus = 1;
+    topology.nodes[0].node_id = 0;
+    topology.nodes[0].cpu_count = 1;
+    topology.nodes[0].cpu_ids[0] = 0;
+    topology.cpu_to_node[0] = 0;
+    topology.distances[0][0] = 10;
+    topology.initialized = true;
+}
+
+uint32_t run_numa_current_node(void) {
+    return 0;
+}
+
+void *run_numa_alloc_on_node(size_t size, uint32_t node_id) {
+    (void)node_id;
+    return run_vmem_alloc(size);
+}
+
+void run_numa_free(void *ptr, size_t size) {
+    run_vmem_free(ptr, size);
+}
+
+int run_numa_bind_thread(uint32_t node_id) {
+    (void)node_id;
+    return 0;
+}
+
+int run_numa_set_memory_policy(uint32_t policy, uint32_t node_id) {
+    (void)policy;
+    (void)node_id;
+    return 0;
+}
+
 #endif
 
 /* ========================================================================

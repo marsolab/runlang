@@ -5,7 +5,6 @@
 #include "run_stacktrace.h"
 #include "run_string.h"
 
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
