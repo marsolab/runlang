@@ -41,8 +41,7 @@ static int run_phdr_lookup_cb(struct dl_phdr_info *info, size_t size, void *data
         uintptr_t seg_start = (uintptr_t)info->dlpi_addr + (uintptr_t)ph->p_vaddr;
         uintptr_t seg_end = seg_start + (uintptr_t)ph->p_memsz;
         if (q->ip >= seg_start && q->ip < seg_end) {
-            q->elf_vma =
-                (unsigned long long)(q->ip - (uintptr_t)info->dlpi_addr) + ph->p_vaddr;
+            q->elf_vma = (unsigned long long)(q->ip - (uintptr_t)info->dlpi_addr) + ph->p_vaddr;
             q->found = 1;
             return 1; /* stop iteration */
         }
@@ -171,22 +170,18 @@ static void run_stacktrace_symbolize_source(run_stack_entry_t *entry, const Dl_i
     char addr_buf[32];
 #if defined(__APPLE__)
     char load_buf[32];
-    snprintf(load_buf, sizeof(load_buf), "0x%llx",
-             (unsigned long long)(uintptr_t)dl->dli_fbase);
+    snprintf(load_buf, sizeof(load_buf), "0x%llx", (unsigned long long)(uintptr_t)dl->dli_fbase);
     snprintf(addr_buf, sizeof(addr_buf), "0x%llx", (unsigned long long)ip);
-    char *argv[] = {(char *)"atos",  (char *)"-o", (char *)dl->dli_fname,
-                    (char *)"-l",    load_buf,     addr_buf,
-                    (char *)NULL};
+    char *argv[] = {(char *)"atos", (char *)"-o", (char *)dl->dli_fname, (char *)"-l",
+                    load_buf,       addr_buf,     (char *)NULL};
 #else
     run_phdr_lookup_t q = {.ip = (uintptr_t)ip, .elf_vma = 0, .found = 0};
     dl_iterate_phdr(run_phdr_lookup_cb, &q);
     unsigned long long addr =
-        q.found ? q.elf_vma
-                : (unsigned long long)(ip - (unw_word_t)(uintptr_t)dl->dli_fbase);
+        q.found ? q.elf_vma : (unsigned long long)(ip - (unw_word_t)(uintptr_t)dl->dli_fbase);
     snprintf(addr_buf, sizeof(addr_buf), "0x%llx", addr);
-    char *argv[] = {(char *)"addr2line", (char *)"-f", (char *)"-C",
-                    (char *)"-e",        (char *)dl->dli_fname, addr_buf,
-                    (char *)NULL};
+    char *argv[] = {(char *)"addr2line",   (char *)"-f", (char *)"-C", (char *)"-e",
+                    (char *)dl->dli_fname, addr_buf,     (char *)NULL};
 #endif
 
     char output[1024];
