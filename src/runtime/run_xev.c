@@ -103,6 +103,15 @@ void run_poll_wait(run_poll_desc_t *pd, run_poll_event_t events) {
     g->status = G_WAITING;
     pthread_mutex_unlock(&xev_lock);
     run_schedule();
+
+    pthread_mutex_lock(&xev_lock);
+    if ((events & RUN_POLL_READ) && pd->read_g == g) {
+        pd->read_g = NULL;
+    }
+    if ((events & RUN_POLL_WRITE) && pd->write_g == g) {
+        pd->write_g = NULL;
+    }
+    pthread_mutex_unlock(&xev_lock);
 }
 
 int run_poller_poll(void) {
