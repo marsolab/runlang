@@ -11,6 +11,42 @@
 #include <libunwind.h>
 #endif
 
+#if defined(__linux__)
+/* dl_iterate_phdr lives in <link.h> and needs _GNU_SOURCE, which build.zig
+ * already defines globally for runtime sources. */
+#include <link.h>
+#include <stdint.h>
+
+typedef struct {
+    uintptr_t ip;
+    unsigned long long elf_vma;
+    int found;
+} run_phdr_lookup_t;
+
+/* Convert a runtime IP into the ELF VMA the linker assigned to that
+ * instruction — the address `addr2line` expects. The runtime IP differs from
+ * the ELF VMA by the module's ASLR slide minus the first PT_LOAD's p_vaddr;
+ * iterating program headers is the standard way to recover both. */
+static int run_phdr_lookup_cb(struct dl_phdr_info *info, size_t size, void *data) {
+    (void)size;
+    run_phdr_lookup_t *q = (run_phdr_lookup_t *)data;
+    for (uint16_t i = 0; i < info->dlpi_phnum; i++) {
+        const ElfW(Phdr) *ph = &info->dlpi_phdr[i];
+        if (ph->p_type != PT_LOAD)
+            continue;
+        uintptr_t seg_start = (uintptr_t)info->dlpi_addr + (uintptr_t)ph->p_vaddr;
+        uintptr_t seg_end = seg_start + (uintptr_t)ph->p_memsz;
+        if (q->ip >= seg_start && q->ip < seg_end) {
+            q->elf_vma =
+                (unsigned long long)(q->ip - (uintptr_t)info->dlpi_addr) + ph->p_vaddr;
+            q->found = 1;
+            return 1; /* stop iteration */
+        }
+    }
+    return 0;
+}
+#endif
+
 #if defined(__APPLE__) || defined(__linux__)
 static void run_stacktrace_apply_file_line(run_stack_entry_t *entry, char *text) {
     if (!entry || !text)
@@ -68,8 +104,13 @@ static void run_stacktrace_symbolize_source(run_stack_entry_t *entry, const Dl_i
     int n = snprintf(cmd, sizeof(cmd), "atos -o '%s' -l 0x%llx 0x%llx", dl->dli_fname,
                      (unsigned long long)(uintptr_t)dl->dli_fbase, (unsigned long long)ip);
 #else
-    unsigned long long offset = (unsigned long long)(ip - (unw_word_t)(uintptr_t)dl->dli_fbase);
-    int n = snprintf(cmd, sizeof(cmd), "addr2line -f -C -e '%s' 0x%llx", dl->dli_fname, offset);
+    run_phdr_lookup_t q = {.ip = (uintptr_t)ip, .elf_vma = 0, .found = 0};
+    dl_iterate_phdr(run_phdr_lookup_cb, &q);
+    unsigned long long addr =
+        q.found ? q.elf_vma
+                : (unsigned long long)(ip - (unw_word_t)(uintptr_t)dl->dli_fbase);
+    int n = snprintf(cmd, sizeof(cmd), "addr2line -f -C -e '%s' 0x%llx 2>/dev/null",
+                     dl->dli_fname, addr);
 #endif
     if (n <= 0 || (size_t)n >= sizeof(cmd))
         return;
