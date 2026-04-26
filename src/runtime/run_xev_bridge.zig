@@ -130,12 +130,18 @@ export fn run_xev_close_fd(fd: c_int) void {
 
     // Drain the loop so cancel operations retire before the fd number can be
     // reused by a later test. kqueue may need more than one no-wait pass when
-    // cancellation completions enqueue follow-up work.
+    // cancellation completions enqueue follow-up work. We must also wait for
+    // the cancel completions themselves to retire — overwriting their storage
+    // while a CQE is still pending in the io_uring ring would later cause
+    // libxev to invoke a completion whose op has been reset to .noop, hitting
+    // an unreachable in Completion.invoke().
     var drain_count: u8 = 0;
-    while (drain_count < 32) : (drain_count += 1) {
+    while (drain_count < 64) : (drain_count += 1) {
         const read_active = slot.read_completion.state() == .active;
         const write_active = slot.write_completion.state() == .active;
-        if (!read_active and !write_active) break;
+        const read_cancel_active = slot.read_cancel.state() == .active;
+        const write_cancel_active = slot.write_cancel.state() == .active;
+        if (!read_active and !write_active and !read_cancel_active and !write_cancel_active) break;
         loop.run(.no_wait) catch {};
     }
 
@@ -148,10 +154,16 @@ export fn run_xev_close_fd(fd: c_int) void {
     }
 
     const next_generation = slot.generation;
-    slot.read_completion = .{};
-    slot.write_completion = .{};
-    slot.read_cancel = .{};
-    slot.write_cancel = .{};
+    // Only reset completion storage that has retired. If a cancel completion
+    // is somehow still active (e.g., the kernel hasn't reaped it yet after
+    // exhausting our drain budget), leave it alone so its eventual CQE finds
+    // a valid op rather than .noop. The slot is marked inactive, so the
+    // pollCallback/writePollCallback guards (active/generation checks) will
+    // disarm safely.
+    if (slot.read_completion.state() != .active) slot.read_completion = .{};
+    if (slot.write_completion.state() != .active) slot.write_completion = .{};
+    if (slot.read_cancel.state() != .active) slot.read_cancel = .{};
+    if (slot.write_cancel.state() != .active) slot.write_cancel = .{};
     slot.read_ctx = .{};
     slot.write_ctx = .{};
     slot.read_armed = false;
