@@ -1,5 +1,7 @@
 # Run
 
+[![Runtime CI](https://github.com/marsolab/runlang/actions/workflows/runtime-ci.yml/badge.svg)](https://github.com/marsolab/runlang/actions/workflows/runtime-ci.yml)
+
 A systems programming language combining Go's simplicity with low-level control.
 
 Run targets developers who want memory safety, performance, and straightforward syntax — without a garbage collector or borrow checker. It uses **generational references** for memory safety with deterministic destruction, keeping the language simple while giving you full control.
