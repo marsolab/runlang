@@ -136,6 +136,7 @@ struct run_m {
     pthread_cond_t park_cond;
     volatile bool parked;
     struct run_m *all_next;
+    struct run_m *idle_next;
 };
 
 /* ---------- P — Processor ---------- */
@@ -206,6 +207,7 @@ void run_signal_preemption_stop(void);
 /* ---------- Growable stacks ---------- */
 size_t run_stack_max_size(void);
 void run_stack_growth_init(void);
+void run_stack_check(void *sp);
 void run_morestack(void);
 
 /* ---------- Debug helpers ---------- */
