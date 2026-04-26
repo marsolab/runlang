@@ -1,5 +1,6 @@
 #include "run_stacktrace.h"
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,7 +9,10 @@
 #if defined(__APPLE__) || defined(__linux__)
 #define UNW_LOCAL_ONLY
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <libunwind.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #endif
 
 #if defined(__linux__)
@@ -94,43 +98,119 @@ static void run_stacktrace_apply_file_line(run_stack_entry_t *entry, char *text)
     entry->line = (int64_t)line;
 }
 
+/* Spawn argv[0] with the given argv, capturing stdout into out_buf and stderr
+ * into /dev/null. Replaces popen(3) so we don't invoke a command processor
+ * (cert-env33-c) and don't have to escape the binary path into a shell string.
+ * Returns the number of bytes read into out_buf (0 on any failure). */
+static size_t run_stacktrace_spawn_capture(char *const argv[], char *out_buf, size_t out_cap) {
+    if (out_cap == 0)
+        return 0;
+    out_buf[0] = '\0';
+
+    int pipefd[2];
+    if (pipe(pipefd) != 0)
+        return 0;
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return 0;
+    }
+    if (pid == 0) {
+        /* Child: only async-signal-safe calls between fork and exec. */
+        close(pipefd[0]);
+        if (dup2(pipefd[1], STDOUT_FILENO) < 0)
+            _exit(127);
+        if (pipefd[1] != STDOUT_FILENO)
+            close(pipefd[1]);
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            (void)dup2(devnull, STDERR_FILENO);
+            if (devnull != STDERR_FILENO)
+                close(devnull);
+        }
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+
+    close(pipefd[1]);
+    size_t total = 0;
+    for (;;) {
+        if (total + 1 >= out_cap)
+            break;
+        ssize_t n = read(pipefd[0], out_buf + total, out_cap - 1 - total);
+        if (n > 0) {
+            total += (size_t)n;
+            continue;
+        }
+        if (n == 0)
+            break;
+        if (errno == EINTR)
+            continue;
+        break;
+    }
+    /* Drain anything still buffered so the child doesn't get SIGPIPE. */
+    char drain[256];
+    while (read(pipefd[0], drain, sizeof(drain)) > 0) {
+    }
+    close(pipefd[0]);
+    out_buf[total] = '\0';
+
+    int status;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+    }
+    return total;
+}
+
 static void run_stacktrace_symbolize_source(run_stack_entry_t *entry, const Dl_info *dl,
                                             unw_word_t ip) {
     if (!entry || !dl || !dl->dli_fname || !dl->dli_fbase)
         return;
 
-    char cmd[2048];
+    char addr_buf[32];
 #if defined(__APPLE__)
-    int n = snprintf(cmd, sizeof(cmd), "atos -o '%s' -l 0x%llx 0x%llx", dl->dli_fname,
-                     (unsigned long long)(uintptr_t)dl->dli_fbase, (unsigned long long)ip);
+    char load_buf[32];
+    snprintf(load_buf, sizeof(load_buf), "0x%llx",
+             (unsigned long long)(uintptr_t)dl->dli_fbase);
+    snprintf(addr_buf, sizeof(addr_buf), "0x%llx", (unsigned long long)ip);
+    char *argv[] = {(char *)"atos",  (char *)"-o", (char *)dl->dli_fname,
+                    (char *)"-l",    load_buf,     addr_buf,
+                    (char *)NULL};
 #else
     run_phdr_lookup_t q = {.ip = (uintptr_t)ip, .elf_vma = 0, .found = 0};
     dl_iterate_phdr(run_phdr_lookup_cb, &q);
     unsigned long long addr =
         q.found ? q.elf_vma
                 : (unsigned long long)(ip - (unw_word_t)(uintptr_t)dl->dli_fbase);
-    int n = snprintf(cmd, sizeof(cmd), "addr2line -f -C -e '%s' 0x%llx 2>/dev/null",
-                     dl->dli_fname, addr);
+    snprintf(addr_buf, sizeof(addr_buf), "0x%llx", addr);
+    char *argv[] = {(char *)"addr2line", (char *)"-f", (char *)"-C",
+                    (char *)"-e",        (char *)dl->dli_fname, addr_buf,
+                    (char *)NULL};
 #endif
-    if (n <= 0 || (size_t)n >= sizeof(cmd))
+
+    char output[1024];
+    if (run_stacktrace_spawn_capture(argv, output, sizeof(output)) == 0)
         return;
 
-    FILE *pipe = popen(cmd, "r");
-    if (!pipe)
-        return;
-
-    char line[1024];
 #if defined(__linux__)
-    /* addr2line prints function name first, then file:line. */
-    if (!fgets(line, sizeof(line), pipe)) {
-        pclose(pipe);
+    /* addr2line prints function name first, then file:line. Skip the first
+     * line and apply the second. */
+    char *nl = strchr(output, '\n');
+    if (!nl)
         return;
-    }
+    char *file_line = nl + 1;
+    char *end = strchr(file_line, '\n');
+    if (end)
+        *end = '\0';
+    run_stacktrace_apply_file_line(entry, file_line);
+#else
+    /* atos prints a single line. */
+    char *end = strchr(output, '\n');
+    if (end)
+        *end = '\0';
+    run_stacktrace_apply_file_line(entry, output);
 #endif
-    if (fgets(line, sizeof(line), pipe)) {
-        run_stacktrace_apply_file_line(entry, line);
-    }
-    pclose(pipe);
 }
 #endif
 
