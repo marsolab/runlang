@@ -193,6 +193,11 @@ pub const Loop = struct {
             for (cqes[0..count]) |cqe| {
                 const c = @as(?*Completion, @ptrFromInt(@as(usize, @intCast(cqe.user_data)))) orelse continue;
                 self.active -= 1;
+                // If the user reset this completion before its CQE arrived,
+                // its op is now .noop and invoke() would hit unreachable.
+                // Skip processing and leave the completion in its (already
+                // dead) reset state.
+                if (c.flags.state != .active) continue;
                 c.flags.state = .dead;
                 switch (c.invoke(self, cqe.res)) {
                     .disarm => {},
@@ -692,6 +697,7 @@ pub const Completion = struct {
 
             .poll => .{
                 .poll = if (res >= 0) {} else switch (@as(posix.E, @enumFromInt(-res))) {
+                    .CANCELED => error.Canceled,
                     else => |errno| posix.unexpectedErrno(errno),
                 },
             },

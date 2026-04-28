@@ -1,7 +1,8 @@
 #ifndef RUN_SCHEDULER_H
 #define RUN_SCHEDULER_H
 
-#include <pthread.h>
+#include "run_platform.h"
+
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -12,7 +13,11 @@ typedef struct run_m run_m_t;
 typedef struct run_p run_p_t;
 
 /* ---------- Context (platform-specific) ---------- */
-#if defined(__aarch64__) || defined(__arm64__)
+#if defined(__wasi__)
+typedef struct {
+    void *unused;
+} run_context_t;
+#elif defined(__aarch64__) || defined(__arm64__)
 typedef struct {
     void *sp;
     void *lr;
@@ -49,16 +54,16 @@ typedef struct {
     void *r13;
     void *r14;
     void *r15;
-    __declspec(align(16)) unsigned char xmm6[16];
-    __declspec(align(16)) unsigned char xmm7[16];
-    __declspec(align(16)) unsigned char xmm8[16];
-    __declspec(align(16)) unsigned char xmm9[16];
-    __declspec(align(16)) unsigned char xmm10[16];
-    __declspec(align(16)) unsigned char xmm11[16];
-    __declspec(align(16)) unsigned char xmm12[16];
-    __declspec(align(16)) unsigned char xmm13[16];
-    __declspec(align(16)) unsigned char xmm14[16];
-    __declspec(align(16)) unsigned char xmm15[16];
+    _Alignas(16) unsigned char xmm6[16];
+    _Alignas(16) unsigned char xmm7[16];
+    _Alignas(16) unsigned char xmm8[16];
+    _Alignas(16) unsigned char xmm9[16];
+    _Alignas(16) unsigned char xmm10[16];
+    _Alignas(16) unsigned char xmm11[16];
+    _Alignas(16) unsigned char xmm12[16];
+    _Alignas(16) unsigned char xmm13[16];
+    _Alignas(16) unsigned char xmm14[16];
+    _Alignas(16) unsigned char xmm15[16];
 } run_context_t;
 #else
 typedef struct {
@@ -73,8 +78,10 @@ typedef struct {
 } run_context_t;
 #endif
 
+#if !defined(__wasi__)
 extern void run_context_switch(run_context_t *from, run_context_t *to);
 extern void run_context_init(run_context_t *ctx, void *stack_top, void (*entry)(void *), void *arg);
+#endif
 
 /* ---------- G — Green Thread ---------- */
 typedef enum { G_IDLE, G_RUNNABLE, G_RUNNING, G_WAITING, G_DEAD } run_g_status_t;
@@ -128,14 +135,15 @@ uint32_t run_local_queue_len(run_local_queue_t *q);
 /* ---------- M — Machine Thread ---------- */
 struct run_m {
     uint64_t id;
-    pthread_t thread;
+    run_thread_t thread;
     run_g_t *current_g;
     run_p_t *current_p;
     run_g_t *g0;
-    pthread_mutex_t park_mutex;
-    pthread_cond_t park_cond;
+    run_mutex_t park_mutex;
+    run_cond_t park_cond;
     volatile bool parked;
     struct run_m *all_next;
+    struct run_m *idle_next;
 };
 
 /* ---------- P — Processor ---------- */
@@ -159,6 +167,10 @@ typedef struct {
     _Atomic int64_t park_count;
     _Atomic int64_t unpark_count;
     _Atomic int64_t poll_count;
+    _Atomic int64_t global_queue_len;
+    _Atomic int64_t local_queue_len;
+    _Atomic int64_t live_g_count;
+    _Atomic int64_t poll_waiter_count;
 } run_metrics_t;
 run_metrics_t run_runtime_metrics(void);
 
@@ -206,6 +218,7 @@ void run_signal_preemption_stop(void);
 /* ---------- Growable stacks ---------- */
 size_t run_stack_max_size(void);
 void run_stack_growth_init(void);
+void run_stack_check(void *sp);
 void run_morestack(void);
 
 /* ---------- Debug helpers ---------- */

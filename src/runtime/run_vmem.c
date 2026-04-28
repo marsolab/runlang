@@ -79,4 +79,34 @@ size_t run_vmem_page_size(void) {
     return (size_t)si.dwPageSize;
 }
 
+#elif defined(__wasi__)
+
+void *run_vmem_alloc(size_t size) {
+    return malloc(size);
+}
+
+void *run_vmem_reserve(size_t size) {
+    return malloc(size);
+}
+
+void run_vmem_free(void *ptr, size_t size) {
+    (void)size;
+    free(ptr);
+}
+
+void run_vmem_protect(void *ptr, size_t size, int prot) {
+    (void)ptr;
+    (void)size;
+    (void)prot;
+}
+
+void run_vmem_release(void *ptr, size_t size) {
+    (void)ptr;
+    (void)size;
+}
+
+size_t run_vmem_page_size(void) {
+    return 64 * 1024;
+}
+
 #endif

@@ -1,6 +1,6 @@
-#include "test_framework.h"
-#include "../run_runtime_api.h"
 #include "../run_alloc.h"
+#include "../run_runtime_api.h"
+#include "test_framework.h"
 
 #include <string.h>
 
@@ -65,7 +65,7 @@ static void test_runtime_caller(void) {
     /* On macOS and Linux, libunwind should resolve the caller. */
     RUN_ASSERT(info.ok);
     RUN_ASSERT(info.file.len > 0);
-    RUN_ASSERT(info.line >= 0);
+    RUN_ASSERT(info.line > 0);
 }
 
 static void test_runtime_stack(void) {
@@ -76,6 +76,7 @@ static void test_runtime_stack(void) {
      * only resolves symbols in the dynamic table, so static test functions
      * show as <unknown> — but run_test_runtime_api is exported. */
     RUN_ASSERT(strstr(s.ptr, "run_test_runtime_api") != NULL);
+    RUN_ASSERT(strstr(s.ptr, "test_runtime_api.c:") != NULL);
 }
 
 void run_test_runtime_api(void) {
