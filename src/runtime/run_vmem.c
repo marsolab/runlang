@@ -66,6 +66,12 @@ void run_vmem_protect(void *ptr, size_t size, int prot) {
         np = PAGE_READWRITE;
     else if (prot & RUN_VMEM_READ)
         np = PAGE_READONLY;
+
+    if (np != PAGE_NOACCESS) {
+        if (VirtualAlloc(ptr, size, MEM_COMMIT, np) != NULL)
+            return;
+    }
+
     VirtualProtect(ptr, size, np, &old);
 }
 
