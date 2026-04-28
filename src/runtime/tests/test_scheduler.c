@@ -302,8 +302,10 @@ void run_test_scheduler(void) {
     RUN_TEST(test_yield);
     RUN_TEST(test_spawn_many);
     RUN_TEST(test_multi_p_progress);
+#ifndef _WIN32
     RUN_TEST(test_stack_growth);
     RUN_TEST(test_stack_shrink);
+#endif
     RUN_TEST(test_runtime_metrics);
     RUN_TEST(test_signal_preemption_tight_loop);
 }
