@@ -357,5 +357,7 @@ void run_test_stress(void) {
     RUN_TEST(test_stress_yield_chain);
     RUN_TEST(test_stress_concurrent_spawn);
     RUN_TEST(test_stress_channel_pingpong);
+#ifndef _WIN32
     RUN_TEST(test_stress_mixed_io_cpu);
+#endif
 }

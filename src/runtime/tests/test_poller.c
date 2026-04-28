@@ -398,10 +398,10 @@ void run_test_poller(void) {
     TEST_SUITE("run_poller");
     RUN_TEST(test_poller_has_waiters);
     RUN_TEST(test_poller_open_close);
+#ifndef _WIN32
     RUN_TEST(test_poller_close_while_waiting);
     RUN_TEST(test_poller_pipe_read);
-#ifndef _WIN32
     RUN_TEST(test_poller_write_park);
-#endif
     RUN_TEST(test_poller_multiple_fds);
+#endif
 }

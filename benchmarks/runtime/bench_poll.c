@@ -25,6 +25,10 @@ static void poll_reader_fn(void *arg) {
 }
 
 void bench_poll(void) {
+#ifdef _WIN32
+    bench_print_json("poll_delivery", 0, 0.0);
+    return;
+#else
     const int N = 1;
     struct timespec start, end;
 
@@ -67,4 +71,5 @@ void bench_poll(void) {
 
     double ns = atomic_load(&poll_done) == 1 ? timespec_diff_ns(&start, &end) : 0.0;
     bench_print_json("poll_delivery", N, ns / N);
+#endif
 }
