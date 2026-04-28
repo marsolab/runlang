@@ -273,15 +273,7 @@ static void run_pin_m_to_node(run_m_t *m, uint32_t node_id) {
     pthread_setaffinity_np(m->thread, sizeof(cpuset), &cpuset);
 #elif defined(_WIN32)
     (void)m;
-    uint32_t cpu_count;
-    const uint32_t *cpus = run_numa_cpus_on_node(node_id, &cpu_count);
-    if (cpu_count == 0)
-        return;
-    DWORD_PTR mask = 0;
-    for (uint32_t i = 0; i < cpu_count && i < 64; i++) {
-        mask |= (DWORD_PTR)1 << cpus[i];
-    }
-    SetThreadAffinityMask(GetCurrentThread(), mask);
+    (void)node_id;
 #else
     /* macOS: no per-thread CPU pinning API */
     (void)m;

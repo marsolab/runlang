@@ -300,98 +300,42 @@ int run_numa_set_memory_policy(uint32_t policy, uint32_t node_id) {
 
 #elif defined(_WIN32)
 
-#include <windows.h>
-
 void run_numa_init(void) {
     if (topology.initialized)
         return;
 
     memset(&topology, 0, sizeof(topology));
-
-    ULONG highest_node = 0;
-    GetNumaHighestNodeNumber(&highest_node);
-    topology.node_count = (uint32_t)(highest_node + 1);
-    if (topology.node_count > RUN_NUMA_MAX_NODES)
-        topology.node_count = RUN_NUMA_MAX_NODES;
-
-    /* Map processors to nodes */
-    SYSTEM_INFO si;
-    GetSystemInfo(&si);
-    uint32_t num_procs = (uint32_t)si.dwNumberOfProcessors;
-    if (num_procs > RUN_NUMA_MAX_CPUS)
-        num_procs = RUN_NUMA_MAX_CPUS;
-    topology.total_cpus = num_procs;
-
-    for (uint32_t cpu = 0; cpu < num_procs; cpu++) {
-        UCHAR node_number;
-        PROCESSOR_NUMBER proc_num;
-        proc_num.Group = (WORD)(cpu / 64);
-        proc_num.Number = (BYTE)(cpu % 64);
-        proc_num.Reserved = 0;
-        if (GetNumaProcessorNodeEx(&proc_num, &node_number)) {
-            uint32_t node = (uint32_t)node_number;
-            if (node < topology.node_count) {
-                run_numa_node_t *n = &topology.nodes[node];
-                n->node_id = node;
-                if (n->cpu_count < RUN_NUMA_MAX_CPUS) {
-                    n->cpu_ids[n->cpu_count++] = cpu;
-                }
-                topology.cpu_to_node[cpu] = node;
-            }
-        }
+    topology.node_count = 1;
+    topology.total_cpus = (uint32_t)run_cpu_count();
+    if (topology.total_cpus == 0)
+        topology.total_cpus = 1;
+    if (topology.total_cpus > RUN_NUMA_MAX_CPUS)
+        topology.total_cpus = RUN_NUMA_MAX_CPUS;
+    topology.nodes[0].node_id = 0;
+    topology.nodes[0].cpu_count = topology.total_cpus;
+    for (uint32_t cpu = 0; cpu < topology.total_cpus; cpu++) {
+        topology.nodes[0].cpu_ids[cpu] = cpu;
+        topology.cpu_to_node[cpu] = 0;
     }
-
-    /* Query memory per node */
-    for (uint32_t n = 0; n < topology.node_count; n++) {
-        ULONGLONG avail;
-        if (GetNumaAvailableMemoryNode((UCHAR)n, &avail)) {
-            topology.nodes[n].memory_bytes = (uint64_t)avail;
-        }
-    }
-
-    /* Set distances — Windows doesn't expose NUMA distances directly.
-     * Use conventional values: 10 for local, 20 for remote. */
-    for (uint32_t a = 0; a < topology.node_count; a++) {
-        for (uint32_t b = 0; b < topology.node_count; b++) {
-            topology.distances[a][b] = (a == b) ? 10 : 20;
-        }
-    }
-
+    topology.distances[0][0] = 10;
     topology.initialized = true;
 }
 
 uint32_t run_numa_current_node(void) {
-    PROCESSOR_NUMBER proc_num;
-    GetCurrentProcessorNumberEx(&proc_num);
-    uint32_t cpu = (uint32_t)proc_num.Group * 64 + (uint32_t)proc_num.Number;
-    if (cpu < RUN_NUMA_MAX_CPUS)
-        return topology.cpu_to_node[cpu];
     return 0;
 }
 
 void *run_numa_alloc_on_node(size_t size, uint32_t node_id) {
-    return VirtualAllocExNuma(GetCurrentProcess(), NULL, size, MEM_COMMIT | MEM_RESERVE,
-                              PAGE_READWRITE, (DWORD)node_id);
+    (void)node_id;
+    return run_vmem_alloc(size);
 }
 
 void run_numa_free(void *ptr, size_t size) {
-    (void)size;
-    VirtualFree(ptr, 0, MEM_RELEASE);
+    run_vmem_free(ptr, size);
 }
 
 int run_numa_bind_thread(uint32_t node_id) {
-    uint32_t cpu_count;
-    const uint32_t *cpus = run_numa_cpus_on_node(node_id, &cpu_count);
-    if (!cpus || cpu_count == 0)
-        return -1;
-
-    DWORD_PTR mask = 0;
-    for (uint32_t i = 0; i < cpu_count && i < 64; i++) {
-        mask |= ((DWORD_PTR)1 << cpus[i]);
-    }
-    if (SetThreadAffinityMask(GetCurrentThread(), mask) == 0)
-        return -1;
-    return 0;
+    return node_id == 0 ? 0 : -1;
 }
 
 int run_numa_set_memory_policy(uint32_t policy, uint32_t node_id) {
