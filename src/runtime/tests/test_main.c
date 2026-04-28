@@ -27,7 +27,7 @@ int main(void) {
     /* Default to single-processor mode for deterministic testing, but allow
      * targeted scheduler tests to opt into multi-P via the environment. */
     if (getenv("RUN_MAXPROCS") == NULL) {
-        setenv("RUN_MAXPROCS", "1", 1);
+        run_setenv("RUN_MAXPROCS", "1", 1);
     }
 
     /* Initialize the scheduler (required for scheduler and channel tests) */

@@ -99,9 +99,11 @@ static run_platform_timer_t preemption_timer;
 #endif
 
 /* Signal preemption active */
+#if defined(__linux__) || defined(__APPLE__)
 static bool signal_preemption_active = false;
 static pthread_t signal_preemption_thread;
 static _Atomic bool signal_preemption_thread_running = false;
+#endif
 
 /* Runtime metrics (#410) */
 static run_metrics_t scheduler_metrics = {0};
@@ -1058,9 +1060,7 @@ void run_scheduler_run(void) {
     if (use_preemption) {
         run_preemption_stop();
     }
-    if (signal_preemption_active) {
-        run_signal_preemption_stop();
-    }
+    run_signal_preemption_stop();
 }
 
 void run_spawn(void (*fn)(void *), void *arg) {

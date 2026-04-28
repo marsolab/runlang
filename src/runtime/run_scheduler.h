@@ -42,7 +42,7 @@ typedef struct {
     uint64_t d14;
     uint64_t d15;
 } run_context_t;
-#elif defined(_WIN32) && defined(_M_X64)
+#elif defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
 typedef struct {
     void *rsp;
     void *rip;

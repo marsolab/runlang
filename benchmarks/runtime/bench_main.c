@@ -49,7 +49,7 @@ static void write_results_file(void) {
 int main(void) {
     /* Default to single-P consistency, but allow explicit multi-P bench runs. */
     if (getenv("RUN_MAXPROCS") == NULL) {
-        setenv("RUN_MAXPROCS", "1", 1);
+        run_setenv("RUN_MAXPROCS", "1", 1);
     }
 
     /* Initialize the scheduler */

@@ -25,6 +25,8 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target_info = target.result;
     const is_wasi = target_info.os.tag == .wasi;
+    const is_windows = target_info.os.tag == .windows;
+    const links_pthread = !is_wasi and !is_windows;
 
     // Sanitizer options for runtime C code
     const sanitize = b.option(bool, "sanitize", "Enable ASan+UBSan for runtime C code") orelse false;
@@ -151,8 +153,12 @@ pub fn build(b: *std.Build) void {
 
     // Add platform-specific assembly for context switching
     if (target_info.cpu.arch == .x86_64) {
-        runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
-        runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_amd64.S"));
+        if (is_windows) {
+            runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_context_win64.S"));
+        } else {
+            runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
+            runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_amd64.S"));
+        }
     } else if (target_info.cpu.arch == .aarch64) {
         runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_context_arm64.S"));
         runtime_lib.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_arm64.S"));
@@ -209,7 +215,7 @@ pub fn build(b: *std.Build) void {
             b.getInstallStep().dependOn(&install_xev_lib.step);
         }
     }
-    if (!is_wasi) {
+    if (links_pthread) {
         runtime_lib.root_module.linkSystemLibrary("pthread", .{});
     }
     // Link libunwind for stack traces with DWARF unwinding.
@@ -288,8 +294,12 @@ pub fn build(b: *std.Build) void {
 
         // Add assembly for runtime tests too
         if (target_info.cpu.arch == .x86_64) {
-            runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
-            runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_amd64.S"));
+            if (is_windows) {
+                runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_win64.S"));
+            } else {
+                runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
+                runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_amd64.S"));
+            }
         } else if (target_info.cpu.arch == .aarch64) {
             runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_arm64.S"));
             runtime_test_exe.root_module.addAssemblyFile(b.path("src/runtime/run_async_preempt_arm64.S"));
@@ -301,7 +311,13 @@ pub fn build(b: *std.Build) void {
         if (xev_bridge_obj) |obj| {
             runtime_test_exe.root_module.addObject(obj);
         }
-        runtime_test_exe.root_module.linkSystemLibrary("pthread", .{});
+        if (links_pthread) {
+            runtime_test_exe.root_module.linkSystemLibrary("pthread", .{});
+        }
+        if (is_windows) {
+            runtime_test_exe.root_module.linkSystemLibrary("ws2_32", .{});
+            runtime_test_exe.root_module.linkSystemLibrary("mswsock", .{});
+        }
         // Link libunwind for stack trace tests (matches runtime_lib linking).
         if (target_info.os.tag == .linux) {
             runtime_test_exe.root_module.linkSystemLibrary("unwind", .{});
@@ -376,7 +392,7 @@ pub fn build(b: *std.Build) void {
         });
         // Note: run_main.c is NOT included in benchmarks — bench_main.c provides main()
         if (target_info.cpu.arch == .x86_64) {
-            if (target_info.os.tag == .windows) {
+            if (is_windows) {
                 runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_win64.S"));
             } else {
                 runtime_bench_exe.root_module.addAssemblyFile(b.path("src/runtime/run_context_amd64.S"));
@@ -402,7 +418,13 @@ pub fn build(b: *std.Build) void {
             xev_bench_bridge.root_module.addImport("xev", libxev_dep.module("xev"));
             runtime_bench_exe.root_module.linkLibrary(xev_bench_bridge);
         }
-        runtime_bench_exe.root_module.linkSystemLibrary("pthread", .{});
+        if (links_pthread) {
+            runtime_bench_exe.root_module.linkSystemLibrary("pthread", .{});
+        }
+        if (is_windows) {
+            runtime_bench_exe.root_module.linkSystemLibrary("ws2_32", .{});
+            runtime_bench_exe.root_module.linkSystemLibrary("mswsock", .{});
+        }
         // Link libunwind for stack trace support (matches runtime_lib linking).
         if (target_info.os.tag == .linux) {
             runtime_bench_exe.root_module.linkSystemLibrary("unwind", .{});
