@@ -108,11 +108,11 @@ run_context_init:
     /* Align stack_top down to 16 bytes */
     andq    $-16, %rdx
 
-    /* Reserve space: 32 bytes shadow space + 8 bytes return address = 40 bytes.
-     * We need the stack to be 16-byte aligned BEFORE the call instruction
-     * pushes the return address. After subtracting 40 (not 16-aligned),
-     * the stack is misaligned; the call will push 8 bytes making it aligned. */
-    subq    $40, %rdx
+    /* Reserve the Win64 shadow space used by calls from the trampoline.
+     * The trampoline is entered via jmp rather than call, so it does not need
+     * a synthetic return address. Keep rsp 16-byte aligned before each call;
+     * callq then gives the callee the ABI-required rsp+8 alignment. */
+    subq    $32, %rdx
 
     /* Store entry and arg in callee-saved registers for the trampoline:
      * r12 = entry function, r13 = arg */
