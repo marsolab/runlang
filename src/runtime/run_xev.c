@@ -11,10 +11,10 @@
 #define RUN_XEV_LOCK() ((void)0)
 #define RUN_XEV_UNLOCK() ((void)0)
 #else
-#include <pthread.h>
-static pthread_mutex_t xev_lock = PTHREAD_MUTEX_INITIALIZER;
-#define RUN_XEV_LOCK() pthread_mutex_lock(&xev_lock)
-#define RUN_XEV_UNLOCK() pthread_mutex_unlock(&xev_lock)
+#include "run_platform.h"
+static run_mutex_t xev_lock = RUN_MUTEX_INITIALIZER;
+#define RUN_XEV_LOCK() run_mutex_lock(&xev_lock)
+#define RUN_XEV_UNLOCK() run_mutex_unlock(&xev_lock)
 #endif
 
 /* ========================================================================

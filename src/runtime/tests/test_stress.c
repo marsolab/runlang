@@ -6,7 +6,6 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
-#include <unistd.h>
 
 /* --- Stress Test: Spawn 10,000 Gs --- */
 
@@ -311,7 +310,7 @@ static void mixed_reader_fn(void *arg) {
     run_poll_wait(ctx->pd, RUN_POLL_READ);
 
     char c = 0;
-    ssize_t n = read(ctx->read_fd, &c, 1);
+    int n = run_fd_read(ctx->read_fd, &c, 1);
     if (n == 1 && c == 'm') {
         atomic_store(&mixed_io_done, 1);
     }
@@ -321,21 +320,20 @@ static void test_stress_mixed_io_cpu(void) {
     atomic_store(&mixed_cpu_done, 0);
     atomic_store(&mixed_io_done, 0);
 
-    int fds[2];
-    int rc = pipe(fds);
-    RUN_ASSERT(rc == 0);
+    run_pipe_t pipe_pair;
+    RUN_ASSERT(run_pipe_open(&pipe_pair));
 
     run_poll_desc_t pd;
     memset(&pd, 0, sizeof(pd));
-    pd.fd = fds[0];
-    rc = run_poll_open(&pd);
+    pd.fd = pipe_pair.read_fd;
+    int rc = run_poll_open(&pd);
     RUN_ASSERT(rc == 0);
 
     char c = 'm';
-    ssize_t n = write(fds[1], &c, 1);
+    int n = run_fd_write(pipe_pair.write_fd, &c, 1);
     RUN_ASSERT_EQ(n, 1);
 
-    mixed_reader_ctx_t reader = {.pd = &pd, .read_fd = fds[0]};
+    mixed_reader_ctx_t reader = {.pd = &pd, .read_fd = pipe_pair.read_fd};
     for (int i = 0; i < MIXED_CPU_GS; i++) {
         run_spawn(mixed_cpu_fn, NULL);
     }
@@ -347,8 +345,7 @@ static void test_stress_mixed_io_cpu(void) {
     RUN_ASSERT_EQ(atomic_load(&mixed_io_done), 1);
 
     run_poll_close(&pd);
-    close(fds[0]);
-    close(fds[1]);
+    run_pipe_close(&pipe_pair);
 }
 
 void run_test_stress(void) {

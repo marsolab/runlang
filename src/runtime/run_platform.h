@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #if defined(_WIN32)
@@ -13,10 +14,12 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <fcntl.h>
+#include <io.h>
 #include <process.h>
 #include <windows.h>
 
-#define RUN_THREAD_LOCAL __declspec(thread)
+#define RUN_THREAD_LOCAL _Thread_local
 
 typedef HANDLE run_thread_t;
 typedef SRWLOCK run_mutex_t;
@@ -119,6 +122,81 @@ static inline long run_cpu_count(void) {
     return (long)info.dwNumberOfProcessors;
 }
 
+static inline int run_setenv(const char *name, const char *value, int overwrite) {
+    if (!overwrite && getenv(name) != NULL)
+        return 0;
+    return _putenv_s(name, value);
+}
+
+typedef struct {
+    int read_fd;
+    int write_fd;
+} run_pipe_t;
+
+static inline bool run_pipe_open(run_pipe_t *pipe_pair) {
+    pipe_pair->read_fd = -1;
+    pipe_pair->write_fd = -1;
+
+    static unsigned long pipe_counter = 0;
+    char name[128];
+    snprintf(name, sizeof(name), "\\\\.\\pipe\\runlang-runtime-%lu-%lu",
+             (unsigned long)GetCurrentProcessId(), ++pipe_counter);
+
+    HANDLE read_handle =
+        CreateNamedPipeA(name, PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED,
+                         PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0, NULL);
+    if (read_handle == INVALID_HANDLE_VALUE)
+        return false;
+
+    HANDLE write_handle =
+        CreateFileA(name, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (write_handle == INVALID_HANDLE_VALUE) {
+        CloseHandle(read_handle);
+        return false;
+    }
+
+    BOOL connected = ConnectNamedPipe(read_handle, NULL);
+    if (!connected && GetLastError() != ERROR_PIPE_CONNECTED) {
+        CloseHandle(read_handle);
+        CloseHandle(write_handle);
+        return false;
+    }
+
+    pipe_pair->read_fd = _open_osfhandle((intptr_t)read_handle, _O_RDONLY);
+    if (pipe_pair->read_fd < 0) {
+        CloseHandle(read_handle);
+        CloseHandle(write_handle);
+        return false;
+    }
+
+    pipe_pair->write_fd = _open_osfhandle((intptr_t)write_handle, _O_WRONLY);
+    if (pipe_pair->write_fd < 0) {
+        _close(pipe_pair->read_fd);
+        CloseHandle(write_handle);
+        pipe_pair->read_fd = -1;
+        return false;
+    }
+
+    return true;
+}
+
+static inline void run_pipe_close(run_pipe_t *pipe_pair) {
+    if (pipe_pair->read_fd >= 0)
+        _close(pipe_pair->read_fd);
+    if (pipe_pair->write_fd >= 0)
+        _close(pipe_pair->write_fd);
+    pipe_pair->read_fd = -1;
+    pipe_pair->write_fd = -1;
+}
+
+static inline int run_fd_read(int fd, void *buf, unsigned int len) {
+    return _read(fd, buf, len);
+}
+
+static inline int run_fd_write(int fd, const void *buf, unsigned int len) {
+    return _write(fd, buf, len);
+}
+
 static inline bool run_timer_start(run_platform_timer_t *timer, uint32_t interval_us,
                                    run_timer_fn fn, void *arg) {
     timer->handle = NULL;
@@ -210,6 +288,41 @@ static inline uintptr_t run_thread_seed(void) {
 
 static inline long run_cpu_count(void) {
     return sysconf(_SC_NPROCESSORS_ONLN);
+}
+
+static inline int run_setenv(const char *name, const char *value, int overwrite) {
+    return setenv(name, value, overwrite);
+}
+
+typedef struct {
+    int read_fd;
+    int write_fd;
+} run_pipe_t;
+
+static inline bool run_pipe_open(run_pipe_t *pipe_pair) {
+    int fds[2];
+    if (pipe(fds) != 0)
+        return false;
+    pipe_pair->read_fd = fds[0];
+    pipe_pair->write_fd = fds[1];
+    return true;
+}
+
+static inline void run_pipe_close(run_pipe_t *pipe_pair) {
+    if (pipe_pair->read_fd >= 0)
+        close(pipe_pair->read_fd);
+    if (pipe_pair->write_fd >= 0)
+        close(pipe_pair->write_fd);
+    pipe_pair->read_fd = -1;
+    pipe_pair->write_fd = -1;
+}
+
+static inline int run_fd_read(int fd, void *buf, unsigned int len) {
+    return (int)read(fd, buf, len);
+}
+
+static inline int run_fd_write(int fd, const void *buf, unsigned int len) {
+    return (int)write(fd, buf, len);
 }
 
 static inline bool run_timer_start(run_platform_timer_t *timer, uint32_t interval_us,
