@@ -74,6 +74,7 @@ void run_poller_init(void) {
         abort();
     }
     run_xev_async_init();
+    run_xev_async_wait();
 #endif
 }
 
