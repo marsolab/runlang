@@ -373,12 +373,6 @@ export fn run_xev_tick_blocking(timeout_ms: i64) c_int {
         return run_xev_tick();
     }
 
-    // Re-register async wait so notify wakes us
-    if (async_initialized) {
-        async_completion = .{};
-        async_wakeup.wait(&loop, &async_completion, void, null, &asyncNoop);
-    }
-
     if (timeout_ms > 0) {
         var timer = Timer.init() catch return -1;
         defer timer.deinit();
@@ -417,6 +411,7 @@ export fn run_xev_async_notify() c_int {
 /// Register a wait on the async notification.
 export fn run_xev_async_wait() void {
     if (!async_initialized) return;
+    if (async_completion.state() == .active) return;
     async_completion = .{};
     async_wakeup.wait(&loop, &async_completion, void, null, &asyncNoop);
 }
@@ -427,7 +422,7 @@ fn asyncNoop(
     _: *Completion,
     _: Async.WaitError!void,
 ) CallbackAction {
-    return .disarm;
+    return .rearm;
 }
 
 /// Returns true if there are registered fds.
