@@ -2,6 +2,7 @@
 #include "../run_scheduler.h"
 #include "test_framework.h"
 
+#include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -12,6 +13,8 @@
 #include <windows.h>
 #else
 #include <fcntl.h>
+#include <pthread.h>
+#include <time.h>
 #include <unistd.h>
 #endif
 
@@ -134,6 +137,7 @@ static void test_poller_has_waiters(void) {
 }
 
 static volatile int read_done_2 = 0;
+static _Atomic int delayed_writer_done = 0;
 
 /* --- Test 2: pipe read — data written before reader spawns --- */
 
@@ -177,7 +181,83 @@ static void test_poller_pipe_read(void) {
     test_pipe_close(&pipe_pair);
 }
 
-/* --- Test 3: poll_open returns 0 on success --- */
+/* --- Test 3: pipe read — reader parks before another thread writes --- */
+
+typedef struct {
+    int write_fd;
+} delayed_writer_thread_ctx_t;
+
+#ifdef _WIN32
+static DWORD WINAPI delayed_writer_thread(LPVOID arg) {
+    delayed_writer_thread_ctx_t *ctx = (delayed_writer_thread_ctx_t *)arg;
+    Sleep(50);
+    int nw = test_pipe_write_byte(ctx->write_fd, 'd');
+    if (nw == 1)
+        atomic_store(&delayed_writer_done, 1);
+    return 0;
+}
+#else
+static void *delayed_writer_thread(void *arg) {
+    delayed_writer_thread_ctx_t *ctx = (delayed_writer_thread_ctx_t *)arg;
+    struct timespec ts = {.tv_sec = 0, .tv_nsec = 50 * 1000 * 1000};
+    nanosleep(&ts, NULL);
+    int nw = test_pipe_write_byte(ctx->write_fd, 'd');
+    if (nw == 1)
+        atomic_store(&delayed_writer_done, 1);
+    return NULL;
+}
+#endif
+
+static void delayed_reader_fn(void *arg) {
+    reader_ctx_t *ctx = (reader_ctx_t *)arg;
+    run_poll_wait(ctx->pd, RUN_POLL_READ);
+    *(ctx->flag) = atomic_load(&delayed_writer_done) == 1 ? 1 : -1;
+}
+
+static void test_poller_pipe_read_delayed(void) {
+    read_done = 0;
+    atomic_store(&delayed_writer_done, 0);
+
+    test_pipe_t pipe_pair;
+    RUN_ASSERT(test_pipe_open(&pipe_pair));
+
+    run_poll_desc_t pd;
+    memset(&pd, 0, sizeof(pd));
+    pd.fd = pipe_pair.read_fd;
+
+    int rc = run_poll_open(&pd);
+    RUN_ASSERT(rc == 0);
+
+    delayed_writer_thread_ctx_t writer_ctx = {.write_fd = pipe_pair.write_fd};
+#ifdef _WIN32
+    HANDLE writer_thread = CreateThread(NULL, 0, delayed_writer_thread, &writer_ctx, 0, NULL);
+    RUN_ASSERT(writer_thread != NULL);
+#else
+    pthread_t writer_thread;
+    rc = pthread_create(&writer_thread, NULL, delayed_writer_thread, &writer_ctx);
+    RUN_ASSERT(rc == 0);
+#endif
+
+    reader_ctx_t reader_ctx = {.pd = &pd, .flag = &read_done};
+    run_spawn(delayed_reader_fn, &reader_ctx);
+
+    run_scheduler_run();
+
+#ifdef _WIN32
+    WaitForSingleObject(writer_thread, INFINITE);
+    CloseHandle(writer_thread);
+#else
+    pthread_join(writer_thread, NULL);
+#endif
+
+    RUN_ASSERT_EQ(atomic_load(&delayed_writer_done), 1);
+    RUN_ASSERT_EQ(read_done, 1);
+
+    run_poll_close(&pd);
+    test_pipe_close(&pipe_pair);
+}
+
+/* --- Test 4: poll_open returns 0 on success --- */
 
 static void test_poller_open_close(void) {
     test_pipe_t pipe_pair;
@@ -203,7 +283,7 @@ static void test_poller_open_close(void) {
     test_pipe_close(&pipe_pair);
 }
 
-/* --- Test 3: poll_close wakes a parked reader G --- */
+/* --- Test 5: poll_close wakes a parked reader G --- */
 
 static void reader_close_fn(void *arg) {
     run_poll_desc_t *pd = (run_poll_desc_t *)arg;
@@ -248,7 +328,7 @@ static void test_poller_close_while_waiting(void) {
     test_pipe_close(&pipe_pair);
 }
 
-/* --- Test 5: multiple fds — two pipes, both readable, two reader Gs --- */
+/* --- Test 6: multiple fds — two pipes, both readable, two reader Gs --- */
 
 static void test_poller_multiple_fds(void) {
     read_done = 0;
@@ -294,7 +374,7 @@ static void test_poller_multiple_fds(void) {
     test_pipe_close(&pipe2);
 }
 
-/* --- Test 6: write-interest park — fill pipe, park writer, drainer wakes it --- */
+/* --- Test 7: write-interest park — fill pipe, park writer, drainer wakes it --- */
 
 #ifndef _WIN32
 
@@ -398,10 +478,11 @@ void run_test_poller(void) {
     TEST_SUITE("run_poller");
     RUN_TEST(test_poller_has_waiters);
     RUN_TEST(test_poller_open_close);
+    RUN_TEST(test_poller_pipe_read);
+    RUN_TEST(test_poller_pipe_read_delayed);
+    RUN_TEST(test_poller_multiple_fds);
 #ifndef _WIN32
     RUN_TEST(test_poller_close_while_waiting);
-    RUN_TEST(test_poller_pipe_read);
     RUN_TEST(test_poller_write_park);
-    RUN_TEST(test_poller_multiple_fds);
 #endif
 }

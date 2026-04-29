@@ -34,12 +34,6 @@ static run_mutex_t xev_lock = RUN_MUTEX_INITIALIZER;
 
 /* ---------- Internal state ---------- */
 
-#if defined(_WIN32)
-
-static volatile int32_t windows_registered_count = 0;
-
-#else
-
 static volatile int32_t woken_count = 0;
 
 /* ---------- Readiness callback ---------- */
@@ -59,41 +53,23 @@ static void run_on_fd_ready(int fd, uint32_t events, void *read_g, void *write_g
     }
 }
 
-#endif
-
 /* ---------- Public API (run_poller.h) ---------- */
 
 void run_poller_init(void) {
-#if defined(_WIN32)
-    /* Windows fd readiness support is not wired through the runtime yet.
-     * Keep the poller API available for bookkeeping-only tests without
-     * initializing libxev's IOCP loop. */
-#else
     if (run_xev_init(run_on_fd_ready) < 0) {
         fprintf(stderr, "run: libxev init failed\n");
         abort();
     }
     run_xev_async_init();
     run_xev_async_wait();
-#endif
 }
 
 void run_poller_close(void) {
-#if defined(_WIN32)
-    __atomic_store_n(&windows_registered_count, 0, __ATOMIC_SEQ_CST);
-#else
     run_xev_close();
-#endif
 }
 
 int run_poll_open(run_poll_desc_t *pd) {
-#if defined(_WIN32)
-    pd->closing = false;
-    __atomic_add_fetch(&windows_registered_count, 1, __ATOMIC_SEQ_CST);
-    return 0;
-#else
     return run_xev_open(pd->fd);
-#endif
 }
 
 void run_poll_close(run_poll_desc_t *pd) {
@@ -112,22 +88,11 @@ void run_poll_close(run_poll_desc_t *pd) {
         run_g_ready(g);
     }
 
-#if defined(_WIN32)
-    int32_t count = __atomic_load_n(&windows_registered_count, __ATOMIC_SEQ_CST);
-    if (count > 0) {
-        __atomic_sub_fetch(&windows_registered_count, 1, __ATOMIC_SEQ_CST);
-    }
-#else
     run_xev_close_fd(pd->fd);
-#endif
     RUN_XEV_UNLOCK();
 }
 
 void run_poll_wait(run_poll_desc_t *pd, run_poll_event_t events) {
-#if defined(_WIN32)
-    (void)pd;
-    (void)events;
-#else
     run_g_t *g = run_current_g();
     if (!g)
         return;
@@ -156,13 +121,9 @@ void run_poll_wait(run_poll_desc_t *pd, run_poll_event_t events) {
         pd->write_g = NULL;
     }
     RUN_XEV_UNLOCK();
-#endif
 }
 
 int run_poller_poll(void) {
-#if defined(_WIN32)
-    return 0;
-#else
     if (!run_xev_has_waiters())
         return 0;
 
@@ -172,14 +133,9 @@ int run_poller_poll(void) {
     int woken = __atomic_load_n(&woken_count, __ATOMIC_SEQ_CST);
     RUN_XEV_UNLOCK();
     return woken;
-#endif
 }
 
 int run_poller_poll_blocking(int64_t timeout_ns) {
-#if defined(_WIN32)
-    (void)timeout_ns;
-    return 0;
-#else
     if (!run_xev_has_waiters())
         return 0;
 
@@ -202,21 +158,12 @@ int run_poller_poll_blocking(int64_t timeout_ns) {
     int woken = __atomic_load_n(&woken_count, __ATOMIC_SEQ_CST);
     RUN_XEV_UNLOCK();
     return woken;
-#endif
 }
 
 void run_poller_wakeup(void) {
-#if defined(_WIN32)
-    (void)0;
-#else
     run_xev_async_notify();
-#endif
 }
 
 bool run_poller_has_waiters(void) {
-#if defined(_WIN32)
-    return __atomic_load_n(&windows_registered_count, __ATOMIC_SEQ_CST) > 0;
-#else
     return run_xev_has_waiters();
-#endif
 }
