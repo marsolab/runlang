@@ -41,8 +41,6 @@ jobs:
             artifact: linux-x86_64
           - os: macos-latest
             artifact: macos-arm64
-          - os: macos-13
-            artifact: macos-x86_64
           - os: windows-latest
             artifact: windows-x86_64
     runs-on: ${{ matrix.os }}
