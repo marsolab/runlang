@@ -25,6 +25,19 @@ const ReadyCb = *const fn (c_int, u32, GPtr, GPtr) callconv(.c) void;
 
 extern "c" fn _get_osfhandle(fd: c_int) isize;
 
+// Windows-only: PeekNamedPipe lets us probe a named pipe for available data
+// without consuming any. libxev's IOCP backend has no readiness-only op, and a
+// 0-byte ReadFile completes synchronously regardless of pipe state, so we
+// schedule a recurring timer that peeks each registered pipe instead.
+extern "kernel32" fn PeekNamedPipe(
+    hNamedPipe: std.os.windows.HANDLE,
+    lpBuffer: ?[*]u8,
+    nBufferSize: std.os.windows.DWORD,
+    lpBytesRead: ?*std.os.windows.DWORD,
+    lpTotalBytesAvail: ?*std.os.windows.DWORD,
+    lpBytesLeftThisMessage: ?*std.os.windows.DWORD,
+) callconv(.winapi) std.os.windows.BOOL;
+
 // ── Per-fd tracking ────────────────────────────────────────────────
 
 const MaxFds = 4096;
@@ -62,6 +75,12 @@ var fd_slots: [MaxFds]FdSlot = [_]FdSlot{.{}} ** MaxFds;
 var registered_count: i32 = 0;
 var callbacks_fired: u32 = 0;
 
+// Windows-only: timer used to poll registered pipes via PeekNamedPipe.
+var win_poll_timer: Timer = undefined;
+var win_poll_timer_init: bool = false;
+var win_poll_completion: Completion = .{};
+const WIN_POLL_INTERVAL_MS: u64 = 5;
+
 // The callback set by the C adapter.
 var ready_callback: ?ReadyCb = null;
 
@@ -89,6 +108,11 @@ export fn run_xev_close() void {
     if (async_initialized) {
         async_wakeup.deinit();
         async_initialized = false;
+    }
+    if (builtin.os.tag == .windows and win_poll_timer_init) {
+        win_poll_timer.deinit();
+        win_poll_timer_init = false;
+        win_poll_completion = .{};
     }
     if (loop_initialized) {
         loop.deinit();
@@ -201,7 +225,12 @@ export fn run_xev_poll_read(fd: c_int, g: GPtr) void {
         .generation = slot.generation,
     };
     slot.read_armed = true;
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi) {
+    if (builtin.os.tag == .windows) {
+        // Windows: PeekNamedPipe-based polling driven by a recurring timer.
+        // The slot bookkeeping above is enough; ensure the timer is armed.
+        _ = handle;
+        ensureWinPollTimer();
+    } else if (builtin.os.tag == .wasi) {
         slot.read_completion = .{
             .op = .{
                 .read = .{
@@ -217,6 +246,57 @@ export fn run_xev_poll_read(fd: c_int, g: GPtr) void {
         const file = File.initFd(handle);
         file.poll(&loop, &slot.read_completion, .read, CompletionContext, &slot.read_ctx, &pollCallback);
     }
+}
+
+fn ensureWinPollTimer() void {
+    if (builtin.os.tag != .windows) return;
+    if (!win_poll_timer_init) {
+        win_poll_timer = Timer.init() catch return;
+        win_poll_timer_init = true;
+    }
+    if (win_poll_completion.state() == .active) return;
+    win_poll_completion = .{};
+    win_poll_timer.run(&loop, &win_poll_completion, WIN_POLL_INTERVAL_MS, void, null, &winPollTick);
+}
+
+fn winPollTick(
+    _: ?*void,
+    _: *Loop,
+    _: *Completion,
+    r: Timer.RunError!void,
+) CallbackAction {
+    _ = r catch return .disarm;
+    if (builtin.os.tag != .windows) return .disarm;
+
+    var any_armed = false;
+    for (&fd_slots, 0..) |*slot, idx| {
+        if (!slot.active) continue;
+        if (slot.read_g == null) continue;
+        any_armed = true;
+
+        const fd: c_int = @intCast(idx);
+        const handle = fileHandleFromFd(fd) orelse continue;
+
+        var avail: std.os.windows.DWORD = 0;
+        const ok = PeekNamedPipe(handle, null, 0, null, &avail, null);
+        if (@intFromEnum(ok) != 0 and avail > 0) {
+            if (ready_callback) |cb| {
+                const rg = slot.read_g;
+                slot.read_g = null;
+                slot.read_armed = false;
+                if (rg != null) callbacks_fired += 1;
+                cb(fd, 1, rg, null);
+            }
+        }
+        // PeekNamedPipe failure (non-pipe handle, broken pipe) is silently
+        // treated as "not ready"; surfacing it as readiness is a future task.
+    }
+
+    if (any_armed) {
+        win_poll_completion = .{};
+        win_poll_timer.run(&loop, &win_poll_completion, WIN_POLL_INTERVAL_MS, void, null, &winPollTick);
+    }
+    return .disarm;
 }
 
 /// Submit write interest for an fd. The associated G will be woken via the
