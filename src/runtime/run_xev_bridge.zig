@@ -69,6 +69,10 @@ var loop_initialized: bool = false;
 var async_wakeup: Async = undefined;
 var async_completion: Completion = .{};
 var async_initialized: bool = false;
+// Set by asyncNoop when a cross-thread wakeup is delivered; read and cleared
+// by run_xev_tick_blocking so spurious wake-ups (e.g., our Windows poll timer)
+// don't get confused with the scheduler's wakeup signal.
+var async_fired: bool = false;
 
 // Fixed-size fd table. Keeps things simple and allocation-free.
 var fd_slots: [MaxFds]FdSlot = [_]FdSlot{.{}} ** MaxFds;
@@ -446,6 +450,15 @@ export fn run_xev_tick() c_int {
 }
 
 /// Run the event loop, blocking until at least one event or timeout.
+///
+/// `loop.run(.once)` returns after any event — including spurious wake-ups
+/// from our Windows PeekNamedPipe poll timer. To preserve the contract that
+/// `run_xev_tick_blocking` returns only when something the scheduler cares
+/// about happened (an fd callback fired or async_wakeup was signaled),
+/// we loop on `.once` until either:
+///   - the user-supplied timeout (if any) elapses,
+///   - a callback fired that woke a G (callbacks_fired moved),
+///   - the cross-thread async wakeup was signaled.
 export fn run_xev_tick_blocking(timeout_ms: i64) c_int {
     if (!loop_initialized) return 0;
 
@@ -453,14 +466,22 @@ export fn run_xev_tick_blocking(timeout_ms: i64) c_int {
         return run_xev_tick();
     }
 
+    const start_callbacks = callbacks_fired;
+    async_fired = false;
+
     if (timeout_ms > 0) {
         var timer = Timer.init() catch return -1;
         defer timer.deinit();
         var timer_c: Completion = .{};
         timer.run(&loop, &timer_c, @intCast(@as(u64, @bitCast(timeout_ms))), void, null, &timerNoop);
-        loop.run(.once) catch return -1;
+        while (timer_c.state() == .active and callbacks_fired == start_callbacks and !async_fired) {
+            loop.run(.once) catch return -1;
+        }
     } else {
-        loop.run(.once) catch return -1;
+        while (callbacks_fired == start_callbacks and !async_fired) {
+            loop.run(.once) catch return -1;
+            if (registered_count == 0 and !async_initialized) break;
+        }
     }
     return 0;
 }
@@ -502,6 +523,7 @@ fn asyncNoop(
     _: *Completion,
     _: Async.WaitError!void,
 ) CallbackAction {
+    async_fired = true;
     return .rearm;
 }
 
