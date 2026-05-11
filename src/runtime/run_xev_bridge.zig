@@ -228,7 +228,7 @@ export fn run_xev_poll_read(fd: c_int, g: GPtr) void {
     if (builtin.os.tag == .windows) {
         // Windows: PeekNamedPipe-based polling driven by a recurring timer.
         // The slot bookkeeping above is enough; ensure the timer is armed.
-        _ = handle;
+        // The handle validation from fileHandleFromFd above is what we need.
         ensureWinPollTimer();
     } else if (builtin.os.tag == .wasi) {
         slot.read_completion = .{
