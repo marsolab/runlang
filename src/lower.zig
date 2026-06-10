@@ -2022,9 +2022,12 @@ const LoweringContext = struct {
                 i += 1;
             }
         }
-        // Track the allocation so it gets freed with the module
-        try self.module.owned_strings.append(self.allocator, buf.items);
-        return buf.items;
+        // Track the allocation so it gets freed with the module. toOwnedSlice
+        // resizes the buffer so the stored slice length matches the allocation,
+        // which Module.deinit relies on when freeing.
+        const owned = try buf.toOwnedSlice(self.allocator);
+        try self.module.owned_strings.append(self.allocator, owned);
+        return owned;
     }
 };
 
