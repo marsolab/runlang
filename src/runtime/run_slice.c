@@ -1,20 +1,27 @@
 #include "run_slice.h"
 
+#include "run_alloc.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+static void run_slice_check(const run_slice_t *s) {
+    if (s->ptr) {
+        run_gen_check(s->ptr, s->generation);
+    }
+}
+
 run_slice_t run_slice_new(size_t elem_size, size_t initial_cap) {
     void *ptr = NULL;
+    uint64_t generation = 0;
     if (initial_cap > 0) {
-        ptr = malloc(elem_size * initial_cap);
-        if (!ptr) {
-            fprintf(stderr, "run: out of memory in slice_new\n");
-            abort();
-        }
+        ptr = run_gen_alloc(elem_size * initial_cap);
+        generation = run_gen_get(ptr);
     }
     return (run_slice_t){
         .ptr = ptr,
+        .generation = generation,
         .len = 0,
         .cap = initial_cap,
         .elem_size = elem_size,
@@ -22,14 +29,18 @@ run_slice_t run_slice_new(size_t elem_size, size_t initial_cap) {
 }
 
 void run_slice_append(run_slice_t *s, const void *elem) {
+    run_slice_check(s);
     if (s->len == s->cap) {
         size_t new_cap = s->cap == 0 ? 4 : s->cap * 2;
-        void *new_ptr = realloc(s->ptr, s->elem_size * new_cap);
-        if (!new_ptr) {
-            fprintf(stderr, "run: out of memory in slice_append\n");
-            abort();
+        void *new_ptr = run_gen_alloc(s->elem_size * new_cap);
+        if (s->ptr) {
+            memcpy(new_ptr, s->ptr, s->elem_size * s->len);
+            /* Quarantined, not returned to the OS: stale headers still
+             * holding the old pointer fail their generation check. */
+            run_gen_free(s->ptr);
         }
         s->ptr = new_ptr;
+        s->generation = run_gen_get(new_ptr);
         s->cap = new_cap;
     }
     memcpy((char *)s->ptr + s->len * s->elem_size, elem, s->elem_size);
@@ -37,6 +48,7 @@ void run_slice_append(run_slice_t *s, const void *elem) {
 }
 
 void *run_slice_get(run_slice_t *s, size_t index) {
+    run_slice_check(s);
     if (index >= s->len) {
         fprintf(stderr, "run: slice index out of bounds (%zu >= %zu)\n", index, s->len);
         abort();
@@ -44,9 +56,17 @@ void *run_slice_get(run_slice_t *s, size_t index) {
     return (char *)s->ptr + index * s->elem_size;
 }
 
+int64_t run_slice_len(const run_slice_t *s) {
+    return (int64_t)s->len;
+}
+
 void run_slice_free(run_slice_t *s) {
-    free(s->ptr);
+    if (s->ptr) {
+        run_slice_check(s);
+        run_gen_free(s->ptr);
+    }
     s->ptr = NULL;
+    s->generation = 0;
     s->len = 0;
     s->cap = 0;
 }

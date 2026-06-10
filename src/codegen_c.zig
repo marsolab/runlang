@@ -422,6 +422,11 @@ pub const CCodegen = struct {
                 const type_name = self.module.value_type_names.items[inst.arg2];
                 try self.writer().print("_t{d} = *(({s}*)_t{d});\n", .{ inst.result, type_name, inst.arg1 });
             },
+            .ptr_store_value => {
+                try self.emitIndent();
+                const type_name = self.module.value_type_names.items[inst.arg2];
+                try self.writer().print("*(({s}*)_t{d}) = _t{d};\n", .{ type_name, inst.arg1, inst.result });
+            },
             .load => {
                 try self.emitIndent();
                 try self.writer().print("_t{d} = *((int64_t*)_t{d});\n", .{ inst.result, inst.arg1 });

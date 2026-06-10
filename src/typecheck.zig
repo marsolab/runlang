@@ -1799,7 +1799,8 @@ const TypeChecker = struct {
             .alloc_expr => blk: {
                 const alloc_type_node = self.nodeData(node).lhs;
                 if (alloc_type_node == null_node) break :blk types.null_type;
-                if (self.nodeTag(alloc_type_node) == .type_chan) {
+                const alloc_tag = self.nodeTag(alloc_type_node);
+                if (alloc_tag == .type_chan or alloc_tag == .type_slice or alloc_tag == .type_map) {
                     break :blk self.resolveTypeNode(alloc_type_node);
                 }
                 const pointee = self.resolveTypeNode(alloc_type_node);
@@ -1912,6 +1913,17 @@ const TypeChecker = struct {
 
         if (self.builtinCallName(callee_node)) |builtin_name| {
             return try self.inferBuiltinCall(builtin_name, arg_nodes[0..actual_count], arg_types[0..actual_count], node);
+        }
+
+        // Slice builtins: append returns the (possibly grown) slice, len an int.
+        if (callee_node != null_node and self.nodeTag(callee_node) == .ident) {
+            const callee_ident = self.tokenSlice(self.nodeMainToken(callee_node));
+            if (std.mem.eql(u8, callee_ident, "append") and actual_count >= 1) {
+                return arg_types[0];
+            }
+            if (std.mem.eql(u8, callee_ident, "len")) {
+                return types.primitives.int_id;
+            }
         }
 
         // Check if this is a method call (callee is field_access on a struct).

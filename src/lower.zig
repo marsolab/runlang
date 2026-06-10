@@ -153,7 +153,10 @@ const LoweringContext = struct {
         name: []const u8,
         local_idx: u32,
         is_moved: bool,
+        kind: OwnedKind = .gen_ptr,
     };
+
+    const OwnedKind = enum { gen_ptr, slice };
 
     const LoopInfo = struct {
         break_bb: ir.BlockId,
@@ -236,10 +239,18 @@ const LoweringContext = struct {
         while (j > owned_boundary) {
             j -= 1;
             const entry = self.owned_stack.items[j];
-            if (!entry.is_moved) {
-                const ptr_ref = self.allocRef();
-                try self.emit(ir.makeInst(.local_get, ptr_ref, entry.local_idx, 0));
-                try self.emit(ir.makeInst(.gen_free, 0, ptr_ref, 0));
+            if (entry.is_moved) continue;
+            switch (entry.kind) {
+                .gen_ptr => {
+                    const ptr_ref = self.allocRef();
+                    try self.emit(ir.makeInst(.local_get, ptr_ref, entry.local_idx, 0));
+                    try self.emit(ir.makeInst(.gen_free, 0, ptr_ref, 0));
+                },
+                .slice => {
+                    const addr_ref = self.allocRef();
+                    try self.emit(ir.makeInst(.local_addr, addr_ref, entry.local_idx, 0));
+                    _ = try self.emitTypedCall("run_slice_free", &.{addr_ref}, "void", false);
+                },
             }
         }
     }
@@ -416,6 +427,7 @@ const LoweringContext = struct {
             .newtype => |newtype| self.cTypeForTypeId(newtype.underlying),
             .struct_type => self.struct_c_names.get(type_id) orelse "int64_t",
             .error_union_type => self.struct_c_names.get(type_id) orelse "int64_t",
+            .slice_type => "run_slice_t",
             // Function values are generic pointers; calls cast to the
             // concrete signature (see call_ptr).
             .fn_type => "void*",
@@ -919,13 +931,18 @@ const LoweringContext = struct {
             const val = try self.lowerExpr(node.data.rhs);
             const local_idx = try self.defineVar(name, c_type, alignment, val);
 
-            // Track ownership for alloc expressions
+            // Track ownership for alloc expressions. Channels are shared
+            // across green threads and must not be freed at scope exit;
+            // slices free through run_slice_free.
             if (self.tree.nodes.items[node.data.rhs].tag == .alloc_expr) {
-                try self.owned_stack.append(self.allocator, .{
-                    .name = name,
-                    .local_idx = local_idx,
-                    .is_moved = false,
-                });
+                if (self.allocOwnedKind(node.data.rhs)) |kind| {
+                    try self.owned_stack.append(self.allocator, .{
+                        .name = name,
+                        .local_idx = local_idx,
+                        .is_moved = false,
+                        .kind = kind,
+                    });
+                }
             }
         } else {
             _ = try self.defineVar(name, c_type, alignment, ir.null_ref);
@@ -944,13 +961,16 @@ const LoweringContext = struct {
                     const val = try self.lowerExpr(node.data.rhs);
                     const local_idx = try self.defineVar(name, c_type, alignment, val);
 
-                    // Track ownership for alloc expressions
+                    // Track ownership for alloc expressions (see lowerVarDecl).
                     if (self.tree.nodes.items[node.data.rhs].tag == .alloc_expr) {
-                        try self.owned_stack.append(self.allocator, .{
-                            .name = name,
-                            .local_idx = local_idx,
-                            .is_moved = false,
-                        });
+                        if (self.allocOwnedKind(node.data.rhs)) |kind| {
+                            try self.owned_stack.append(self.allocator, .{
+                                .name = name,
+                                .local_idx = local_idx,
+                                .is_moved = false,
+                                .kind = kind,
+                            });
+                        }
                     }
                 }
             }
@@ -960,6 +980,12 @@ const LoweringContext = struct {
     fn lowerAssign(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
         const node = self.tree.nodes.items[node_idx];
         if (node.data.lhs != null_node and self.tree.nodes.items[node.data.lhs].tag == .index_access) {
+            const base_idx = self.tree.nodes.items[node.data.lhs].data.lhs;
+            if (self.isSliceType(self.typeOfNode(base_idx))) {
+                const val_ref = try self.lowerExpr(node.data.rhs);
+                try self.lowerSliceIndexAssign(node.data.lhs, val_ref);
+                return;
+            }
             try self.lowerSimdLaneAssign(node.data.lhs, node.data.rhs);
             return;
         }
@@ -981,14 +1007,16 @@ const LoweringContext = struct {
                     const rhs_node = self.tree.nodes.items[node.data.rhs];
                     if (rhs_node.tag == .ident) {
                         const src_name = self.tokenSlice(rhs_node.main_token);
-                        self.markOwnedMoved(src_name);
-                        // Transfer ownership to the target
-                        if (self.lookupLocalIdx(target_name)) |local_idx| {
-                            try self.owned_stack.append(self.allocator, .{
-                                .name = target_name,
-                                .local_idx = local_idx,
-                                .is_moved = false,
-                            });
+                        if (self.markOwnedMoved(src_name)) |src_kind| {
+                            // Transfer ownership (and its cleanup kind).
+                            if (self.lookupLocalIdx(target_name)) |local_idx| {
+                                try self.owned_stack.append(self.allocator, .{
+                                    .name = target_name,
+                                    .local_idx = local_idx,
+                                    .is_moved = false,
+                                    .kind = src_kind,
+                                });
+                            }
                         }
                     }
                 }
@@ -999,15 +1027,17 @@ const LoweringContext = struct {
     }
 
     /// Mark an owned variable as moved (ownership transferred away).
-    fn markOwnedMoved(self: *LoweringContext, name: []const u8) void {
+    /// Returns the moved entry's cleanup kind, or null if `name` wasn't owned.
+    fn markOwnedMoved(self: *LoweringContext, name: []const u8) ?OwnedKind {
         var i = self.owned_stack.items.len;
         while (i > 0) {
             i -= 1;
             if (std.mem.eql(u8, self.owned_stack.items[i].name, name)) {
                 self.owned_stack.items[i].is_moved = true;
-                return;
+                return self.owned_stack.items[i].kind;
             }
         }
+        return null;
     }
 
     fn lowerIfStmt(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
@@ -1087,6 +1117,9 @@ const LoweringContext = struct {
             const iter_node = node.data.lhs;
             if (iter_node != null_node and self.tree.nodes.items[iter_node].tag == .range) {
                 return self.lowerForRange(node_idx);
+            }
+            if (iter_node != null_node and self.isSliceType(self.typeOfNode(iter_node))) {
+                return self.lowerForSlice(node_idx);
             }
             return self.unsupported(node_idx, "'for ... in' over a non-range iterable");
         }
@@ -1565,6 +1598,197 @@ const LoweringContext = struct {
         return val_ref;
     }
 
+    /// What kind of cleanup an `alloc(...)` initializer needs at scope exit,
+    /// or null when it must not be auto-freed (channels are shared across
+    /// green threads).
+    fn allocOwnedKind(self: *const LoweringContext, alloc_node: NodeIndex) ?OwnedKind {
+        const type_node = self.tree.nodes.items[alloc_node].data.lhs;
+        if (type_node == null_node) return .gen_ptr;
+        return switch (self.tree.nodes.items[type_node].tag) {
+            .type_chan => null,
+            .type_map => null,
+            .type_slice => .slice,
+            else => .gen_ptr,
+        };
+    }
+
+    fn isSliceType(self: *const LoweringContext, type_id: TypeId) bool {
+        if (type_id == types.null_type or type_id < types.primitives.count) return false;
+        return switch (self.type_pool.get(type_id)) {
+            .slice_type => true,
+            else => false,
+        };
+    }
+
+    fn sliceElemType(self: *const LoweringContext, type_id: TypeId) TypeId {
+        return switch (self.type_pool.get(type_id)) {
+            .slice_type => |sl| sl.elem,
+            else => types.null_type,
+        };
+    }
+
+    /// Lower an expression into a named temp local (or reuse an existing
+    /// local when the expression is a plain identifier). Returns the local
+    /// index, or null if the expression failed to lower.
+    fn exprToTempLocal(self: *LoweringContext, node_idx: NodeIndex, c_type: []const u8) LowerError!?u32 {
+        const node = self.tree.nodes.items[node_idx];
+        if (node.tag == .ident) {
+            const name = self.tokenSlice(node.main_token);
+            if (self.lookupLocalIdx(name)) |local_idx| return local_idx;
+        }
+        const val_ref = try self.lowerExpr(node_idx);
+        if (val_ref == ir.null_ref) return null;
+        const tmp_idx = try self.makeTempLocal("_tmp", c_type, 0);
+        try self.emit(ir.makeInst(.local_set, 0, tmp_idx, val_ref));
+        return tmp_idx;
+    }
+
+    /// `append(s, v)` — appends by value through the runtime and yields the
+    /// (possibly reallocated) slice header value.
+    fn lowerAppend(self: *LoweringContext, call_idx: NodeIndex, slice_node: NodeIndex, value_node: NodeIndex) LowerError!ir.Ref {
+        const slice_type = self.typeOfNode(slice_node);
+        if (!self.isSliceType(slice_type)) {
+            try self.unsupported(call_idx, "append on this type");
+            return ir.null_ref;
+        }
+        const elem_type = self.sliceElemType(slice_type);
+        const elem_c = self.cTypeForTypeId(elem_type);
+
+        // Copy the slice header into a temp so append can mutate it.
+        const slice_val = try self.lowerExpr(slice_node);
+        const slice_local = try self.makeTempLocal("_app_s", "run_slice_t", 0);
+        try self.emit(ir.makeInst(.local_set, 0, slice_local, slice_val));
+
+        // Element value into an addressable temp.
+        const elem_val = try self.lowerExpr(value_node);
+        const elem_local = try self.makeTempLocal("_app_v", elem_c, self.alignmentForTypeId(elem_type));
+        try self.emit(ir.makeInst(.local_set, 0, elem_local, elem_val));
+
+        const slice_addr = self.allocRef();
+        try self.emit(ir.makeInst(.local_addr, slice_addr, slice_local, 0));
+        const elem_addr = self.allocRef();
+        try self.emit(ir.makeInst(.local_addr, elem_addr, elem_local, 0));
+        _ = try self.emitTypedCall("run_slice_append", &.{ slice_addr, elem_addr }, "void", false);
+
+        const r = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, r, slice_local, 0));
+        return r;
+    }
+
+    /// `s[i]` — bounds-checked element read.
+    fn lowerSliceIndex(self: *LoweringContext, node_idx: NodeIndex) LowerError!ir.Ref {
+        const node = self.tree.nodes.items[node_idx];
+        const slice_type = self.typeOfNode(node.data.lhs);
+        const elem_type = self.sliceElemType(slice_type);
+        const elem_c = self.cTypeForTypeId(elem_type);
+
+        const slice_local = (try self.exprToTempLocal(node.data.lhs, "run_slice_t")) orelse return ir.null_ref;
+        const idx_ref = try self.lowerExpr(node.data.rhs);
+        const slice_addr = self.allocRef();
+        try self.emit(ir.makeInst(.local_addr, slice_addr, slice_local, 0));
+        const elem_ptr = try self.emitTypedCall("run_slice_get", &.{ slice_addr, idx_ref }, "void*", false);
+        const type_idx = try self.module.addValueTypeName(self.allocator, elem_c);
+        const r = self.allocRef();
+        try self.emit(ir.makeInst(.ptr_load_value, r, elem_ptr, type_idx));
+        return r;
+    }
+
+    /// `s[i] = v` — bounds-checked element write (slice variables only).
+    fn lowerSliceIndexAssign(self: *LoweringContext, lhs_idx: NodeIndex, val_ref: ir.Ref) LowerError!void {
+        const lhs = self.tree.nodes.items[lhs_idx];
+        const slice_type = self.typeOfNode(lhs.data.lhs);
+        const elem_type = self.sliceElemType(slice_type);
+        const elem_c = self.cTypeForTypeId(elem_type);
+
+        const slice_local = (try self.exprToTempLocal(lhs.data.lhs, "run_slice_t")) orelse return;
+        const idx_ref = try self.lowerExpr(lhs.data.rhs);
+        const slice_addr = self.allocRef();
+        try self.emit(ir.makeInst(.local_addr, slice_addr, slice_local, 0));
+        const elem_ptr = try self.emitTypedCall("run_slice_get", &.{ slice_addr, idx_ref }, "void*", false);
+        const type_idx = try self.module.addValueTypeName(self.allocator, elem_c);
+        try self.emit(ir.makeInst(.ptr_store_value, val_ref, elem_ptr, type_idx));
+    }
+
+    /// `for x in s { body }` over a slice: counted loop with a bounds-checked
+    /// element load per iteration.
+    fn lowerForSlice(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
+        const node = self.tree.nodes.items[node_idx];
+        const func = self.current_func orelse return;
+        const body_node = node.data.rhs;
+        const var_name = self.tokenSlice(node.main_token + 1);
+
+        const slice_type = self.typeOfNode(node.data.lhs);
+        const elem_type = self.sliceElemType(slice_type);
+        const elem_c = self.cTypeForTypeId(elem_type);
+
+        const slice_local = (try self.exprToTempLocal(node.data.lhs, "run_slice_t")) orelse return;
+        const fi_len = try self.module.addFieldInfo(self.allocator, "run_slice_t", "len", "int64_t");
+        const len_local = try self.makeTempLocal("_for_len", "int64_t", 0);
+        const len_ref = self.allocRef();
+        try self.emit(ir.makeInst(.local_field_get, len_ref, slice_local, fi_len));
+        try self.emit(ir.makeInst(.local_set, 0, len_local, len_ref));
+        const idx_local = try self.makeTempLocal("_for_idx", "int64_t", 0);
+        const zero_ref = self.allocRef();
+        try self.emit(ir.makeConstInt(zero_ref, 0));
+        try self.emit(ir.makeInst(.local_set, 0, idx_local, zero_ref));
+
+        const entry_bb = self.currentBlockId() orelse return;
+        const cond_bb = try func.addBlock(self.allocator);
+        const body_bb = try func.addBlock(self.allocator);
+        const step_bb = try func.addBlock(self.allocator);
+        const after_bb = try func.addBlock(self.allocator);
+        self.current_block = func.getBlock(entry_bb);
+        try self.emit(ir.makeInst(.br, 0, cond_bb, 0));
+
+        self.current_block = func.getBlock(cond_bb);
+        const i_ref = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, i_ref, idx_local, 0));
+        const n_ref = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, n_ref, len_local, 0));
+        const cmp_ref = self.allocRef();
+        try self.emit(ir.makeInst(.lt, cmp_ref, i_ref, n_ref));
+        try self.emit(ir.makeInst(.br_cond, 0, cmp_ref, body_bb));
+        try self.emit(ir.makeInst(.br, 0, after_bb, 0));
+
+        self.current_block = func.getBlock(body_bb);
+        try self.loop_stack.append(self.allocator, .{
+            .break_bb = after_bb,
+            .continue_bb = step_bb,
+            .defer_depth = self.defer_stack.items.len,
+            .owned_depth = self.owned_stack.items.len,
+        });
+        try self.pushScope();
+        // x = s[i]
+        const slice_addr = self.allocRef();
+        try self.emit(ir.makeInst(.local_addr, slice_addr, slice_local, 0));
+        const cur_idx = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, cur_idx, idx_local, 0));
+        const elem_ptr = try self.emitTypedCall("run_slice_get", &.{ slice_addr, cur_idx }, "void*", false);
+        const type_idx = try self.module.addValueTypeName(self.allocator, elem_c);
+        const elem_ref = self.allocRef();
+        try self.emit(ir.makeInst(.ptr_load_value, elem_ref, elem_ptr, type_idx));
+        _ = try self.defineVar(var_name, elem_c, self.alignmentForTypeId(elem_type), elem_ref);
+
+        try self.lowerBlock(body_node);
+        try self.popScope();
+        _ = self.loop_stack.pop();
+        if (!self.current_block.?.isTerminated()) {
+            try self.emit(ir.makeInst(.br, 0, step_bb, 0));
+        }
+
+        self.current_block = func.getBlock(step_bb);
+        const cur2 = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, cur2, idx_local, 0));
+        const one_ref = self.allocRef();
+        try self.emit(ir.makeConstInt(one_ref, 1));
+        const next_ref = self.allocRef();
+        try self.emit(ir.makeInst(.add, next_ref, cur2, one_ref));
+        try self.emit(ir.makeInst(.local_set, 0, idx_local, next_ref));
+        try self.emit(ir.makeInst(.br, 0, cond_bb, 0));
+
+        self.current_block = func.getBlock(after_bb);
+    }
+
     /// True if a switch pattern is the wildcard `_`.
     fn isWildcardPattern(self: *const LoweringContext, pat_idx: NodeIndex) bool {
         if (pat_idx == null_node) return false;
@@ -1886,6 +2110,27 @@ const LoweringContext = struct {
                 const type_node_idx = node.data.lhs;
                 const extra_start = node.data.rhs;
 
+                // Slice allocation: alloc([]T) or alloc([]T, capacity)
+                if (type_node_idx != null_node and self.tree.nodes.items[type_node_idx].tag == .type_slice) {
+                    const slice_type = self.resolveTypeNode(type_node_idx);
+                    const elem_type = switch (self.type_pool.get(slice_type)) {
+                        .slice_type => |sl| sl.elem,
+                        else => types.null_type,
+                    };
+                    const elem_size = if (elem_type != types.null_type) self.sizeOfTypeId(elem_type) else 8;
+                    const elem_size_ref = self.allocRef();
+                    try self.emit(ir.makeConstInt(elem_size_ref, elem_size));
+                    const cap_node = self.tree.extra_data.items[extra_start];
+                    var cap_ref: ir.Ref = undefined;
+                    if (cap_node != null_node) {
+                        cap_ref = try self.lowerExpr(cap_node);
+                    } else {
+                        cap_ref = self.allocRef();
+                        try self.emit(ir.makeConstInt(cap_ref, 0));
+                    }
+                    return self.emitTypedCall("run_slice_new", &.{ elem_size_ref, cap_ref }, "run_slice_t", false);
+                }
+
                 // Channel allocation: alloc(chan[T]) or alloc(chan[T], capacity)
                 if (type_node_idx != null_node and self.tree.nodes.items[type_node_idx].tag == .type_chan) {
                     // Element size — default to 8 bytes (int64_t)
@@ -1930,6 +2175,9 @@ const LoweringContext = struct {
             .index_access => {
                 if (self.type_pool.isSimd(self.typeOfNode(node.data.lhs))) {
                     return try self.lowerSimdLaneAccess(node_idx);
+                }
+                if (self.isSliceType(self.typeOfNode(node.data.lhs))) {
+                    return try self.lowerSliceIndex(node_idx);
                 }
                 try self.unsupported(node_idx, "indexing this type");
                 return ir.null_ref;
@@ -2335,6 +2583,8 @@ const LoweringContext = struct {
         return switch (self.type_pool.get(type_id)) {
             // &T/@T lower to run_gen_ref_t (pointer + generation).
             .ptr_type => 16,
+            // run_slice_t header: ptr + generation + len + cap + elem_size.
+            .slice_type => 40,
             .chan_type, .map_type => 8,
             .newtype => |newtype| self.sizeOfTypeId(newtype.underlying),
             .struct_type => |st| blk: {
@@ -2975,6 +3225,23 @@ const LoweringContext = struct {
             return try self.lowerBuiltinCall(builtin_name, node_idx, arg_nodes);
         }
 
+        // Slice builtins.
+        if (callee_idx != null_node and self.tree.nodes.items[callee_idx].tag == .ident) {
+            const bname = self.tokenSlice(self.tree.nodes.items[callee_idx].main_token);
+            if (std.mem.eql(u8, bname, "append") and arg_nodes.len == 2) {
+                return try self.lowerAppend(node_idx, arg_nodes[0], arg_nodes[1]);
+            }
+            if (std.mem.eql(u8, bname, "len") and arg_nodes.len == 1) {
+                if (self.isSliceType(self.typeOfNode(arg_nodes[0]))) {
+                    const slice_local = (try self.exprToTempLocal(arg_nodes[0], "run_slice_t")) orelse return ir.null_ref;
+                    const fi_len = try self.module.addFieldInfo(self.allocator, "run_slice_t", "len", "int64_t");
+                    const r = self.allocRef();
+                    try self.emit(ir.makeInst(.local_field_get, r, slice_local, fi_len));
+                    return r;
+                }
+            }
+        }
+
         // Indirect call through a local holding a function value:
         // `f := fun(x int) int { ... }; f(1)`.
         if (callee_idx != null_node and self.tree.nodes.items[callee_idx].tag == .ident) {
@@ -3518,6 +3785,16 @@ fn moduleHasCallTarget(module: *const ir.Module, target_name: []const u8) bool {
     return false;
 }
 
+fn countCallsTo(module: *const ir.Module, block: *const ir.BasicBlock, target_name: []const u8) usize {
+    var count: usize = 0;
+    for (block.insts.items) |inst| {
+        if (inst.op != .call) continue;
+        if (inst.arg1 >= module.call_infos.items.len) continue;
+        if (std.mem.eql(u8, module.call_infos.items[inst.arg1].target_name, target_name)) count += 1;
+    }
+    return count;
+}
+
 test "lower: alloc emits gen_free at scope exit" {
     var module = try testLower(
         \\fn main() {
@@ -3530,16 +3807,19 @@ test "lower: alloc emits gen_free at scope exit" {
     const func = &module.functions.items[0];
     const block = &func.blocks.items[0];
 
-    // Should contain gen_alloc, gen_ref_create, and gen_free (from scope cleanup)
-    try std.testing.expect(blockHasOp(block, .gen_alloc));
-    try std.testing.expect(blockHasOp(block, .gen_ref_create));
-    try std.testing.expect(blockHasOp(block, .gen_free));
+    // Slice allocs go through the runtime and are freed at scope exit.
+    try std.testing.expect(countCallsTo(&module, block, "run_slice_new") == 1);
+    try std.testing.expect(countCallsTo(&module, block, "run_slice_free") == 1);
 
-    // gen_free should appear before ret_void
+    // run_slice_free should appear before ret_void
     var found_free = false;
     var found_ret_after_free = false;
     for (block.insts.items) |inst| {
-        if (inst.op == .gen_free) found_free = true;
+        if (inst.op == .call and inst.arg1 < module.call_infos.items.len and
+            std.mem.eql(u8, module.call_infos.items[inst.arg1].target_name, "run_slice_free"))
+        {
+            found_free = true;
+        }
         if (found_free and inst.op == .ret_void) found_ret_after_free = true;
     }
     try std.testing.expect(found_free);
@@ -3578,11 +3858,15 @@ test "lower: return emits cleanup before ret" {
     const func = &module.functions.items[0];
     const block = &func.blocks.items[0];
 
-    // gen_free should appear before ret_void (from the return statement's cleanup)
+    // run_slice_free should appear before ret_void (return statement cleanup)
     var found_free = false;
     var found_ret_after_free = false;
     for (block.insts.items) |inst| {
-        if (inst.op == .gen_free) found_free = true;
+        if (inst.op == .call and inst.arg1 < module.call_infos.items.len and
+            std.mem.eql(u8, module.call_infos.items[inst.arg1].target_name, "run_slice_free"))
+        {
+            found_free = true;
+        }
         if (found_free and inst.op == .ret_void) found_ret_after_free = true;
     }
     try std.testing.expect(found_free);
@@ -3603,13 +3887,9 @@ test "lower: moved variable is not freed (no double-free)" {
     const func = &module.functions.items[0];
     const block = &func.blocks.items[0];
 
-    // Should have exactly one gen_free (for 't' which now owns the value),
+    // Should have exactly one free (for 't' which now owns the value),
     // not two (which would be a double-free).
-    var free_count: usize = 0;
-    for (block.insts.items) |inst| {
-        if (inst.op == .gen_free) free_count += 1;
-    }
-    try std.testing.expectEqual(@as(usize, 1), free_count);
+    try std.testing.expectEqual(@as(usize, 1), countCallsTo(&module, block, "run_slice_free"));
 }
 
 test "lower: nested scopes free inner scope first" {
@@ -3627,12 +3907,8 @@ test "lower: nested scopes free inner scope first" {
     const func = &module.functions.items[0];
     const block = &func.blocks.items[0];
 
-    // Should have two gen_free instructions (inner scope freed first, then outer)
-    var free_count: usize = 0;
-    for (block.insts.items) |inst| {
-        if (inst.op == .gen_free) free_count += 1;
-    }
-    try std.testing.expectEqual(@as(usize, 2), free_count);
+    // Should free both slices (inner scope freed first, then outer)
+    try std.testing.expectEqual(@as(usize, 2), countCallsTo(&module, block, "run_slice_free"));
 }
 
 test "lower: nested scope lookup keeps outer local binding" {
@@ -3671,12 +3947,14 @@ test "lower: defer and alloc combined — defer runs before free" {
     const func = &module.functions.items[0];
     const block = &func.blocks.items[0];
 
-    // Deferred call should appear before gen_free
+    // Deferred println should appear before the slice free
     var found_call = false;
     var found_free_after_call = false;
     for (block.insts.items) |inst| {
-        if (inst.op == .call) found_call = true;
-        if (found_call and inst.op == .gen_free) found_free_after_call = true;
+        if (inst.op != .call or inst.arg1 >= module.call_infos.items.len) continue;
+        const target = module.call_infos.items[inst.arg1].target_name;
+        if (std.mem.eql(u8, target, "run_fmt_println_args")) found_call = true;
+        if (found_call and std.mem.eql(u8, target, "run_slice_free")) found_free_after_call = true;
     }
     try std.testing.expect(found_call);
     try std.testing.expect(found_free_after_call);
