@@ -427,6 +427,7 @@ const LoweringContext = struct {
             .newtype => |newtype| self.cTypeForTypeId(newtype.underlying),
             .struct_type => self.struct_c_names.get(type_id) orelse "int64_t",
             .error_union_type => self.struct_c_names.get(type_id) orelse "int64_t",
+            .nullable_type => self.struct_c_names.get(type_id) orelse "int64_t",
             .slice_type => "run_slice_t",
             // Function values are generic pointers; calls cast to the
             // concrete signature (see call_ptr).
@@ -543,6 +544,14 @@ const LoweringContext = struct {
                     const c_name = try self.sanitizedTypeName("run_err_", payload_c);
                     try self.struct_c_names.put(self.allocator, id, c_name);
                 },
+                .nullable_type => |nt| {
+                    const payload_c = if (nt.inner == types.null_type)
+                        "void"
+                    else
+                        self.cTypeForTypeId(nt.inner);
+                    const c_name = try self.sanitizedTypeName("run_opt_", payload_c);
+                    try self.struct_c_names.put(self.allocator, id, c_name);
+                },
                 else => {},
             }
         }
@@ -579,6 +588,32 @@ const LoweringContext = struct {
                             .name = f.name,
                             .c_type = self.cTypeForTypeId(f.type_id),
                         });
+                    }
+                    try self.module.struct_infos.append(self.allocator, info);
+                },
+                else => {},
+            }
+        }
+
+        // Emit nullable typedefs after struct typedefs so payload fields can
+        // reference run_type_* by name: { bool has_value; T value; }
+        id = 0;
+        while (id < pool_len) : (id += 1) {
+            switch (self.type_pool.get(id)) {
+                .nullable_type => |nt| {
+                    const c_name = self.struct_c_names.get(id).?;
+                    var already = false;
+                    for (self.module.struct_infos.items) |si| {
+                        if (std.mem.eql(u8, si.c_name, c_name)) {
+                            already = true;
+                            break;
+                        }
+                    }
+                    if (already) continue;
+                    var info = ir.StructInfo{ .c_name = c_name, .fields = .empty };
+                    try info.fields.append(self.allocator, .{ .name = "has_value", .c_type = "bool" });
+                    if (nt.inner != types.null_type) {
+                        try info.fields.append(self.allocator, .{ .name = "value", .c_type = self.cTypeForTypeId(nt.inner) });
                     }
                     try self.module.struct_infos.append(self.allocator, info);
                 },
@@ -2038,6 +2073,149 @@ const LoweringContext = struct {
         self.current_block = func.getBlock(after_bb);
     }
 
+    fn isNullableType(self: *const LoweringContext, type_id: TypeId) bool {
+        if (type_id == types.null_type or type_id < types.primitives.count) return false;
+        return switch (self.type_pool.get(type_id)) {
+            .nullable_type => true,
+            else => false,
+        };
+    }
+
+    fn nullablePayload(self: *const LoweringContext, type_id: TypeId) TypeId {
+        return switch (self.type_pool.get(type_id)) {
+            .nullable_type => |nt| nt.inner,
+            else => types.null_type,
+        };
+    }
+
+    /// Build a T? value in a temp local. `payload_ref == null_ref` builds
+    /// the null variant; otherwise wraps the payload.
+    fn buildOptValue(self: *LoweringContext, opt_type: TypeId, payload_ref: ir.Ref) LowerError!ir.Ref {
+        const opt_c = self.struct_c_names.get(opt_type) orelse "int64_t";
+        const tmp_idx = try self.makeTempLocal("_opt", opt_c, 0);
+        try self.emit(ir.makeInst(.local_zero, 0, tmp_idx, 0));
+        if (payload_ref != ir.null_ref) {
+            const true_ref = self.allocRef();
+            try self.emit(ir.makeInst(.const_bool, true_ref, 1, 0));
+            const fi_has = try self.module.addFieldInfo(self.allocator, opt_c, "has_value", "bool");
+            try self.emit(ir.makeInst(.local_field_set, true_ref, tmp_idx, fi_has));
+            const payload = self.nullablePayload(opt_type);
+            const fi_val = try self.module.addFieldInfo(self.allocator, opt_c, "value", self.cTypeForTypeId(payload));
+            try self.emit(ir.makeInst(.local_field_set, payload_ref, tmp_idx, fi_val));
+        }
+        const r = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, r, tmp_idx, 0));
+        return r;
+    }
+
+    /// Lower `value_node` and adapt it to `target_type` where the language
+    /// allows implicit wrapping (T -> T?, null -> T?). Returns the value ref.
+    fn lowerCoerced(self: *LoweringContext, target_type: TypeId, value_node: NodeIndex) LowerError!ir.Ref {
+        if (value_node == null_node) return ir.null_ref;
+        if (self.isNullableType(target_type)) {
+            if (self.tree.nodes.items[value_node].tag == .null_literal) {
+                return self.buildOptValue(target_type, ir.null_ref);
+            }
+            const value_type = self.typeOfNode(value_node);
+            if (!self.isNullableType(value_type)) {
+                const payload_ref = try self.lowerExpr(value_node);
+                return self.buildOptValue(target_type, payload_ref);
+            }
+        }
+        return self.lowerExpr(value_node);
+    }
+
+    /// Switch on a nullable: `.some(x) :: ...` / `.null :: ...` / `_`.
+    fn lowerNullableSwitch(self: *LoweringContext, node_idx: NodeIndex, arm_nodes: []const NodeIndex) LowerError!void {
+        const node = self.tree.nodes.items[node_idx];
+        const func = self.current_func orelse return;
+        const subject_type = self.typeOfNode(node.data.lhs);
+        const opt_c = self.struct_c_names.get(subject_type) orelse "int64_t";
+        const payload = self.nullablePayload(subject_type);
+
+        const subj_ref = try self.lowerExpr(node.data.lhs);
+        const subj_idx = try self.makeTempLocal("_switch_opt", opt_c, 0);
+        try self.emit(ir.makeInst(.local_set, 0, subj_idx, subj_ref));
+        const fi_has = try self.module.addFieldInfo(self.allocator, opt_c, "has_value", "bool");
+
+        const entry_bb = self.currentBlockId() orelse return;
+        const after_bb = try func.addBlock(self.allocator);
+        var test_bbs: std.ArrayList(ir.BlockId) = .empty;
+        defer test_bbs.deinit(self.allocator);
+        var body_bbs: std.ArrayList(ir.BlockId) = .empty;
+        defer body_bbs.deinit(self.allocator);
+        for (arm_nodes) |_| {
+            try test_bbs.append(self.allocator, try func.addBlock(self.allocator));
+            try body_bbs.append(self.allocator, try func.addBlock(self.allocator));
+        }
+        self.current_block = func.getBlock(entry_bb);
+        try self.emit(ir.makeInst(.br, 0, if (arm_nodes.len > 0) test_bbs.items[0] else after_bb, 0));
+
+        for (arm_nodes, 0..) |arm, k| {
+            const next_target = if (k + 1 < arm_nodes.len) test_bbs.items[k + 1] else after_bb;
+            const arm_node = self.tree.nodes.items[arm];
+            const pat_idx = arm_node.data.lhs;
+
+            var is_some_arm = false;
+            var is_null_arm = false;
+            var payload_name: []const u8 = "";
+            if (pat_idx != null_node) {
+                const pat = self.tree.nodes.items[pat_idx];
+                if (pat.tag == .variant) {
+                    const vname_tok = pat.main_token + 1;
+                    const vname = if (vname_tok < self.tokens.len) self.tokenSlice(vname_tok) else "";
+                    is_some_arm = std.mem.eql(u8, vname, "some");
+                    is_null_arm = std.mem.eql(u8, vname, "null");
+                    if (pat.data.lhs != null_node and self.tree.nodes.items[pat.data.lhs].tag == .ident) {
+                        payload_name = self.tokenSlice(self.tree.nodes.items[pat.data.lhs].main_token);
+                    }
+                } else if (pat.tag == .null_literal) {
+                    is_null_arm = true;
+                }
+            }
+
+            self.current_block = func.getBlock(test_bbs.items[k]);
+            if (is_some_arm or is_null_arm) {
+                const h_ref = self.allocRef();
+                try self.emit(ir.makeInst(.local_field_get, h_ref, subj_idx, fi_has));
+                const cond_ref = if (is_some_arm) h_ref else blk: {
+                    const not_ref = self.allocRef();
+                    try self.emit(ir.makeInst(.log_not, not_ref, h_ref, 0));
+                    break :blk not_ref;
+                };
+                try self.emit(ir.makeInst(.br_cond, 0, cond_ref, body_bbs.items[k]));
+                try self.emit(ir.makeInst(.br, 0, next_target, 0));
+            } else {
+                try self.emit(ir.makeInst(.br, 0, body_bbs.items[k], 0));
+            }
+
+            self.current_block = func.getBlock(body_bbs.items[k]);
+            try self.pushScope();
+            if (is_some_arm and payload_name.len > 0 and !std.mem.eql(u8, payload_name, "_") and
+                payload != types.null_type)
+            {
+                const fi_val = try self.module.addFieldInfo(self.allocator, opt_c, "value", self.cTypeForTypeId(payload));
+                const v_ref = self.allocRef();
+                try self.emit(ir.makeInst(.local_field_get, v_ref, subj_idx, fi_val));
+                _ = try self.defineVar(payload_name, self.cTypeForTypeId(payload), self.alignmentForTypeId(payload), v_ref);
+            }
+            const body_idx = arm_node.data.rhs;
+            if (body_idx != null_node) {
+                if (self.tree.nodes.items[body_idx].tag == .block) {
+                    try self.lowerBlock(body_idx);
+                } else {
+                    _ = try self.lowerExpr(body_idx);
+                }
+            }
+            try self.popScope();
+            if (self.current_block != null and !self.current_block.?.isTerminated()) {
+                try self.emit(ir.makeInst(.br, 0, after_bb, 0));
+            }
+        }
+
+        self.current_block = func.getBlock(after_bb);
+    }
+
     /// True if a switch pattern is the wildcard `_`.
     fn isWildcardPattern(self: *const LoweringContext, pat_idx: NodeIndex) bool {
         if (pat_idx == null_node) return false;
@@ -2070,6 +2248,11 @@ const LoweringContext = struct {
         // Error-union subjects destructure with .ok(x)/.err(e) arms.
         if (self.isErrorUnion(self.typeOfNode(node.data.lhs))) {
             return self.lowerErrorUnionSwitch(node_idx, arm_nodes);
+        }
+
+        // Nullable subjects destructure with .some(x)/.null arms.
+        if (self.isNullableType(self.typeOfNode(node.data.lhs))) {
+            return self.lowerNullableSwitch(node_idx, arm_nodes);
         }
 
         // Variant patterns on sum types need payload destructuring that has

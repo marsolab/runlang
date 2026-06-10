@@ -1427,8 +1427,11 @@ static bool run_install_async_preempt_frame(ucontext_t *uc) {
     uc->uc_mcontext->__ss.__pc = (uint64_t)run_async_preempt;
     return true;
 #elif defined(__x86_64__)
+    /* Place the return PC below the System V red zone: the 128 bytes under
+     * rsp belong to the interrupted (possibly leaf) frame and must survive.
+     * The trampoline returns with `ret $128` to skip back over the gap. */
     uint64_t pc = uc->uc_mcontext->__ss.__rip;
-    uint64_t sp = uc->uc_mcontext->__ss.__rsp - sizeof(uint64_t);
+    uint64_t sp = uc->uc_mcontext->__ss.__rsp - 128 - sizeof(uint64_t);
     *(uint64_t *)sp = pc;
     uc->uc_mcontext->__ss.__rsp = sp;
     uc->uc_mcontext->__ss.__rip = (uint64_t)run_async_preempt;
@@ -1446,8 +1449,9 @@ static bool run_install_async_preempt_frame(ucontext_t *uc) {
     uc->uc_mcontext.pc = (uint64_t)run_async_preempt;
     return true;
 #elif defined(__x86_64__)
+    /* Place the return PC below the System V red zone (see macOS branch). */
     greg_t pc = uc->uc_mcontext.gregs[REG_RIP];
-    greg_t sp = uc->uc_mcontext.gregs[REG_RSP] - (greg_t)sizeof(greg_t);
+    greg_t sp = uc->uc_mcontext.gregs[REG_RSP] - 128 - (greg_t)sizeof(greg_t);
     *(greg_t *)sp = pc;
     uc->uc_mcontext.gregs[REG_RSP] = sp;
     uc->uc_mcontext.gregs[REG_RIP] = (greg_t)(uintptr_t)run_async_preempt;
