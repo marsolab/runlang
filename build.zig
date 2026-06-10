@@ -262,6 +262,7 @@ pub fn build(b: *std.Build) void {
 
         const runtime_test_sources = .{
             "src/runtime/tests/test_main.c",
+            "src/runtime/tests/test_alloc.c",
             "src/runtime/tests/test_vmem.c",
             "src/runtime/tests/test_scheduler.c",
             "src/runtime/tests/test_chan.c",

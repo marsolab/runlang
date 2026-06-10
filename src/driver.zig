@@ -478,10 +478,12 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
 
     if (options.command == .run) {
         // Ensure binary path has ./ prefix for execution
-        const exec_path = if (!std.mem.startsWith(u8, out_path, "/") and !std.mem.startsWith(u8, out_path, "./"))
+        const needs_prefix = !std.mem.startsWith(u8, out_path, "/") and !std.mem.startsWith(u8, out_path, "./");
+        const exec_path = if (needs_prefix)
             try std.fmt.allocPrint(allocator, "./{s}", .{out_path})
         else
             out_path;
+        defer if (needs_prefix) allocator.free(exec_path);
         const exit_code = executeAndCleanup(io, allocator, exec_path) catch {
             stderr.writeAll("error: failed to execute compiled binary\n") catch {};
             return CompileError.RunFailed;
