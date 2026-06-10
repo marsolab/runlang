@@ -1,0 +1,12 @@
+// expect: 45
+package main
+
+use "fmt"
+
+pub fun main() {
+    sum := 0
+    for i in 0..10 {
+        sum = sum + i
+    }
+    fmt.println(sum)
+}

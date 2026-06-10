@@ -1,0 +1,10 @@
+// expect: true
+package main
+
+use "fmt"
+
+pub fun main() {
+    a := "hello"
+    b := "hello"
+    fmt.println(a == b)
+}

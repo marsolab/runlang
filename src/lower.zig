@@ -22,7 +22,7 @@ pub fn lower(
     tokens: []const Token,
     tc_result: *const typecheck_mod.TypeCheckResult,
 ) LowerError!ir.Module {
-    return lowerWithSource(allocator, tree, tokens, tc_result, null);
+    return lowerProgram(allocator, tree, tokens, tc_result, null, null);
 }
 
 /// Lower a typed AST into an IR Module, optionally recording source debug info.
@@ -32,6 +32,20 @@ pub fn lowerWithSource(
     tokens: []const Token,
     tc_result: *const typecheck_mod.TypeCheckResult,
     source_path: ?[]const u8,
+) LowerError!ir.Module {
+    return lowerProgram(allocator, tree, tokens, tc_result, source_path, null);
+}
+
+/// Lower a typed AST into an IR Module. Constructs that have no lowering yet
+/// are reported into `diags` (when provided) instead of being silently
+/// dropped — a program must never compile to wrong code.
+pub fn lowerProgram(
+    allocator: std.mem.Allocator,
+    tree: *const Ast,
+    tokens: []const Token,
+    tc_result: *const typecheck_mod.TypeCheckResult,
+    source_path: ?[]const u8,
+    diags: ?*diagnostics.DiagnosticList,
 ) LowerError!ir.Module {
     var ctx = LoweringContext{
         .allocator = allocator,
@@ -53,6 +67,8 @@ pub fn lowerWithSource(
         .defer_scope_stack = .empty,
         .owned_stack = .empty,
         .owned_scope_stack = .empty,
+        .loop_stack = .empty,
+        .diags = diags,
     };
     // Register the source file for debug info
     if (source_path) |path| {
@@ -88,6 +104,12 @@ const LoweringContext = struct {
     owned_stack: std.ArrayList(OwnedEntry),
     owned_scope_stack: std.ArrayList(usize),
 
+    // Enclosing loops, innermost last — break/continue jump targets.
+    loop_stack: std.ArrayList(LoopInfo),
+
+    // Destination for "not supported yet" errors; null in legacy callers.
+    diags: ?*diagnostics.DiagnosticList,
+
     const VarEntry = struct {
         name: []const u8,
         local_idx: u32,
@@ -108,6 +130,25 @@ const LoweringContext = struct {
         local_idx: u32,
         is_moved: bool,
     };
+
+    const LoopInfo = struct {
+        break_bb: ir.BlockId,
+        continue_bb: ir.BlockId,
+        /// Defer/owned stack depths at loop entry, so break/continue can run
+        /// cleanup for scopes opened inside the loop before jumping out.
+        defer_depth: usize,
+        owned_depth: usize,
+    };
+
+    /// Report a construct that has no lowering yet. Without a diagnostics
+    /// sink this is silent for legacy callers, but the driver always wires
+    /// one so user-facing compiles fail instead of miscompiling.
+    fn unsupported(self: *LoweringContext, node_idx: NodeIndex, comptime what: []const u8) LowerError!void {
+        const dl = self.diags orelse return;
+        const tok = self.tree.nodes.items[node_idx].main_token;
+        const loc = self.tokens[tok].loc;
+        try dl.addError(loc.start, loc.end, what ++ " is not supported by the compiler yet");
+    }
 
     fn pushScope(self: *LoweringContext) LowerError!void {
         try self.scope_stack.append(self.allocator, self.var_map.items.len);
@@ -397,6 +438,7 @@ const LoweringContext = struct {
         self.defer_scope_stack.deinit(self.allocator);
         self.owned_stack.deinit(self.allocator);
         self.owned_scope_stack.deinit(self.allocator);
+        self.loop_stack.deinit(self.allocator);
     }
 
     fn lowerTopLevel(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
@@ -550,8 +592,23 @@ const LoweringContext = struct {
                 const val_ref = try self.lowerExpr(node.data.rhs);
                 try self.emit(ir.makeInst(.chan_send, 0, ch_ref, val_ref));
             },
-            .break_stmt, .continue_stmt => {},
-            else => {},
+            .break_stmt => {
+                if (self.loop_stack.items.len > 0) {
+                    const li = self.loop_stack.items[self.loop_stack.items.len - 1];
+                    try self.emitScopeCleanup(li.defer_depth, li.owned_depth);
+                    try self.emit(ir.makeInst(.br, 0, li.break_bb, 0));
+                }
+            },
+            .continue_stmt => {
+                if (self.loop_stack.items.len > 0) {
+                    const li = self.loop_stack.items[self.loop_stack.items.len - 1];
+                    try self.emitScopeCleanup(li.defer_depth, li.owned_depth);
+                    try self.emit(ir.makeInst(.br, 0, li.continue_bb, 0));
+                }
+            },
+            .for_range_stmt => try self.unsupported(node_idx, "'for index, value in ...' iteration"),
+            .switch_stmt => try self.lowerSwitchStmt(node_idx),
+            else => try self.unsupported(node_idx, "this statement"),
         }
     }
 
@@ -718,6 +775,22 @@ const LoweringContext = struct {
     fn lowerForStmt(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
         const node = self.tree.nodes.items[node_idx];
         const func = self.current_func orelse return;
+
+        // `for item in iterable { }` — the parser keeps the loop variable
+        // only in the token stream: `for` IDENT `in` ... (same trick as
+        // resolve.zig uses).
+        const main_tok = node.main_token;
+        const is_for_in = (main_tok + 2 < self.tokens.len and
+            self.tokens[main_tok + 1].tag == .identifier and
+            self.tokens[main_tok + 2].tag == .kw_in);
+        if (is_for_in) {
+            const iter_node = node.data.lhs;
+            if (iter_node != null_node and self.tree.nodes.items[iter_node].tag == .range) {
+                return self.lowerForRange(node_idx);
+            }
+            return self.unsupported(node_idx, "'for ... in' over a non-range iterable");
+        }
+
         const current_bb = self.currentBlockId() orelse return;
 
         const cond_node = node.data.lhs;
@@ -740,11 +813,202 @@ const LoweringContext = struct {
         }
 
         self.current_block = func.getBlock(body_bb);
+        try self.loop_stack.append(self.allocator, .{
+            .break_bb = after_bb,
+            .continue_bb = cond_bb,
+            .defer_depth = self.defer_stack.items.len,
+            .owned_depth = self.owned_stack.items.len,
+        });
         try self.pushScope();
         try self.lowerBlock(body_node);
         try self.popScope();
+        _ = self.loop_stack.pop();
         if (!self.current_block.?.isTerminated()) {
             try self.emit(ir.makeInst(.br, 0, cond_bb, 0));
+        }
+
+        self.current_block = func.getBlock(after_bb);
+    }
+
+    /// Lower `for i in start..end { body }` as a counted loop. The loop
+    /// variable and the (once-evaluated) end bound live in named locals so
+    /// they survive across basic blocks.
+    fn lowerForRange(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
+        const node = self.tree.nodes.items[node_idx];
+        const func = self.current_func orelse return;
+        const range_node = self.tree.nodes.items[node.data.lhs];
+        const body_node = node.data.rhs;
+        const var_name = self.tokenSlice(node.main_token + 1);
+
+        const start_ref = try self.lowerExpr(range_node.data.lhs);
+        const end_ref = try self.lowerExpr(range_node.data.rhs);
+        const end_name = try std.fmt.allocPrint(self.allocator, "_for_end_{d}", .{func.next_ref});
+        try self.module.owned_strings.append(self.allocator, end_name);
+        const end_idx = try self.module.addLocalInfoAligned(self.allocator, end_name, "int64_t", 0);
+        try self.emit(ir.makeInst(.local_set, 0, end_idx, end_ref));
+
+        try self.pushScope();
+        const var_idx = try self.defineVar(var_name, "int64_t", 0, start_ref);
+
+        // Capture the entry block id only after all subexpressions are
+        // lowered (they can move the current block), and re-fetch the
+        // pointer after addBlock calls (they can reallocate the array).
+        const entry_bb = self.currentBlockId() orelse return;
+        const cond_bb = try func.addBlock(self.allocator);
+        const body_bb = try func.addBlock(self.allocator);
+        const step_bb = try func.addBlock(self.allocator);
+        const after_bb = try func.addBlock(self.allocator);
+        self.current_block = func.getBlock(entry_bb);
+        try self.emit(ir.makeInst(.br, 0, cond_bb, 0));
+
+        self.current_block = func.getBlock(cond_bb);
+        const i_ref = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, i_ref, var_idx, 0));
+        const e_ref = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, e_ref, end_idx, 0));
+        const cmp_ref = self.allocRef();
+        try self.emit(ir.makeInst(.lt, cmp_ref, i_ref, e_ref));
+        try self.emit(ir.makeInst(.br_cond, 0, cmp_ref, body_bb));
+        try self.emit(ir.makeInst(.br, 0, after_bb, 0));
+
+        self.current_block = func.getBlock(body_bb);
+        try self.loop_stack.append(self.allocator, .{
+            .break_bb = after_bb,
+            .continue_bb = step_bb,
+            .defer_depth = self.defer_stack.items.len,
+            .owned_depth = self.owned_stack.items.len,
+        });
+        try self.pushScope();
+        try self.lowerBlock(body_node);
+        try self.popScope();
+        _ = self.loop_stack.pop();
+        if (!self.current_block.?.isTerminated()) {
+            try self.emit(ir.makeInst(.br, 0, step_bb, 0));
+        }
+
+        self.current_block = func.getBlock(step_bb);
+        const cur_ref = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, cur_ref, var_idx, 0));
+        const one_ref = self.allocRef();
+        try self.emit(ir.makeConstInt(one_ref, 1));
+        const next_ref = self.allocRef();
+        try self.emit(ir.makeInst(.add, next_ref, cur_ref, one_ref));
+        try self.emit(ir.makeInst(.local_set, 0, var_idx, next_ref));
+        try self.emit(ir.makeInst(.br, 0, cond_bb, 0));
+
+        try self.popScope();
+        self.current_block = func.getBlock(after_bb);
+    }
+
+    /// True if a switch pattern is the wildcard `_`.
+    fn isWildcardPattern(self: *const LoweringContext, pat_idx: NodeIndex) bool {
+        if (pat_idx == null_node) return false;
+        const pat = self.tree.nodes.items[pat_idx];
+        return pat.tag == .ident and std.mem.eql(u8, self.tokenSlice(pat.main_token), "_");
+    }
+
+    /// Emit `subject == pattern` with the right equality for the subject type.
+    fn emitPatternEq(self: *LoweringContext, subj_ref: ir.Ref, pat_ref: ir.Ref, is_string: bool) LowerError!ir.Ref {
+        if (is_string) {
+            return self.emitTypedCall("run_string_eq", &.{ subj_ref, pat_ref }, "bool", false);
+        }
+        const r = self.allocRef();
+        try self.emit(ir.makeInst(.eq, r, subj_ref, pat_ref));
+        return r;
+    }
+
+    /// Lower a value switch as a chain of test blocks. Each arm gets a test
+    /// block (compare against each alternative pattern) and a body block;
+    /// failed tests fall through to the next arm's test block.
+    fn lowerSwitchStmt(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
+        const node = self.tree.nodes.items[node_idx];
+        const func = self.current_func orelse return;
+        const extra = self.tree.extra_data.items;
+
+        const arms_start = node.data.rhs;
+        const arm_count = self.findTrailingCount(arms_start);
+        const arm_nodes = extra[arms_start .. arms_start + arm_count];
+
+        // Variant patterns (sum types, error unions, nullables) need payload
+        // destructuring that has no lowering yet — fail loudly.
+        for (arm_nodes) |arm| {
+            if (arm == null_node) continue;
+            const pat_idx = self.tree.nodes.items[arm].data.lhs;
+            if (pat_idx != null_node and self.tree.nodes.items[pat_idx].tag == .variant) {
+                return self.unsupported(node_idx, "switch over sum-type/error variants");
+            }
+        }
+
+        const subject_node = node.data.lhs;
+        const subject_is_string = self.typeOfNode(subject_node) == types.primitives.string_id;
+        const subj_ref = try self.lowerExpr(subject_node);
+        const subj_c_type = if (subject_is_string) "run_string_t" else self.cTypeForNode(subject_node);
+        const subj_name = try std.fmt.allocPrint(self.allocator, "_switch_subj_{d}", .{func.next_ref});
+        try self.module.owned_strings.append(self.allocator, subj_name);
+        const subj_idx = try self.module.addLocalInfoAligned(self.allocator, subj_name, subj_c_type, 0);
+        try self.emit(ir.makeInst(.local_set, 0, subj_idx, subj_ref));
+
+        // Capture the entry block id only after the subject is lowered (it
+        // can move the current block), and re-fetch the pointer after
+        // addBlock calls (they can reallocate the array).
+        const entry_bb = self.currentBlockId() orelse return;
+        const after_bb = try func.addBlock(self.allocator);
+        var test_bbs: std.ArrayList(ir.BlockId) = .empty;
+        defer test_bbs.deinit(self.allocator);
+        var body_bbs: std.ArrayList(ir.BlockId) = .empty;
+        defer body_bbs.deinit(self.allocator);
+        for (arm_nodes) |_| {
+            try test_bbs.append(self.allocator, try func.addBlock(self.allocator));
+            try body_bbs.append(self.allocator, try func.addBlock(self.allocator));
+        }
+
+        self.current_block = func.getBlock(entry_bb);
+        try self.emit(ir.makeInst(.br, 0, if (arm_nodes.len > 0) test_bbs.items[0] else after_bb, 0));
+
+        for (arm_nodes, 0..) |arm, k| {
+            const next_target = if (k + 1 < arm_nodes.len) test_bbs.items[k + 1] else after_bb;
+            const arm_node = self.tree.nodes.items[arm];
+            const pat_idx = arm_node.data.lhs;
+
+            self.current_block = func.getBlock(test_bbs.items[k]);
+            if (pat_idx == null_node or self.isWildcardPattern(pat_idx)) {
+                try self.emit(ir.makeInst(.br, 0, body_bbs.items[k], 0));
+            } else if (self.tree.nodes.items[pat_idx].tag == .tuple_literal) {
+                // Multi-pattern arm: `2, 3 :: body` — any match enters the body.
+                const pats_start = self.tree.nodes.items[pat_idx].data.rhs;
+                const pat_count = self.findTrailingCount(pats_start);
+                const pat_nodes = extra[pats_start .. pats_start + pat_count];
+                for (pat_nodes) |p| {
+                    const s_ref = self.allocRef();
+                    try self.emit(ir.makeInst(.local_get, s_ref, subj_idx, 0));
+                    const p_ref = try self.lowerExpr(p);
+                    const eq_ref = try self.emitPatternEq(s_ref, p_ref, subject_is_string);
+                    try self.emit(ir.makeInst(.br_cond, 0, eq_ref, body_bbs.items[k]));
+                }
+                try self.emit(ir.makeInst(.br, 0, next_target, 0));
+            } else {
+                const s_ref = self.allocRef();
+                try self.emit(ir.makeInst(.local_get, s_ref, subj_idx, 0));
+                const p_ref = try self.lowerExpr(pat_idx);
+                const eq_ref = try self.emitPatternEq(s_ref, p_ref, subject_is_string);
+                try self.emit(ir.makeInst(.br_cond, 0, eq_ref, body_bbs.items[k]));
+                try self.emit(ir.makeInst(.br, 0, next_target, 0));
+            }
+
+            self.current_block = func.getBlock(body_bbs.items[k]);
+            try self.pushScope();
+            const body_idx = arm_node.data.rhs;
+            if (body_idx != null_node) {
+                if (self.tree.nodes.items[body_idx].tag == .block) {
+                    try self.lowerBlock(body_idx);
+                } else {
+                    _ = try self.lowerExpr(body_idx);
+                }
+            }
+            try self.popScope();
+            if (self.current_block != null and !self.current_block.?.isTerminated()) {
+                try self.emit(ir.makeInst(.br, 0, after_bb, 0));
+            }
         }
 
         self.current_block = func.getBlock(after_bb);
@@ -798,6 +1062,20 @@ const LoweringContext = struct {
                 const lhs_ref = try self.lowerExpr(node.data.lhs);
                 const rhs_ref = try self.lowerExpr(node.data.rhs);
                 const op_tok = node.main_token;
+                // String equality compares contents via the runtime, not the
+                // run_string_t struct representation.
+                if (self.typeOfNode(node.data.lhs) == types.primitives.string_id) {
+                    switch (self.tokens[op_tok].tag) {
+                        .equal_equal => return self.emitTypedCall("run_string_eq", &.{ lhs_ref, rhs_ref }, "bool", false),
+                        .bang_equal => {
+                            const eq_ref = try self.emitTypedCall("run_string_eq", &.{ lhs_ref, rhs_ref }, "bool", false);
+                            const r = self.allocRef();
+                            try self.emit(ir.makeInst(.log_not, r, eq_ref, 0));
+                            return r;
+                        },
+                        else => {},
+                    }
+                }
                 const op: ir.Inst.Op = switch (self.tokens[op_tok].tag) {
                     .plus => .add,
                     .minus => .sub,
@@ -832,19 +1110,11 @@ const LoweringContext = struct {
             },
             .simd_literal => return try self.lowerSimdLiteral(node_idx),
             .array_literal => {
-                const elem_count = self.findTrailingCount(node.data.rhs);
-                const elem_nodes = self.tree.extra_data.items[node.data.rhs .. node.data.rhs + elem_count];
-                for (elem_nodes) |elem_node| {
-                    _ = try self.lowerExpr(elem_node);
-                }
+                try self.unsupported(node_idx, "array literals");
                 return ir.null_ref;
             },
             .tuple_literal => {
-                const item_count = self.findTrailingCount(node.data.rhs);
-                const item_nodes = self.tree.extra_data.items[node.data.rhs .. node.data.rhs + item_count];
-                for (item_nodes) |item_node| {
-                    _ = try self.lowerExpr(item_node);
-                }
+                try self.unsupported(node_idx, "tuple literals");
                 return ir.null_ref;
             },
             .alloc_expr => {
@@ -897,6 +1167,7 @@ const LoweringContext = struct {
                 if (self.type_pool.isSimd(self.typeOfNode(node.data.lhs))) {
                     return try self.lowerSimdLaneAccess(node_idx);
                 }
+                try self.unsupported(node_idx, "indexing this type");
                 return ir.null_ref;
             },
             .addr_of, .addr_of_const => {
@@ -926,7 +1197,8 @@ const LoweringContext = struct {
                 return deref_result;
             },
             .field_access => {
-                return try self.lowerExpr(node.data.lhs);
+                try self.unsupported(node_idx, "field access on this expression");
+                return ir.null_ref;
             },
             .ident => {
                 const name = self.tokenSlice(node.main_token);
@@ -946,7 +1218,30 @@ const LoweringContext = struct {
             },
             .if_expr => return try self.lowerIfExpr(node_idx),
             .asm_expr => return try self.lowerAsmExpr(node_idx),
-            else => return ir.null_ref,
+            .struct_literal => {
+                try self.unsupported(node_idx, "struct literals");
+                return ir.null_ref;
+            },
+            .anon_struct_literal => {
+                try self.unsupported(node_idx, "anonymous struct literals");
+                return ir.null_ref;
+            },
+            .closure => {
+                try self.unsupported(node_idx, "closures");
+                return ir.null_ref;
+            },
+            .variant => {
+                try self.unsupported(node_idx, "sum-type variants");
+                return ir.null_ref;
+            },
+            .try_expr => {
+                try self.unsupported(node_idx, "'try' error handling");
+                return ir.null_ref;
+            },
+            else => {
+                try self.unsupported(node_idx, "this expression");
+                return ir.null_ref;
+            },
         }
     }
 

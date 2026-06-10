@@ -329,15 +329,19 @@ pub fn compile(allocator: std.mem.Allocator, options: CompileOptions) CompileErr
     }
 
     // 7. Lower AST to IR (with source path for debug info)
-    var module = if (options.debug)
-        lower_mod.lowerWithSource(allocator, &parser.tree, tokens.items, &tc_result, options.input_path) catch {
-            return CompileError.OutOfMemory;
-        }
-    else
-        lower_mod.lower(allocator, &parser.tree, tokens.items, &tc_result) catch {
-            return CompileError.OutOfMemory;
-        };
+    var lower_diags = diag_mod.DiagnosticList.init(allocator);
+    defer lower_diags.deinit();
+    const lower_source_path: ?[]const u8 = if (options.debug) options.input_path else null;
+    var module = lower_mod.lowerProgram(allocator, &parser.tree, tokens.items, &tc_result, lower_source_path, &lower_diags) catch {
+        return CompileError.OutOfMemory;
+    };
     defer module.deinit(allocator);
+
+    if (lower_diags.hasErrors()) {
+        lower_diags.renderRich(source, options.input_path, stderr, !options.no_color) catch {};
+        writeErrorSummary(stderr, countErrors(&lower_diags), !options.no_color);
+        return CompileError.ParseFailed;
+    }
 
     // 7b. Constant folding
     var fold_result = const_fold.fold(allocator, &module) catch {
@@ -674,22 +678,27 @@ fn findParamCount(start: u32, extra: []const u32) u32 {
 /// `runtime` controls how the runtime is linked: pre-built library or source compilation.
 pub fn invokeZigCC(
     io: std.Io,
-    allocator: std.mem.Allocator,
+    backing_allocator: std.mem.Allocator,
     c_source_path: []const u8,
     output_path: []const u8,
     runtime: RuntimeConfig,
     extra_asm_files: []const []const u8,
     debug: bool,
 ) !void {
+    // All argv strings built below live until the child process finishes;
+    // an arena frees them in one shot instead of leaking the joins/prints.
+    var arena_state = std.heap.ArenaAllocator.init(backing_allocator);
+    defer arena_state.deinit();
+    const allocator = arena_state.allocator();
+
     // Build argument list
     var args: std.ArrayList([]const u8) = .empty;
     defer args.deinit(allocator);
 
-    var env_map = try createProcessEnvMap(allocator);
+    var env_map = try createProcessEnvMap(backing_allocator);
     defer env_map.deinit();
 
     const zig_exe = try resolveZigExecutable(io, allocator, &env_map);
-    defer allocator.free(zig_exe);
 
     try args.append(allocator, zig_exe);
     try args.append(allocator, "cc");

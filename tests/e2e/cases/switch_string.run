@@ -1,0 +1,13 @@
+// expect: 2
+package main
+
+use "fmt"
+
+pub fun main() {
+    s := "two"
+    switch s {
+        "one" :: fmt.println(1),
+        "two" :: fmt.println(2),
+        _ :: fmt.println(0),
+    }
+}

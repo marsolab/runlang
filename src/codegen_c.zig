@@ -153,12 +153,14 @@ pub const CCodegen = struct {
 
     fn emitTempDeclarations(self: *CCodegen, func: *const ir.Function) !void {
         // 1. Emit named local variable declarations (deduplicated)
-        var declared_locals: [64]bool = .{false} ** 64;
+        const declared_locals = try self.allocator.alloc(bool, self.module.local_infos.items.len);
+        defer self.allocator.free(declared_locals);
+        @memset(declared_locals, false);
         for (func.blocks.items) |*block| {
             for (block.insts.items) |inst| {
-                if (inst.op == .local_set or inst.op == .local_get) {
+                if (inst.op == .local_set or inst.op == .local_get or inst.op == .local_addr) {
                     const local_idx = inst.arg1;
-                    if (local_idx < self.module.local_infos.items.len and local_idx < 64 and !declared_locals[local_idx]) {
+                    if (local_idx < declared_locals.len and !declared_locals[local_idx]) {
                         declared_locals[local_idx] = true;
                         const info = self.module.local_infos.items[local_idx];
                         try self.emitIndent();
@@ -173,11 +175,13 @@ pub const CCodegen = struct {
         }
 
         // 2. Emit SSA temporary declarations (deduplicated by ref)
-        var declared_refs: [256]bool = .{false} ** 256;
+        const declared_refs = try self.allocator.alloc(bool, func.next_ref);
+        defer self.allocator.free(declared_refs);
+        @memset(declared_refs, false);
         for (func.blocks.items) |*block| {
             for (block.insts.items) |inst| {
                 if (inst.result == ir.null_ref) continue;
-                if (inst.result >= 256) continue;
+                if (inst.result >= declared_refs.len) continue;
                 if (declared_refs[inst.result]) continue;
                 declared_refs[inst.result] = true;
 

@@ -1,0 +1,13 @@
+// expect: 99
+package main
+
+use "fmt"
+
+pub fun main() {
+    x := 7
+    switch x {
+        1 :: fmt.println(10),
+        2, 3 :: fmt.println(20),
+        _ :: fmt.println(99),
+    }
+}
