@@ -1,0 +1,16 @@
+// expect: 142
+package main
+
+use "fmt"
+
+pub fun main() {
+    s := alloc([]int, 2)
+    s = append(s, 7)
+    s = append(s, 35)
+    s = append(s, 100)
+    sum := 0
+    for v in s {
+        sum = sum + v
+    }
+    fmt.println(sum)
+}

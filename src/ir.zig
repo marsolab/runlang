@@ -72,6 +72,7 @@ pub const Inst = struct {
         ptr_field_set, // ((T*)arg1)->field = value(result)
         local_zero, // memset(&local(arg1), 0, sizeof)
         ptr_load_value, // result = *(T*)arg1, T = Module.value_type_names[arg2]
+        ptr_store_value, // *(T*)arg1 = value(result), T = Module.value_type_names[arg2]
 
         // Generational references
         gen_alloc,

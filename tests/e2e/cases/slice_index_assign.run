@@ -1,0 +1,11 @@
+// expect: 40
+package main
+
+use "fmt"
+
+pub fun main() {
+    s := alloc([]int, 2)
+    s = append(s, 1)
+    s[0] = 40
+    fmt.println(s[0])
+}
