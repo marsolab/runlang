@@ -1,0 +1,23 @@
+// expect: loading config: negative
+package main
+
+use "fmt"
+
+fun inner(x int) !int {
+    if x < 0 {
+        return errors.new("negative")
+    }
+    return x
+}
+
+fun outer(x int) !int {
+    v := try inner(x) :: "loading config"
+    return v
+}
+
+pub fun main() {
+    switch outer(-1) {
+        .ok(v) :: fmt.println(v),
+        .err(e) :: fmt.println(e),
+    }
+}

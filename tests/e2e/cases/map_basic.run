@@ -1,0 +1,12 @@
+// expect: 2
+package main
+
+use "fmt"
+
+pub fun main() {
+    ages := alloc(map[string]int)
+    ages["alice"] = 30
+    ages["bob"] = 25
+    ages["alice"] = 31
+    fmt.println(len(ages))
+}

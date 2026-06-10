@@ -986,6 +986,11 @@ const LoweringContext = struct {
                 try self.lowerSliceIndexAssign(node.data.lhs, val_ref);
                 return;
             }
+            if (self.isMapType(self.typeOfNode(base_idx))) {
+                const val_ref = try self.lowerExpr(node.data.rhs);
+                try self.lowerMapIndexAssign(node.data.lhs, val_ref);
+                return;
+            }
             try self.lowerSimdLaneAssign(node.data.lhs, node.data.rhs);
             return;
         }
@@ -1578,11 +1583,20 @@ const LoweringContext = struct {
         try self.emit(ir.makeInst(.br_cond, 0, is_err_ref, err_bb));
         try self.emit(ir.makeInst(.br, 0, ok_bb, 0));
 
-        // Error path: re-wrap the message in the enclosing return type.
+        // Error path: re-wrap the message in the enclosing return type,
+        // prefixing the optional `:: "context"` (Go convention: "ctx: msg").
         self.current_block = func.getBlock(err_bb);
         const fi_msg = try self.module.addFieldInfo(self.allocator, eu_c, "error_msg", "run_string_t");
-        const msg_ref = self.allocRef();
+        var msg_ref = self.allocRef();
         try self.emit(ir.makeInst(.local_field_get, msg_ref, tmp_idx, fi_msg));
+        if (node.data.rhs != null_node) {
+            const ctx_ref = try self.lowerExpr(node.data.rhs);
+            const sep_idx = try self.module.addStringConstant(self.allocator, ": ");
+            const sep_ref = self.allocRef();
+            try self.emit(ir.makeInst(.const_string, sep_ref, sep_idx, 0));
+            const prefixed = try self.emitTypedCall("run_string_concat", &.{ ctx_ref, sep_ref }, "run_string_t", false);
+            msg_ref = try self.emitTypedCall("run_string_concat", &.{ prefixed, msg_ref }, "run_string_t", false);
+        }
         const propagated = try self.buildErrUnionValue(self.current_fn_return_type_id, ir.null_ref, msg_ref);
         try self.emitAllCleanup();
         try self.emit(ir.makeInst(.ret, 0, propagated, 0));
@@ -1618,6 +1632,67 @@ const LoweringContext = struct {
             .slice_type => true,
             else => false,
         };
+    }
+
+    fn isMapType(self: *const LoweringContext, type_id: TypeId) bool {
+        if (type_id == types.null_type or type_id < types.primitives.count) return false;
+        return switch (self.type_pool.get(type_id)) {
+            .map_type => true,
+            else => false,
+        };
+    }
+
+    fn mapKeyValueTypes(self: *const LoweringContext, type_id: TypeId) struct { key: TypeId, value: TypeId } {
+        return switch (self.type_pool.get(type_id)) {
+            .map_type => |m| .{ .key = m.key, .value = m.value },
+            else => .{ .key = types.null_type, .value = types.null_type },
+        };
+    }
+
+    /// `m[k]` — Go-style: missing keys yield the zero value.
+    fn lowerMapIndex(self: *LoweringContext, node_idx: NodeIndex) LowerError!ir.Ref {
+        const node = self.tree.nodes.items[node_idx];
+        const kv = self.mapKeyValueTypes(self.typeOfNode(node.data.lhs));
+        const key_c = self.cTypeForTypeId(kv.key);
+        const val_c = self.cTypeForTypeId(kv.value);
+
+        const map_ref = try self.lowerExpr(node.data.lhs);
+        const key_val = try self.lowerExpr(node.data.rhs);
+        const key_local = try self.makeTempLocal("_mk", key_c, 0);
+        try self.emit(ir.makeInst(.local_set, 0, key_local, key_val));
+        const val_local = try self.makeTempLocal("_mv", val_c, self.alignmentForTypeId(kv.value));
+        try self.emit(ir.makeInst(.local_zero, 0, val_local, 0));
+
+        const key_addr = self.allocRef();
+        try self.emit(ir.makeInst(.local_addr, key_addr, key_local, 0));
+        const val_addr = self.allocRef();
+        try self.emit(ir.makeInst(.local_addr, val_addr, val_local, 0));
+        _ = try self.emitTypedCall("run_map_get", &.{ map_ref, key_addr, val_addr }, "bool", false);
+
+        const r = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, r, val_local, 0));
+        return r;
+    }
+
+    /// `m[k] = v`
+    fn lowerMapIndexAssign(self: *LoweringContext, lhs_idx: NodeIndex, val_ref: ir.Ref) LowerError!void {
+        const lhs = self.tree.nodes.items[lhs_idx];
+        const kv = self.mapKeyValueTypes(self.typeOfNode(lhs.data.lhs));
+        const key_c = self.cTypeForTypeId(kv.key);
+        const val_c = self.cTypeForTypeId(kv.value);
+
+        const map_ref = try self.lowerExpr(lhs.data.lhs);
+        const key_val = try self.lowerExpr(lhs.data.rhs);
+        const key_local = try self.makeTempLocal("_mk", key_c, 0);
+        try self.emit(ir.makeInst(.local_set, 0, key_local, key_val));
+        const val_local = try self.makeTempLocal("_mv", val_c, self.alignmentForTypeId(kv.value));
+        try self.emit(ir.makeInst(.local_set, 0, val_local, val_ref));
+
+        const key_addr = self.allocRef();
+        try self.emit(ir.makeInst(.local_addr, key_addr, key_local, 0));
+        const val_addr = self.allocRef();
+        try self.emit(ir.makeInst(.local_addr, val_addr, val_local, 0));
+        _ = try self.emitTypedCall("run_map_set", &.{ map_ref, key_addr, val_addr }, "void", false);
     }
 
     fn sliceElemType(self: *const LoweringContext, type_id: TypeId) TypeId {
@@ -1811,6 +1886,9 @@ const LoweringContext = struct {
         const val_name = self.tokenSlice(scan);
 
         const slice_type = self.typeOfNode(node.data.lhs);
+        if (self.isMapType(slice_type)) {
+            return self.lowerForMap(node_idx, idx_name, val_name);
+        }
         if (!self.isSliceType(slice_type)) {
             return self.unsupported(node_idx, "'for index, value in ...' over a non-slice iterable");
         }
@@ -1885,6 +1963,77 @@ const LoweringContext = struct {
         try self.emit(ir.makeInst(.add, next_ref, cur2, one_ref));
         try self.emit(ir.makeInst(.local_set, 0, idx_local, next_ref));
         try self.emit(ir.makeInst(.br, 0, cond_bb, 0));
+
+        self.current_block = func.getBlock(after_bb);
+    }
+
+    /// `for k, v in m { body }` over a map, via the runtime iterator. The
+    /// iterator yields pointers into map storage; key/value are copied out
+    /// before the body runs.
+    fn lowerForMap(self: *LoweringContext, node_idx: NodeIndex, key_name: []const u8, val_name: []const u8) LowerError!void {
+        const node = self.tree.nodes.items[node_idx];
+        const func = self.current_func orelse return;
+        const body_node = node.data.rhs;
+        const kv = self.mapKeyValueTypes(self.typeOfNode(node.data.lhs));
+        const key_c = self.cTypeForTypeId(kv.key);
+        const val_c = self.cTypeForTypeId(kv.value);
+
+        const map_ref = try self.lowerExpr(node.data.lhs);
+        const iter_local = try self.makeTempLocal("_miter", "run_map_iter_t", 0);
+        const kptr_local = try self.makeTempLocal("_mkptr", "const void*", 0);
+        const vptr_local = try self.makeTempLocal("_mvptr", "const void*", 0);
+        const iter_addr0 = self.allocRef();
+        try self.emit(ir.makeInst(.local_addr, iter_addr0, iter_local, 0));
+        _ = try self.emitTypedCall("run_map_iter_init", &.{ iter_addr0, map_ref }, "void", false);
+
+        const entry_bb = self.currentBlockId() orelse return;
+        const cond_bb = try func.addBlock(self.allocator);
+        const body_bb = try func.addBlock(self.allocator);
+        const after_bb = try func.addBlock(self.allocator);
+        self.current_block = func.getBlock(entry_bb);
+        try self.emit(ir.makeInst(.br, 0, cond_bb, 0));
+
+        self.current_block = func.getBlock(cond_bb);
+        const iter_addr = self.allocRef();
+        try self.emit(ir.makeInst(.local_addr, iter_addr, iter_local, 0));
+        const kptr_addr = self.allocRef();
+        try self.emit(ir.makeInst(.local_addr, kptr_addr, kptr_local, 0));
+        const vptr_addr = self.allocRef();
+        try self.emit(ir.makeInst(.local_addr, vptr_addr, vptr_local, 0));
+        const found_ref = try self.emitTypedCall("run_map_iter_next", &.{ iter_addr, kptr_addr, vptr_addr }, "bool", false);
+        try self.emit(ir.makeInst(.br_cond, 0, found_ref, body_bb));
+        try self.emit(ir.makeInst(.br, 0, after_bb, 0));
+
+        self.current_block = func.getBlock(body_bb);
+        try self.loop_stack.append(self.allocator, .{
+            .break_bb = after_bb,
+            .continue_bb = cond_bb,
+            .defer_depth = self.defer_stack.items.len,
+            .owned_depth = self.owned_stack.items.len,
+        });
+        try self.pushScope();
+        if (!std.mem.eql(u8, key_name, "_")) {
+            const kp = self.allocRef();
+            try self.emit(ir.makeInst(.local_get, kp, kptr_local, 0));
+            const ktype = try self.module.addValueTypeName(self.allocator, key_c);
+            const k_ref = self.allocRef();
+            try self.emit(ir.makeInst(.ptr_load_value, k_ref, kp, ktype));
+            _ = try self.defineVar(key_name, key_c, self.alignmentForTypeId(kv.key), k_ref);
+        }
+        if (!std.mem.eql(u8, val_name, "_")) {
+            const vp = self.allocRef();
+            try self.emit(ir.makeInst(.local_get, vp, vptr_local, 0));
+            const vtype = try self.module.addValueTypeName(self.allocator, val_c);
+            const v_ref = self.allocRef();
+            try self.emit(ir.makeInst(.ptr_load_value, v_ref, vp, vtype));
+            _ = try self.defineVar(val_name, val_c, self.alignmentForTypeId(kv.value), v_ref);
+        }
+        try self.lowerBlock(body_node);
+        try self.popScope();
+        _ = self.loop_stack.pop();
+        if (!self.current_block.?.isTerminated()) {
+            try self.emit(ir.makeInst(.br, 0, cond_bb, 0));
+        }
 
         self.current_block = func.getBlock(after_bb);
     }
@@ -2154,6 +2303,7 @@ const LoweringContext = struct {
                 // run_string_t struct representation.
                 if (self.typeOfNode(node.data.lhs) == types.primitives.string_id) {
                     switch (self.tokens[op_tok].tag) {
+                        .plus => return self.emitTypedCall("run_string_concat", &.{ lhs_ref, rhs_ref }, "run_string_t", false),
                         .equal_equal => return self.emitTypedCall("run_string_eq", &.{ lhs_ref, rhs_ref }, "bool", false),
                         .bang_equal => {
                             const eq_ref = try self.emitTypedCall("run_string_eq", &.{ lhs_ref, rhs_ref }, "bool", false);
@@ -2209,6 +2359,22 @@ const LoweringContext = struct {
                 // alloc(Type, capacity?) — check if this is a channel allocation
                 const type_node_idx = node.data.lhs;
                 const extra_start = node.data.rhs;
+
+                // Map allocation: alloc(map[K]V) — capacity hint unused for now.
+                if (type_node_idx != null_node and self.tree.nodes.items[type_node_idx].tag == .type_map) {
+                    const map_type = self.resolveTypeNode(type_node_idx);
+                    const kv = switch (self.type_pool.get(map_type)) {
+                        .map_type => |m| .{ m.key, m.value },
+                        else => .{ types.null_type, types.null_type },
+                    };
+                    const key_size_ref = self.allocRef();
+                    try self.emit(ir.makeConstInt(key_size_ref, if (kv[0] != types.null_type) self.sizeOfTypeId(kv[0]) else 8));
+                    const val_size_ref = self.allocRef();
+                    try self.emit(ir.makeConstInt(val_size_ref, if (kv[1] != types.null_type) self.sizeOfTypeId(kv[1]) else 8));
+                    const kind_ref = self.allocRef();
+                    try self.emit(ir.makeConstInt(kind_ref, if (kv[0] == types.primitives.string_id) 1 else 0));
+                    return self.emitTypedCall("run_map_new_typed", &.{ key_size_ref, val_size_ref, kind_ref }, "run_map_t*", false);
+                }
 
                 // Slice allocation: alloc([]T) or alloc([]T, capacity)
                 if (type_node_idx != null_node and self.tree.nodes.items[type_node_idx].tag == .type_slice) {
@@ -2278,6 +2444,9 @@ const LoweringContext = struct {
                 }
                 if (self.isSliceType(self.typeOfNode(node.data.lhs))) {
                     return try self.lowerSliceIndex(node_idx);
+                }
+                if (self.isMapType(self.typeOfNode(node.data.lhs))) {
+                    return try self.lowerMapIndex(node_idx);
                 }
                 try self.unsupported(node_idx, "indexing this type");
                 return ir.null_ref;
@@ -3338,6 +3507,10 @@ const LoweringContext = struct {
                     const r = self.allocRef();
                     try self.emit(ir.makeInst(.local_field_get, r, slice_local, fi_len));
                     return r;
+                }
+                if (self.isMapType(self.typeOfNode(arg_nodes[0]))) {
+                    const map_ref = try self.lowerExpr(arg_nodes[0]);
+                    return self.emitTypedCall("run_map_len", &.{map_ref}, "int64_t", false);
                 }
             }
         }

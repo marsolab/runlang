@@ -359,3 +359,10 @@ bool run_map_iter_next(run_map_iter_t *iter, const void **key_out, const void **
     }
     return false;
 }
+
+run_map_t *run_map_new_typed(size_t key_size, size_t val_size, int64_t key_kind) {
+    if (key_kind == RUN_MAP_KEY_STRING) {
+        return run_map_new(key_size, val_size, run_hash_string, run_eq_string);
+    }
+    return run_map_new(key_size, val_size, NULL, NULL);
+}

@@ -1,0 +1,12 @@
+// expect: 1
+// expect: 2
+// expect: 3
+package main
+
+use "fmt"
+
+pub fun main() {
+    defer fmt.println(3)
+    defer fmt.println(2)
+    fmt.println(1)
+}

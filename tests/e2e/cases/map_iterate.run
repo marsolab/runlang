@@ -1,0 +1,17 @@
+// expect: 66
+package main
+
+use "fmt"
+
+pub fun main() {
+    m := alloc(map[int]int)
+    m[1] = 10
+    m[2] = 20
+    m[3] = 30
+    total := 0
+    for k, v in m {
+        total = total + k
+        total = total + v
+    }
+    fmt.println(total)
+}

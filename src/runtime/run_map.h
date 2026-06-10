@@ -28,6 +28,14 @@ bool run_eq_string(const void *a, const void *b, size_t key_size);
  * eq_fn: equality function (NULL uses memcmp) */
 run_map_t *run_map_new(size_t key_size, size_t val_size, run_hash_fn hash_fn, run_eq_fn eq_fn);
 
+/* Key kinds for run_map_new_typed (used by generated code). */
+#define RUN_MAP_KEY_BYTES 0
+#define RUN_MAP_KEY_STRING 1
+
+/* Create a map choosing hash/eq from a key kind: RUN_MAP_KEY_STRING keys
+ * hash and compare string contents; everything else is byte-wise. */
+run_map_t *run_map_new_typed(size_t key_size, size_t val_size, int64_t key_kind);
+
 /* Insert or update a key-value pair. */
 void run_map_set(run_map_t *map, const void *key, const void *val);
 
