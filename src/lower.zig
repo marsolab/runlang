@@ -914,7 +914,7 @@ const LoweringContext = struct {
                     try self.emit(ir.makeInst(.br, 0, li.continue_bb, 0));
                 }
             },
-            .for_range_stmt => try self.unsupported(node_idx, "'for index, value in ...' iteration"),
+            .for_range_stmt => try self.lowerForIndexValue(node_idx),
             .switch_stmt => try self.lowerSwitchStmt(node_idx),
             else => try self.unsupported(node_idx, "this statement"),
         }
@@ -1768,6 +1768,106 @@ const LoweringContext = struct {
         const elem_ref = self.allocRef();
         try self.emit(ir.makeInst(.ptr_load_value, elem_ref, elem_ptr, type_idx));
         _ = try self.defineVar(var_name, elem_c, self.alignmentForTypeId(elem_type), elem_ref);
+
+        try self.lowerBlock(body_node);
+        try self.popScope();
+        _ = self.loop_stack.pop();
+        if (!self.current_block.?.isTerminated()) {
+            try self.emit(ir.makeInst(.br, 0, step_bb, 0));
+        }
+
+        self.current_block = func.getBlock(step_bb);
+        const cur2 = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, cur2, idx_local, 0));
+        const one_ref = self.allocRef();
+        try self.emit(ir.makeConstInt(one_ref, 1));
+        const next_ref = self.allocRef();
+        try self.emit(ir.makeInst(.add, next_ref, cur2, one_ref));
+        try self.emit(ir.makeInst(.local_set, 0, idx_local, next_ref));
+        try self.emit(ir.makeInst(.br, 0, cond_bb, 0));
+
+        self.current_block = func.getBlock(after_bb);
+    }
+
+    /// `for i, x in s { body }` over a slice: like lowerForSlice but also
+    /// binds the index. The variable names live only in the token stream:
+    /// `for` IDENT `,` IDENT `in` ... (same trick as resolve.zig).
+    fn lowerForIndexValue(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
+        const node = self.tree.nodes.items[node_idx];
+        const func = self.current_func orelse return;
+        const body_node = node.data.rhs;
+
+        var scan = node.main_token + 1;
+        while (scan < self.tokens.len and self.tokens[scan].tag == .newline) : (scan += 1) {}
+        if (scan >= self.tokens.len or self.tokens[scan].tag != .identifier) {
+            return self.unsupported(node_idx, "this 'for index, value' form");
+        }
+        const idx_name = self.tokenSlice(scan);
+        scan += 1;
+        while (scan < self.tokens.len and (self.tokens[scan].tag == .comma or self.tokens[scan].tag == .newline)) : (scan += 1) {}
+        if (scan >= self.tokens.len or self.tokens[scan].tag != .identifier) {
+            return self.unsupported(node_idx, "this 'for index, value' form");
+        }
+        const val_name = self.tokenSlice(scan);
+
+        const slice_type = self.typeOfNode(node.data.lhs);
+        if (!self.isSliceType(slice_type)) {
+            return self.unsupported(node_idx, "'for index, value in ...' over a non-slice iterable");
+        }
+        const elem_type = self.sliceElemType(slice_type);
+        const elem_c = self.cTypeForTypeId(elem_type);
+
+        const slice_local = (try self.exprToTempLocal(node.data.lhs, "run_slice_t")) orelse return;
+        const fi_len = try self.module.addFieldInfo(self.allocator, "run_slice_t", "len", "int64_t");
+        const len_local = try self.makeTempLocal("_for_len", "int64_t", 0);
+        const len_ref = self.allocRef();
+        try self.emit(ir.makeInst(.local_field_get, len_ref, slice_local, fi_len));
+        try self.emit(ir.makeInst(.local_set, 0, len_local, len_ref));
+        const idx_local = try self.makeTempLocal("_for_idx", "int64_t", 0);
+        const zero_ref = self.allocRef();
+        try self.emit(ir.makeConstInt(zero_ref, 0));
+        try self.emit(ir.makeInst(.local_set, 0, idx_local, zero_ref));
+
+        const entry_bb = self.currentBlockId() orelse return;
+        const cond_bb = try func.addBlock(self.allocator);
+        const body_bb = try func.addBlock(self.allocator);
+        const step_bb = try func.addBlock(self.allocator);
+        const after_bb = try func.addBlock(self.allocator);
+        self.current_block = func.getBlock(entry_bb);
+        try self.emit(ir.makeInst(.br, 0, cond_bb, 0));
+
+        self.current_block = func.getBlock(cond_bb);
+        const i_ref = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, i_ref, idx_local, 0));
+        const n_ref = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, n_ref, len_local, 0));
+        const cmp_ref = self.allocRef();
+        try self.emit(ir.makeInst(.lt, cmp_ref, i_ref, n_ref));
+        try self.emit(ir.makeInst(.br_cond, 0, cmp_ref, body_bb));
+        try self.emit(ir.makeInst(.br, 0, after_bb, 0));
+
+        self.current_block = func.getBlock(body_bb);
+        try self.loop_stack.append(self.allocator, .{
+            .break_bb = after_bb,
+            .continue_bb = step_bb,
+            .defer_depth = self.defer_stack.items.len,
+            .owned_depth = self.owned_stack.items.len,
+        });
+        try self.pushScope();
+        const cur_idx = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, cur_idx, idx_local, 0));
+        if (!std.mem.eql(u8, idx_name, "_")) {
+            _ = try self.defineVar(idx_name, "int64_t", 0, cur_idx);
+        }
+        if (!std.mem.eql(u8, val_name, "_")) {
+            const slice_addr = self.allocRef();
+            try self.emit(ir.makeInst(.local_addr, slice_addr, slice_local, 0));
+            const elem_ptr = try self.emitTypedCall("run_slice_get", &.{ slice_addr, cur_idx }, "void*", false);
+            const type_idx = try self.module.addValueTypeName(self.allocator, elem_c);
+            const elem_ref = self.allocRef();
+            try self.emit(ir.makeInst(.ptr_load_value, elem_ref, elem_ptr, type_idx));
+            _ = try self.defineVar(val_name, elem_c, self.alignmentForTypeId(elem_type), elem_ref);
+        }
 
         try self.lowerBlock(body_node);
         try self.popScope();

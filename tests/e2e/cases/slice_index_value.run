@@ -1,0 +1,20 @@
+// expect: 22
+package main
+
+use "fmt"
+
+pub fun main() {
+    s := alloc([]int)
+    s = append(s, 10)
+    s = append(s, 20)
+    s = append(s, 30)
+    total := 0
+    for i, v in s {
+        if i == 1 {
+            continue
+        }
+        total = total + i
+        total = total + v / 2
+    }
+    fmt.println(total)
+}

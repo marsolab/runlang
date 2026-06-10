@@ -7,12 +7,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Allocation tracking counters */
-static _Atomic int64_t run_alloc_total_count = 0;
-static _Atomic int64_t run_free_total_count = 0;
-static _Atomic int64_t run_bytes_total_allocated = 0;
-static _Atomic int64_t run_bytes_total_freed = 0;
-static _Atomic int64_t run_gen_check_count = 0;
+/* Allocation tracking counters. Plain (racy) on purpose: they sit on the
+ * allocation and dereference hot paths, and atomic RMWs there cost more than
+ * the operations being counted. The stats API is informational only. */
+static int64_t run_alloc_total_count = 0;
+static int64_t run_free_total_count = 0;
+static int64_t run_bytes_total_allocated = 0;
+static int64_t run_bytes_total_freed = 0;
+static int64_t run_gen_check_count_relaxed = 0;
 static _Atomic int64_t run_gen_failure_count = 0;
 
 /* Runtime-controllable generation check flag */
@@ -175,8 +177,8 @@ void *run_gen_alloc_aligned(size_t size, size_t alignment) {
         header->alloc_size = size;
         memset(recycled, 0, size);
 
-        atomic_fetch_add_explicit(&run_alloc_total_count, 1, memory_order_relaxed);
-        atomic_fetch_add_explicit(&run_bytes_total_allocated, (int64_t)size, memory_order_relaxed);
+        run_alloc_total_count++;
+        run_bytes_total_allocated += (int64_t)size;
         return recycled;
     }
 
@@ -204,8 +206,8 @@ void *run_gen_alloc_aligned(size_t size, size_t alignment) {
     void *user_ptr = (void *)user_addr;
     memset(user_ptr, 0, size);
 
-    atomic_fetch_add_explicit(&run_alloc_total_count, 1, memory_order_relaxed);
-    atomic_fetch_add_explicit(&run_bytes_total_allocated, (int64_t)size, memory_order_relaxed);
+    run_alloc_total_count++;
+    run_bytes_total_allocated += (int64_t)size;
 
     return user_ptr;
 }
@@ -218,9 +220,8 @@ void run_gen_free(void *ptr) {
         fprintf(stderr, "run: double free detected\n");
         abort();
     }
-    atomic_fetch_add_explicit(&run_free_total_count, 1, memory_order_relaxed);
-    atomic_fetch_add_explicit(&run_bytes_total_freed, (int64_t)header->alloc_size,
-                              memory_order_relaxed);
+    run_free_total_count++;
+    run_bytes_total_freed += (int64_t)header->alloc_size;
 
     atomic_store_explicit(&header->generation, RUN_GEN_FREED, memory_order_relaxed);
     /* Quarantine instead of free(): the header must stay readable so stale
@@ -234,7 +235,10 @@ void run_gen_check(void *ptr, uint64_t expected_gen) {
     if (!atomic_load_explicit(&run_gen_checks_enabled, memory_order_relaxed))
         return;
 
-    atomic_fetch_add_explicit(&run_gen_check_count, 1, memory_order_relaxed);
+    /* Plain (racy) counter: this is on every pointer dereference, and an
+     * atomic RMW here costs more than the check itself. The stats API is
+     * informational, so approximate counts under contention are fine. */
+    run_gen_check_count_relaxed++;
 
     if (!ptr) {
         atomic_fetch_add_explicit(&run_gen_failure_count, 1, memory_order_relaxed);
@@ -297,23 +301,23 @@ void *run_gen_ref_deref(run_gen_ref_t ref) {
 
 /* Allocation stats getters */
 int64_t run_alloc_get_count(void) {
-    return atomic_load_explicit(&run_alloc_total_count, memory_order_relaxed);
+    return run_alloc_total_count;
 }
 
 int64_t run_alloc_get_free_count(void) {
-    return atomic_load_explicit(&run_free_total_count, memory_order_relaxed);
+    return run_free_total_count;
 }
 
 int64_t run_alloc_get_bytes_allocated(void) {
-    return atomic_load_explicit(&run_bytes_total_allocated, memory_order_relaxed);
+    return run_bytes_total_allocated;
 }
 
 int64_t run_alloc_get_bytes_freed(void) {
-    return atomic_load_explicit(&run_bytes_total_freed, memory_order_relaxed);
+    return run_bytes_total_freed;
 }
 
 int64_t run_alloc_get_gen_checks(void) {
-    return atomic_load_explicit(&run_gen_check_count, memory_order_relaxed);
+    return run_gen_check_count_relaxed;
 }
 
 int64_t run_alloc_get_gen_failures(void) {
