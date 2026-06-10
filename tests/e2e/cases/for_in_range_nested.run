@@ -1,0 +1,14 @@
+// expect: 100
+package main
+
+use "fmt"
+
+pub fun main() {
+    total := 0
+    for i in 0..10 {
+        for j in 0..2 {
+            total = total + i + j
+        }
+    }
+    fmt.println(total)
+}

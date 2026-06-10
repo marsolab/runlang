@@ -1122,7 +1122,32 @@ pub const Parser = struct {
 
     fn parseSwitchArm(self: *Parser) Error!NodeIndex {
         const tok = self.pos;
-        const pattern = try self.parseExpr();
+        var pattern = try self.parseExpr();
+
+        // Multi-pattern arm: `2, 3 :: body`. Stored as a tuple_literal so the
+        // arm keeps a single pattern node; lowering treats the elements as
+        // alternatives.
+        if (self.peekTag() == .comma) {
+            var patterns: std.ArrayList(NodeIndex) = .empty;
+            defer patterns.deinit(self.tree.allocator);
+            try patterns.append(self.tree.allocator, pattern);
+            while (self.peekTag() == .comma) {
+                self.advance();
+                self.skipNewlines();
+                try patterns.append(self.tree.allocator, try self.parseExpr());
+            }
+            const start: u32 = @intCast(self.tree.extra_data.items.len);
+            for (patterns.items) |p| {
+                _ = try self.tree.addExtra(p);
+            }
+            _ = try self.tree.addExtra(@as(NodeIndex, @intCast(patterns.items.len)));
+            pattern = try self.tree.addNode(.{
+                .tag = .tuple_literal,
+                .main_token = tok,
+                .data = .{ .lhs = null_node, .rhs = start },
+            });
+        }
+
         self.expectToken(.colon_colon);
         self.skipNewlines();
 
