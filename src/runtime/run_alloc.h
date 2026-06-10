@@ -23,7 +23,13 @@ void *run_gen_alloc(size_t size);
 /* Allocate `size` bytes with at least `alignment` byte alignment. */
 void *run_gen_alloc_aligned(size_t size, size_t alignment);
 
-/* Free a generational allocation. Marks generation as freed. Detects double-free. */
+/**
+ * Free a generational allocation. Marks the generation as freed and detects
+ * double-free. The block is quarantined on a runtime-owned free list rather
+ * than returned to the system allocator, so its generation stays readable
+ * forever and stale references always fail their checks — even after the
+ * address is recycled (recycling assigns a fresh generation).
+ */
 void run_gen_free(void *ptr);
 
 /**

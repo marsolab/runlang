@@ -3,7 +3,7 @@
  *
  * Verifies:
  * 1. Basic alloc/free lifecycle
- * 2. Generation counter starts at 0
+ * 2. Generations are unique (monotonic epoch)
  * 3. gen_ref_create captures current generation
  * 4. gen_ref_deref succeeds with valid reference
  * 5. gen_check succeeds with matching generation
@@ -46,7 +46,7 @@ static void test_alloc_basic(void) {
     void *ptr = run_gen_alloc(64);
     assert(ptr != NULL);
     uint64_t gen = run_gen_get(ptr);
-    assert(gen == 0);
+    assert(gen != 0 && gen != UINT64_MAX); /* generations come from a monotonic epoch */
     run_gen_free(ptr);
     PASS();
 }
@@ -67,7 +67,7 @@ static void test_ref_create(void) {
     void *ptr = run_gen_alloc(16);
     run_gen_ref_t ref = run_gen_ref_create(ptr);
     assert(ref.ptr == ptr);
-    assert(ref.generation == 0);
+    assert(ref.generation == run_gen_get(ptr));
     run_gen_free(ptr);
     PASS();
 }

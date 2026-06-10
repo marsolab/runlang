@@ -8,6 +8,7 @@ int _test_failed = 0;
 const char *_test_current = NULL;
 
 /* Test suite declarations */
+extern void run_test_alloc(void);
 extern void run_test_vmem(void);
 extern void run_test_scheduler(void);
 extern void run_test_chan(void);
@@ -33,6 +34,7 @@ int main(void) {
     /* Initialize the scheduler (required for scheduler and channel tests) */
     run_scheduler_init();
 
+    run_test_alloc();
     run_test_vmem();
     run_test_map();
     run_test_fmt();
