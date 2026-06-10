@@ -171,14 +171,12 @@ void *run_gen_alloc_aligned(size_t size, size_t alignment) {
     void *recycled = run_freelist_pop(size, alignment);
     if (recycled) {
         run_alloc_header_t *header = run_get_header(recycled);
-        atomic_store_explicit(&header->generation, run_next_generation(),
-                              memory_order_relaxed);
+        atomic_store_explicit(&header->generation, run_next_generation(), memory_order_relaxed);
         header->alloc_size = size;
         memset(recycled, 0, size);
 
         atomic_fetch_add_explicit(&run_alloc_total_count, 1, memory_order_relaxed);
-        atomic_fetch_add_explicit(&run_bytes_total_allocated, (int64_t)size,
-                                  memory_order_relaxed);
+        atomic_fetch_add_explicit(&run_bytes_total_allocated, (int64_t)size, memory_order_relaxed);
         return recycled;
     }
 
