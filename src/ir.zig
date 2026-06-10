@@ -65,12 +65,21 @@ pub const Inst = struct {
         field_ptr,
         index_ptr,
 
+        // Struct field access (arg2 = index into Module.field_infos)
+        local_field_get, // result = local(arg1).field
+        local_field_set, // local(arg1).field = value(result)
+        ptr_field_get, // result = ((T*)arg1)->field
+        ptr_field_set, // ((T*)arg1)->field = value(result)
+        local_zero, // memset(&local(arg1), 0, sizeof)
+        ptr_load_value, // result = *(T*)arg1, T = Module.value_type_names[arg2]
+
         // Generational references
         gen_alloc,
         gen_free,
         gen_check,
         gen_get_gen, // result = generation of ptr in arg1
         gen_ref_create, // result = run_gen_ref_t from ptr in arg1
+        gen_ref_stack, // result = unchecked run_gen_ref_t for a stack address in arg1
         gen_ref_deref, // result = checked ptr from run_gen_ref_t in arg1
 
         // Function calls
@@ -237,6 +246,29 @@ pub const LocalInfo = struct {
     alignment: u32 = 0,
 };
 
+/// A struct type emitted as a C typedef. Field order matches the Run source.
+pub const StructInfo = struct {
+    c_name: []const u8,
+    fields: std.ArrayList(StructFieldInfo),
+
+    pub fn deinit(self: *StructInfo, allocator: std.mem.Allocator) void {
+        self.fields.deinit(allocator);
+    }
+};
+
+pub const StructFieldInfo = struct {
+    name: []const u8,
+    c_type: []const u8,
+};
+
+/// Field access metadata for *_field_get/*_field_set instructions
+/// (indexed by the instruction's arg2).
+pub const FieldAccessInfo = struct {
+    struct_c_type: []const u8,
+    field_name: []const u8,
+    field_c_type: []const u8,
+};
+
 /// Metadata for an inline assembly expression.
 pub const AsmInfo = struct {
     /// The assembly template string (raw source text of instructions)
@@ -273,6 +305,12 @@ pub const Module = struct {
     call_infos: std.ArrayList(CallInfo),
     local_infos: std.ArrayList(LocalInfo),
     asm_infos: std.ArrayList(AsmInfo),
+    /// C struct typedefs emitted before function prototypes.
+    struct_infos: std.ArrayList(StructInfo),
+    /// Field access metadata for field get/set instructions.
+    field_infos: std.ArrayList(FieldAccessInfo),
+    /// C type names for instructions that need one (e.g. ptr_load_value).
+    value_type_names: std.ArrayList([]const u8),
     /// Strings allocated by the lowering pass that this module owns.
     owned_strings: std.ArrayList([]const u8),
     /// Source file paths for debug info (indexed by SrcLoc.file_index).
@@ -287,6 +325,9 @@ pub const Module = struct {
             .call_infos = .empty,
             .local_infos = .empty,
             .asm_infos = .empty,
+            .struct_infos = .empty,
+            .field_infos = .empty,
+            .value_type_names = .empty,
             .owned_strings = .empty,
             .source_files = .empty,
             .func_debug_infos = .empty,
@@ -308,6 +349,12 @@ pub const Module = struct {
             ai.deinit(allocator);
         }
         self.asm_infos.deinit(allocator);
+        for (self.struct_infos.items) |*si| {
+            si.deinit(allocator);
+        }
+        self.struct_infos.deinit(allocator);
+        self.field_infos.deinit(allocator);
+        self.value_type_names.deinit(allocator);
         for (self.owned_strings.items) |s| {
             allocator.free(s);
         }
@@ -389,12 +436,9 @@ pub const Module = struct {
         c_type: []const u8,
         alignment: u32,
     ) !u32 {
-        // Deduplicate by name
-        for (self.local_infos.items, 0..) |li, i| {
-            if (std.mem.eql(u8, li.name, name)) {
-                return @intCast(i);
-            }
-        }
+        // No name-based dedup: same-named locals in different functions (or
+        // shadowed in nested scopes) are distinct variables with possibly
+        // different types. The lowering pass uniquifies C names per function.
         const index: u32 = @intCast(self.local_infos.items.len);
         try self.local_infos.append(allocator, .{ .name = name, .c_type = c_type, .alignment = alignment });
         return index;
@@ -403,6 +447,38 @@ pub const Module = struct {
     pub fn addAsmInfo(self: *Module, allocator: std.mem.Allocator, info: AsmInfo) !u32 {
         const index: u32 = @intCast(self.asm_infos.items.len);
         try self.asm_infos.append(allocator, info);
+        return index;
+    }
+
+    pub fn addFieldInfo(
+        self: *Module,
+        allocator: std.mem.Allocator,
+        struct_c_type: []const u8,
+        field_name: []const u8,
+        field_c_type: []const u8,
+    ) !u32 {
+        for (self.field_infos.items, 0..) |fi, i| {
+            if (std.mem.eql(u8, fi.struct_c_type, struct_c_type) and
+                std.mem.eql(u8, fi.field_name, field_name))
+            {
+                return @intCast(i);
+            }
+        }
+        const index: u32 = @intCast(self.field_infos.items.len);
+        try self.field_infos.append(allocator, .{
+            .struct_c_type = struct_c_type,
+            .field_name = field_name,
+            .field_c_type = field_c_type,
+        });
+        return index;
+    }
+
+    pub fn addValueTypeName(self: *Module, allocator: std.mem.Allocator, c_type: []const u8) !u32 {
+        for (self.value_type_names.items, 0..) |name, i| {
+            if (std.mem.eql(u8, name, c_type)) return @intCast(i);
+        }
+        const index: u32 = @intCast(self.value_type_names.items.len);
+        try self.value_type_names.append(allocator, c_type);
         return index;
     }
 

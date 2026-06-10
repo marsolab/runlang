@@ -1,0 +1,19 @@
+// expect: 2
+package main
+
+use "fmt"
+
+pub type Counter struct {
+    n int
+}
+
+fun (c &Counter) inc() {
+    c.n = c.n + 1
+}
+
+pub fun main() {
+    c := Counter{n: 0}
+    c.inc()
+    c.inc()
+    fmt.println(c.n)
+}

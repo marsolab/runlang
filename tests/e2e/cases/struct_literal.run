@@ -1,0 +1,14 @@
+// expect: 7
+package main
+
+use "fmt"
+
+pub type Point struct {
+    x int
+    y int
+}
+
+pub fun main() {
+    p := Point{x: 3, y: 4}
+    fmt.println(p.x + p.y)
+}

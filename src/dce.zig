@@ -164,19 +164,34 @@ fn detectUnusedLocals(
     func: *ir.Function,
     warnings: *std.ArrayList(DceResult.Warning),
 ) !void {
-    var written = [1]bool{false} ** 256;
-    var read = [1]bool{false} ** 256;
+    const local_count = module.local_infos.items.len;
+    if (local_count == 0) return;
+    const written = try allocator.alloc(bool, local_count);
+    defer allocator.free(written);
+    const read = try allocator.alloc(bool, local_count);
+    defer allocator.free(read);
+    @memset(written, false);
+    @memset(read, false);
 
     for (func.blocks.items) |*block| {
         for (block.insts.items) |inst| {
-            if (inst.op == .local_set and inst.arg1 < 256) written[inst.arg1] = true;
-            if (inst.op == .local_get and inst.arg1 < 256) read[inst.arg1] = true;
+            switch (inst.op) {
+                .local_set => if (inst.arg1 < local_count) {
+                    written[inst.arg1] = true;
+                },
+                // Anything that observes the local — or exposes its storage
+                // (address-of, field writes) — keeps its stores alive.
+                .local_get, .local_addr, .local_field_get, .local_field_set, .local_zero => {
+                    if (inst.arg1 < local_count) read[inst.arg1] = true;
+                },
+                else => {},
+            }
         }
     }
 
     // Warn about locals that are written but never read
-    for (0..256) |idx| {
-        if (written[idx] and !read[idx] and idx < module.local_infos.items.len) {
+    for (0..local_count) |idx| {
+        if (written[idx] and !read[idx]) {
             const name = module.local_infos.items[idx].name;
             if (!std.mem.startsWith(u8, name, "_")) {
                 try warnings.append(allocator, .{
@@ -193,7 +208,7 @@ fn detectUnusedLocals(
         var j: usize = 0;
         while (j < block.insts.items.len) {
             const inst = block.insts.items[j];
-            if (inst.op == .local_set and inst.arg1 < 256 and written[inst.arg1] and !read[inst.arg1]) {
+            if (inst.op == .local_set and inst.arg1 < local_count and written[inst.arg1] and !read[inst.arg1]) {
                 _ = block.insts.orderedRemove(j);
                 continue;
             }

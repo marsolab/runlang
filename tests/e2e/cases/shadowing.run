@@ -1,0 +1,13 @@
+// expect: 5
+package main
+
+use "fmt"
+
+pub fun main() {
+    x := 5
+    if true {
+        x := 100
+        x = x + 1
+    }
+    fmt.println(x)
+}

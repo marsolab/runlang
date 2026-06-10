@@ -430,6 +430,13 @@ const TypeChecker = struct {
         const name_tok = main_tok + 1;
         const name = self.tokenSlice(name_tok);
         const data = self.nodeData(node);
+
+        // `type Name struct { fields }` declares a nominal struct type, not a
+        // newtype over an anonymous struct.
+        if (data.lhs != null_node and self.nodeTag(data.lhs) == .type_anon_struct) {
+            return self.registerStructTypeDecl(node, name);
+        }
+
         const underlying = self.resolveTypeNode(data.lhs);
         if (underlying == types.null_type) return;
 
@@ -472,6 +479,64 @@ const TypeChecker = struct {
         }
 
         self.type_map.items[node] = newtype_id;
+    }
+
+    /// Register `type Name struct { fields }` as a nominal StructType.
+    fn registerStructTypeDecl(self: *TypeChecker, node: NodeIndex, name: []const u8) CheckError!void {
+        const anon_node = self.nodeData(node).lhs;
+        const anon_data = self.nodeData(anon_node);
+        const extra = self.tree.extra_data.items;
+        const fields_start = anon_data.lhs;
+        const field_count = anon_data.rhs;
+
+        const fields = self.allocator.alloc(types.StructField, field_count) catch return;
+        self.allocated_field_slices.append(self.allocator, fields) catch return;
+        for (0..field_count) |i| {
+            const field_node = extra[fields_start + i];
+            const field_data = self.nodeData(field_node);
+            const field_name = self.tokenSlice(self.nodeMainToken(field_node));
+            fields[i] = .{
+                .name = field_name,
+                .type_id = self.resolveTypeNode(field_data.lhs),
+            };
+        }
+
+        // Resolve implements interfaces if present (rhs != null_node; biased by +1).
+        var impl_list: []const TypeId = &.{};
+        const data = self.nodeData(node);
+        if (data.rhs != null_node) {
+            const extra_start = data.rhs - 1;
+            const implements_count = extra[extra_start];
+            if (implements_count > 0) {
+                const owned = self.allocator.alloc(TypeId, implements_count) catch return;
+                self.allocated_type_id_slices.append(self.allocator, owned) catch return;
+                for (0..implements_count) |i| {
+                    const iface_ident_node = extra[extra_start + 1 + i];
+                    owned[i] = types.null_type;
+                    if (iface_ident_node != null_node) {
+                        const iface_name = self.tokenSlice(self.nodeMainToken(iface_ident_node));
+                        if (self.symbols.lookup(iface_name)) |sym_id| {
+                            const sym = self.symbols.getSymbol(sym_id);
+                            if (sym.type_id != types.null_type) owned[i] = sym.type_id;
+                        }
+                    }
+                }
+                impl_list = owned;
+            }
+        }
+
+        const struct_type_id = self.type_pool.addType(self.allocator, .{ .struct_type = .{
+            .name = name,
+            .fields = fields,
+            .methods = &.{},
+            .implements = impl_list,
+        } }) catch return;
+
+        if (self.symbols.lookup(name)) |sym_id| {
+            self.symbols.getSymbolPtr(sym_id).type_id = struct_type_id;
+        }
+
+        self.type_map.items[node] = struct_type_id;
     }
 
     /// Re-bind methods in the method table with correct struct TypeIds.

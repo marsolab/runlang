@@ -53,6 +53,7 @@ pub const CCodegen = struct {
 
     pub fn generate(self: *CCodegen) ![]const u8 {
         try self.emitPreamble();
+        try self.emitStructTypedefs();
         try self.emitStringConstants();
 
         // Emit all function prototypes first
@@ -72,6 +73,24 @@ pub const CCodegen = struct {
     fn emitPreamble(self: *CCodegen) !void {
         try self.emitLine("#include \"run_runtime.h\"");
         try self.emitLine("#include \"run_simd.h\"");
+        try self.emitLine("#include <string.h>");
+        try self.emitLine("");
+    }
+
+    fn emitStructTypedefs(self: *CCodegen) !void {
+        if (self.module.struct_infos.items.len == 0) return;
+        for (self.module.struct_infos.items) |si| {
+            try self.emitIndent();
+            try self.writer().print("typedef struct {{\n", .{});
+            for (si.fields.items) |field| {
+                try self.writer().print("    {s} {s};\n", .{ field.c_type, field.name });
+            }
+            // A struct with no fields is invalid C; pad it.
+            if (si.fields.items.len == 0) {
+                try self.writer().print("    char _empty;\n", .{});
+            }
+            try self.writer().print("}} {s};\n", .{si.c_name});
+        }
         try self.emitLine("");
     }
 
@@ -158,7 +177,11 @@ pub const CCodegen = struct {
         @memset(declared_locals, false);
         for (func.blocks.items) |*block| {
             for (block.insts.items) |inst| {
-                if (inst.op == .local_set or inst.op == .local_get or inst.op == .local_addr) {
+                switch (inst.op) {
+                    .local_set, .local_get, .local_addr, .local_field_get, .local_field_set, .local_zero => {},
+                    else => continue,
+                }
+                {
                     const local_idx = inst.arg1;
                     if (local_idx < declared_locals.len and !declared_locals[local_idx]) {
                         declared_locals[local_idx] = true;
@@ -178,6 +201,16 @@ pub const CCodegen = struct {
         const declared_refs = try self.allocator.alloc(bool, func.next_ref);
         defer self.allocator.free(declared_refs);
         @memset(declared_refs, false);
+
+        // Parameters: instructions refer to them as _t{ref}, so bind each
+        // ref to the named C parameter.
+        for (func.params.items) |p| {
+            if (p.ref == ir.null_ref or p.ref >= declared_refs.len) continue;
+            declared_refs[p.ref] = true;
+            try self.emitIndent();
+            try self.writer().print("{s} _t{d} = {s};\n", .{ p.type_name, p.ref, p.name });
+        }
+
         for (func.blocks.items) |*block| {
             for (block.insts.items) |inst| {
                 if (inst.result == ir.null_ref) continue;
@@ -185,20 +218,18 @@ pub const CCodegen = struct {
                 if (declared_refs[inst.result]) continue;
                 declared_refs[inst.result] = true;
 
-                var is_param = false;
-                for (func.params.items) |p| {
-                    if (p.ref == inst.result) {
-                        is_param = true;
-                        break;
-                    }
-                }
-                if (is_param) continue;
-
                 try self.emitIndent();
                 const type_name = self.inferCType(inst);
                 try self.writer().print("{s} _t{d};\n", .{ type_name, inst.result });
             }
         }
+    }
+
+    fn localName(self: *const CCodegen, local_idx: u32) []const u8 {
+        if (local_idx < self.module.local_infos.items.len) {
+            return self.module.local_infos.items[local_idx].name;
+        }
+        return "_invalid_local";
     }
 
     fn emitStackCheck(self: *CCodegen) !void {
@@ -220,7 +251,19 @@ pub const CCodegen = struct {
             .const_null => "void*",
             .alloc_local, .local_addr, .field_ptr, .index_ptr, .gen_alloc, .gen_ref_deref => "void*",
             .gen_get_gen => "uint64_t",
-            .gen_ref_create => "run_gen_ref_t",
+            .gen_ref_create, .gen_ref_stack => "run_gen_ref_t",
+            .local_field_get, .ptr_field_get => blk: {
+                if (inst.arg2 < self.module.field_infos.items.len) {
+                    break :blk self.module.field_infos.items[inst.arg2].field_c_type;
+                }
+                break :blk "int64_t";
+            },
+            .ptr_load_value => blk: {
+                if (inst.arg2 < self.module.value_type_names.items.len) {
+                    break :blk self.module.value_type_names.items[inst.arg2];
+                }
+                break :blk "int64_t";
+            },
             .load => "int64_t", // conservative default
             .call => blk: {
                 const ci = inst.arg1;
@@ -344,11 +387,40 @@ pub const CCodegen = struct {
             },
             .local_addr => {
                 try self.emitIndent();
-                const local_name = if (inst.arg1 < self.module.local_infos.items.len)
-                    self.module.local_infos.items[inst.arg1].name
-                else
-                    "_invalid_local";
+                const local_name = self.localName(inst.arg1);
                 try self.writer().print("_t{d} = &{s};\n", .{ inst.result, local_name });
+            },
+            .local_field_get => {
+                try self.emitIndent();
+                const local_name = self.localName(inst.arg1);
+                const fi = self.module.field_infos.items[inst.arg2];
+                try self.writer().print("_t{d} = {s}.{s};\n", .{ inst.result, local_name, fi.field_name });
+            },
+            .local_field_set => {
+                try self.emitIndent();
+                const local_name = self.localName(inst.arg1);
+                const fi = self.module.field_infos.items[inst.arg2];
+                try self.writer().print("{s}.{s} = _t{d};\n", .{ local_name, fi.field_name, inst.result });
+            },
+            .ptr_field_get => {
+                try self.emitIndent();
+                const fi = self.module.field_infos.items[inst.arg2];
+                try self.writer().print("_t{d} = (({s}*)_t{d})->{s};\n", .{ inst.result, fi.struct_c_type, inst.arg1, fi.field_name });
+            },
+            .ptr_field_set => {
+                try self.emitIndent();
+                const fi = self.module.field_infos.items[inst.arg2];
+                try self.writer().print("(({s}*)_t{d})->{s} = _t{d};\n", .{ fi.struct_c_type, inst.arg1, fi.field_name, inst.result });
+            },
+            .local_zero => {
+                try self.emitIndent();
+                const local_name = self.localName(inst.arg1);
+                try self.writer().print("memset(&{s}, 0, sizeof({s}));\n", .{ local_name, local_name });
+            },
+            .ptr_load_value => {
+                try self.emitIndent();
+                const type_name = self.module.value_type_names.items[inst.arg2];
+                try self.writer().print("_t{d} = *(({s}*)_t{d});\n", .{ inst.result, type_name, inst.arg1 });
             },
             .load => {
                 try self.emitIndent();
@@ -385,6 +457,10 @@ pub const CCodegen = struct {
             .gen_ref_create => {
                 try self.emitIndent();
                 try self.writer().print("_t{d} = run_gen_ref_create(_t{d});\n", .{ inst.result, inst.arg1 });
+            },
+            .gen_ref_stack => {
+                try self.emitIndent();
+                try self.writer().print("_t{d} = run_gen_ref_stack(_t{d});\n", .{ inst.result, inst.arg1 });
             },
             .gen_ref_deref => {
                 try self.emitIndent();
@@ -525,6 +601,7 @@ pub const CCodegen = struct {
                         if (std.mem.eql(u8, info.c_type, "run_gen_ref_t") or
                             std.mem.eql(u8, info.c_type, "run_string_t") or
                             std.mem.eql(u8, info.c_type, "run_any_t") or
+                            std.mem.startsWith(u8, info.c_type, "run_type_") or
                             std.mem.startsWith(u8, info.c_type, "run_simd_"))
                         {
                             try self.writer().print("{s} = ({s}){{0}};\n", .{ info.name, info.c_type });

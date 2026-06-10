@@ -275,7 +275,22 @@ run_gen_ref_t run_gen_ref_create(void *ptr) {
     return ref;
 }
 
+run_gen_ref_t run_gen_ref_stack(void *ptr) {
+    run_gen_ref_t ref;
+    ref.ptr = ptr;
+    ref.generation = 0;
+    return ref;
+}
+
 void *run_gen_ref_deref(run_gen_ref_t ref) {
+    if (!ref.ptr) {
+        fprintf(stderr, "run: null pointer dereference\n");
+        abort();
+    }
+    /* Generation 0 marks an unchecked stack reference (no header). */
+    if (ref.generation == 0) {
+        return ref.ptr;
+    }
     run_gen_check(ref.ptr, ref.generation);
     return ref.ptr;
 }
