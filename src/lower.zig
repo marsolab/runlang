@@ -74,6 +74,7 @@ pub fn lowerProgram(
         .closure_ctx_node = null_node,
         .current_fn_return_type_id = types.null_type,
         .methods = .empty,
+        .fn_return_types = .empty,
     };
     // Register the source file for debug info
     if (source_path) |path| {
@@ -133,6 +134,12 @@ const LoweringContext = struct {
     // mangled C name + receiver kind, so call sites can dispatch regardless
     // of declaration order.
     methods: std.ArrayList(MethodInfo),
+
+    // Plain functions' return types by source name (prepass). void_id and
+    // null_type share id 0, so the call node's type can't distinguish
+    // void calls from unknown ones — this map can: a registered function
+    // with return id 0 IS void.
+    fn_return_types: std.StringHashMapUnmanaged(TypeId),
 
     const VarEntry = struct {
         name: []const u8,
@@ -428,6 +435,7 @@ const LoweringContext = struct {
             .struct_type => self.struct_c_names.get(type_id) orelse "int64_t",
             .error_union_type => self.struct_c_names.get(type_id) orelse "int64_t",
             .nullable_type => self.struct_c_names.get(type_id) orelse "int64_t",
+            .sum_type => self.struct_c_names.get(type_id) orelse "int64_t",
             .slice_type => "run_slice_t",
             // Function values are generic pointers; calls cast to the
             // concrete signature (see call_ptr).
@@ -512,6 +520,7 @@ const LoweringContext = struct {
         self.struct_c_names.deinit(self.allocator);
         self.func_local_names.deinit(self.allocator);
         self.methods.deinit(self.allocator);
+        self.fn_return_types.deinit(self.allocator);
     }
 
     /// Register a C typedef for every struct type in the pool. Two passes:
@@ -552,6 +561,10 @@ const LoweringContext = struct {
                     const c_name = try self.sanitizedTypeName("run_opt_", payload_c);
                     try self.struct_c_names.put(self.allocator, id, c_name);
                 },
+                .sum_type => |st| {
+                    const c_name = try self.sanitizedTypeName("run_sum_", st.name);
+                    try self.struct_c_names.put(self.allocator, id, c_name);
+                },
                 else => {},
             }
         }
@@ -588,6 +601,35 @@ const LoweringContext = struct {
                             .name = f.name,
                             .c_type = self.cTypeForTypeId(f.type_id),
                         });
+                    }
+                    try self.module.struct_infos.append(self.allocator, info);
+                },
+                else => {},
+            }
+        }
+
+        // Emit sum-type typedefs after struct typedefs: a tag plus one
+        // payload slot per payload-carrying variant.
+        id = 0;
+        while (id < pool_len) : (id += 1) {
+            switch (self.type_pool.get(id)) {
+                .sum_type => |st| {
+                    const c_name = self.struct_c_names.get(id).?;
+                    var already = false;
+                    for (self.module.struct_infos.items) |si| {
+                        if (std.mem.eql(u8, si.c_name, c_name)) {
+                            already = true;
+                            break;
+                        }
+                    }
+                    if (already) continue;
+                    var info = ir.StructInfo{ .c_name = c_name, .fields = .empty };
+                    try info.fields.append(self.allocator, .{ .name = "tag", .c_type = "int64_t" });
+                    for (st.variants, 0..) |variant, vi| {
+                        if (variant.payload == types.null_type) continue;
+                        const fname = try std.fmt.allocPrint(self.allocator, "p{d}", .{vi});
+                        try self.module.owned_strings.append(self.allocator, fname);
+                        try info.fields.append(self.allocator, .{ .name = fname, .c_type = self.cTypeForTypeId(variant.payload) });
                     }
                     try self.module.struct_infos.append(self.allocator, info);
                 },
@@ -694,7 +736,20 @@ const LoweringContext = struct {
         }
 
         const receiver_node = self.fnDeclReceiver(decl_idx);
-        if (receiver_node == null_node) return;
+        if (receiver_node == null_node) {
+            // Plain function: record its return type for call sites.
+            const fn_type_id = self.typeOfNode(decl_idx);
+            if (fn_type_id != types.null_type) {
+                switch (self.type_pool.get(fn_type_id)) {
+                    .fn_type => |ft| {
+                        const fname = self.methodNameSlice(decl_idx);
+                        try self.fn_return_types.put(self.allocator, fname, ft.return_type);
+                    },
+                    else => {},
+                }
+            }
+            return;
+        }
         const recv = self.tree.nodes.items[receiver_node];
         const recv_type_node = recv.data.lhs;
         if (recv_type_node == null_node) return;
@@ -2128,6 +2183,11 @@ const LoweringContext = struct {
         {
             return self.lowerAnonStructLiteral(target_type, value_node);
         }
+        if (self.isSumTypeId(target_type) and
+            self.tree.nodes.items[value_node].tag == .variant)
+        {
+            return self.lowerVariantValue(target_type, value_node);
+        }
         if (self.isNullableType(target_type)) {
             if (self.tree.nodes.items[value_node].tag == .null_literal) {
                 return self.buildOptValue(target_type, ir.null_ref);
@@ -2232,6 +2292,150 @@ const LoweringContext = struct {
         self.current_block = func.getBlock(after_bb);
     }
 
+    fn isSumTypeId(self: *const LoweringContext, type_id: TypeId) bool {
+        if (type_id == types.null_type or type_id < types.primitives.count) return false;
+        return switch (self.type_pool.get(type_id)) {
+            .sum_type => true,
+            else => false,
+        };
+    }
+
+    const SumVariantInfo = struct { index: u32, payload: TypeId };
+
+    /// Find a variant by name in a sum type. Returns its index and payload.
+    fn sumVariant(self: *const LoweringContext, sum_type: TypeId, name: []const u8) ?SumVariantInfo {
+        switch (self.type_pool.get(sum_type)) {
+            .sum_type => |st| {
+                for (st.variants, 0..) |variant, i| {
+                    if (std.mem.eql(u8, variant.name, name)) {
+                        return .{ .index = @intCast(i), .payload = variant.payload };
+                    }
+                }
+            },
+            else => {},
+        }
+        return null;
+    }
+
+    /// `.variant(payload)` with the sum type known from context.
+    fn lowerVariantValue(self: *LoweringContext, sum_type: TypeId, node_idx: NodeIndex) LowerError!ir.Ref {
+        const node = self.tree.nodes.items[node_idx];
+        const vname_tok = node.main_token + 1;
+        const vname = if (vname_tok < self.tokens.len) self.tokenSlice(vname_tok) else "";
+        const variant = self.sumVariant(sum_type, vname) orelse {
+            try self.unsupported(node_idx, "this variant for the target sum type");
+            return ir.null_ref;
+        };
+        const sum_c = self.struct_c_names.get(sum_type) orelse "int64_t";
+        const tmp_idx = try self.makeTempLocal("_sum", sum_c, 0);
+        try self.emit(ir.makeInst(.local_zero, 0, tmp_idx, 0));
+
+        const tag_ref = self.allocRef();
+        try self.emit(ir.makeConstInt(tag_ref, variant.index));
+        const fi_tag = try self.module.addFieldInfo(self.allocator, sum_c, "tag", "int64_t");
+        try self.emit(ir.makeInst(.local_field_set, tag_ref, tmp_idx, fi_tag));
+
+        if (node.data.lhs != null_node and variant.payload != types.null_type) {
+            const payload_ref = try self.lowerCoerced(variant.payload, node.data.lhs);
+            const fname = try std.fmt.allocPrint(self.allocator, "p{d}", .{variant.index});
+            try self.module.owned_strings.append(self.allocator, fname);
+            const fi_p = try self.module.addFieldInfo(self.allocator, sum_c, fname, self.cTypeForTypeId(variant.payload));
+            try self.emit(ir.makeInst(.local_field_set, payload_ref, tmp_idx, fi_p));
+        }
+
+        const r = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, r, tmp_idx, 0));
+        return r;
+    }
+
+    /// Switch on a sum type: tag tests per variant arm, payload binding.
+    fn lowerSumSwitch(self: *LoweringContext, node_idx: NodeIndex, arm_nodes: []const NodeIndex) LowerError!void {
+        const node = self.tree.nodes.items[node_idx];
+        const func = self.current_func orelse return;
+        const subject_type = self.typeOfNode(node.data.lhs);
+        const sum_c = self.struct_c_names.get(subject_type) orelse "int64_t";
+
+        const subj_ref = try self.lowerExpr(node.data.lhs);
+        const subj_idx = try self.makeTempLocal("_switch_sum", sum_c, 0);
+        try self.emit(ir.makeInst(.local_set, 0, subj_idx, subj_ref));
+        const fi_tag = try self.module.addFieldInfo(self.allocator, sum_c, "tag", "int64_t");
+
+        const entry_bb = self.currentBlockId() orelse return;
+        const after_bb = try func.addBlock(self.allocator);
+        var test_bbs: std.ArrayList(ir.BlockId) = .empty;
+        defer test_bbs.deinit(self.allocator);
+        var body_bbs: std.ArrayList(ir.BlockId) = .empty;
+        defer body_bbs.deinit(self.allocator);
+        for (arm_nodes) |_| {
+            try test_bbs.append(self.allocator, try func.addBlock(self.allocator));
+            try body_bbs.append(self.allocator, try func.addBlock(self.allocator));
+        }
+        self.current_block = func.getBlock(entry_bb);
+        try self.emit(ir.makeInst(.br, 0, if (arm_nodes.len > 0) test_bbs.items[0] else after_bb, 0));
+
+        for (arm_nodes, 0..) |arm, k| {
+            const next_target = if (k + 1 < arm_nodes.len) test_bbs.items[k + 1] else after_bb;
+            const arm_node = self.tree.nodes.items[arm];
+            const pat_idx = arm_node.data.lhs;
+
+            var variant_info: ?SumVariantInfo = null;
+            var payload_name: []const u8 = "";
+            if (pat_idx != null_node and self.tree.nodes.items[pat_idx].tag == .variant) {
+                const pat = self.tree.nodes.items[pat_idx];
+                const vname_tok = pat.main_token + 1;
+                const vname = if (vname_tok < self.tokens.len) self.tokenSlice(vname_tok) else "";
+                variant_info = self.sumVariant(subject_type, vname);
+                if (pat.data.lhs != null_node and self.tree.nodes.items[pat.data.lhs].tag == .ident) {
+                    payload_name = self.tokenSlice(self.tree.nodes.items[pat.data.lhs].main_token);
+                }
+            }
+
+            self.current_block = func.getBlock(test_bbs.items[k]);
+            if (variant_info) |vi| {
+                const tag_ref = self.allocRef();
+                try self.emit(ir.makeInst(.local_field_get, tag_ref, subj_idx, fi_tag));
+                const want_ref = self.allocRef();
+                try self.emit(ir.makeConstInt(want_ref, vi.index));
+                const eq_ref = self.allocRef();
+                try self.emit(ir.makeInst(.eq, eq_ref, tag_ref, want_ref));
+                try self.emit(ir.makeInst(.br_cond, 0, eq_ref, body_bbs.items[k]));
+                try self.emit(ir.makeInst(.br, 0, next_target, 0));
+            } else {
+                // Wildcard (or unrecognized pattern): always matches.
+                try self.emit(ir.makeInst(.br, 0, body_bbs.items[k], 0));
+            }
+
+            self.current_block = func.getBlock(body_bbs.items[k]);
+            try self.pushScope();
+            if (variant_info) |vi| {
+                if (payload_name.len > 0 and !std.mem.eql(u8, payload_name, "_") and
+                    vi.payload != types.null_type)
+                {
+                    const fname = try std.fmt.allocPrint(self.allocator, "p{d}", .{vi.index});
+                    try self.module.owned_strings.append(self.allocator, fname);
+                    const fi_p = try self.module.addFieldInfo(self.allocator, sum_c, fname, self.cTypeForTypeId(vi.payload));
+                    const v_ref = self.allocRef();
+                    try self.emit(ir.makeInst(.local_field_get, v_ref, subj_idx, fi_p));
+                    _ = try self.defineVar(payload_name, self.cTypeForTypeId(vi.payload), self.alignmentForTypeId(vi.payload), v_ref);
+                }
+            }
+            const body_idx = arm_node.data.rhs;
+            if (body_idx != null_node) {
+                if (self.tree.nodes.items[body_idx].tag == .block) {
+                    try self.lowerBlock(body_idx);
+                } else {
+                    _ = try self.lowerExpr(body_idx);
+                }
+            }
+            try self.popScope();
+            if (self.current_block != null and !self.current_block.?.isTerminated()) {
+                try self.emit(ir.makeInst(.br, 0, after_bb, 0));
+            }
+        }
+
+        self.current_block = func.getBlock(after_bb);
+    }
+
     /// True if a switch pattern is the wildcard `_`.
     fn isWildcardPattern(self: *const LoweringContext, pat_idx: NodeIndex) bool {
         if (pat_idx == null_node) return false;
@@ -2269,6 +2473,11 @@ const LoweringContext = struct {
         // Nullable subjects destructure with .some(x)/.null arms.
         if (self.isNullableType(self.typeOfNode(node.data.lhs))) {
             return self.lowerNullableSwitch(node_idx, arm_nodes);
+        }
+
+        // Sum-type subjects match variants by tag.
+        if (self.isSumTypeId(self.typeOfNode(node.data.lhs))) {
+            return self.lowerSumSwitch(node_idx, arm_nodes);
         }
 
         // Variant patterns on sum types need payload destructuring that has
@@ -3794,6 +4003,14 @@ const LoweringContext = struct {
 
         var return_type_name = self.cTypeForNode(node_idx);
         if (self.typeOfNode(node_idx) == types.null_type) {
+            // User functions: trust the prepass registry — a registered
+            // function with return id 0 is void, not unknown.
+            if (callee_idx != null_node and self.tree.nodes.items[callee_idx].tag == .ident) {
+                if (self.fn_return_types.get(self.tokenSlice(self.tree.nodes.items[callee_idx].main_token))) |ret| {
+                    return_type_name = if (ret == types.null_type) "void" else self.cTypeForTypeId(ret);
+                    return self.emitTypedCall(target_name, arg_refs.items, return_type_name, isVariadicFmtCall(target_name));
+                }
+            }
             if (isVoidCall(target_name)) {
                 return_type_name = "void";
             } else if (std.mem.startsWith(u8, target_name, "run_fmt_sprint")) {

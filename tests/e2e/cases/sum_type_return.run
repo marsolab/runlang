@@ -1,0 +1,20 @@
+// expect: 42
+package main
+
+use "fmt"
+
+type Result = .none | .value(int)
+
+fun pick(x int) Result {
+    if x > 0 {
+        return .value(x)
+    }
+    return .none
+}
+
+pub fun main() {
+    switch pick(42) {
+        .value(v) :: fmt.println(v),
+        .none :: fmt.println(0),
+    }
+}
