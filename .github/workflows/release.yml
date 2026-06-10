@@ -28,7 +28,9 @@ jobs:
             target: aarch64-linux-gnu
             os: linux
             arch: arm64
-          - runner: macos-13
+          # x86_64-macos cross-compiles from the arm64 runner (zig -Dtarget);
+          # macos-13 runners are retired.
+          - runner: macos-14
             target: x86_64-macos
             os: darwin
             arch: amd64
