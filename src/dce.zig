@@ -101,7 +101,10 @@ fn findReachableFunctions(
 
             for (func.blocks.items) |*block| {
                 for (block.insts.items) |inst| {
-                    if (inst.op != .call and inst.op != .spawn) continue;
+                    switch (inst.op) {
+                        .call, .spawn, .spawn_on_node, .closure_create => {},
+                        else => continue,
+                    }
                     if (inst.arg1 >= module.call_infos.items.len) continue;
 
                     const target = module.call_infos.items[inst.arg1].target_name;

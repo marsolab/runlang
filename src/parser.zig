@@ -2178,9 +2178,13 @@ pub const Parser = struct {
             ret_type = try self.parseType();
         }
 
+        // Append the return type right after the param list's trailing count
+        // so consumers can recover it: [param1..paramN, count, ret_type].
+        // (parseBlock appends its own extra data, so it must come after.)
+        _ = try self.tree.addExtra(ret_type);
+
         self.skipNewlines();
         const body = try self.parseBlock();
-        _ = try self.tree.addExtra(ret_type);
 
         return self.tree.addNode(.{
             .tag = .closure,

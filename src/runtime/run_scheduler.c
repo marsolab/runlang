@@ -33,6 +33,9 @@
 /* Default max for growable stacks */
 #define RUN_DEFAULT_STACK_MAX ((size_t)1024 * 1024) /* 1 MB */
 #define RUN_GROWABLE_INITIAL ((size_t)8 * 1024)     /* 8 KB initial commit */
+/* Headroom committed below sp at each prologue check, so calls that never
+ * run the check themselves (libc: printf, snprintf, ...) have stack to use. */
+#define RUN_STACK_CHECK_HEADROOM ((size_t)32 * 1024)
 #define RUN_STACK_SHRINK_THRESHOLD 4                /* shrink below 25% usage */
 #define RUN_STACK_SHRINK_HYSTERESIS 2               /* keep 2x live usage */
 
@@ -1708,7 +1711,14 @@ void run_stack_check(void *sp) {
     if (g == NULL || g->id == 0)
         return;
     run_stack_record_sp(g, sp);
-    run_stack_grow_to_sp(g, sp);
+    /* Commit headroom below the current frame: code between prologue checks
+     * (including libc calls like printf, which never call run_stack_check)
+     * must have real pages to run on. Clamp to the reserved range. */
+    char *target = (char *)sp - RUN_STACK_CHECK_HEADROOM;
+    char *lo_limit = (char *)g->stack_base + run_vmem_page_size();
+    if (target < lo_limit)
+        target = lo_limit;
+    run_stack_grow_to_sp(g, target);
 }
 
 /* ========================================================================

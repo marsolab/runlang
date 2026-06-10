@@ -1,0 +1,9 @@
+// expect: 42
+package main
+
+use "fmt"
+
+pub fun main() {
+    addOne := fun(x int) int { return x + 1 }
+    fmt.println(addOne(41))
+}

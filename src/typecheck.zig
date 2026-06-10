@@ -1876,11 +1876,7 @@ const TypeChecker = struct {
                 break :blk types.null_type;
             },
 
-            .closure => blk: {
-                const data = self.nodeData(node);
-                if (data.rhs != null_node) try self.checkBlock(data.rhs);
-                break :blk types.null_type;
-            },
+            .closure => try self.inferClosure(node),
 
             .variant => blk: {
                 if (self.nodeData(node).lhs != null_node) {
@@ -2846,6 +2842,51 @@ const TypeChecker = struct {
             },
             else => return types.null_type,
         }
+    }
+
+    /// Infer a closure literal: builds its FnType from the parameter list
+    /// and declared return type, and checks the body with that return type
+    /// in scope (so `return` inside the closure is checked against the
+    /// closure, not the enclosing function).
+    /// Closure extra layout: [param1..paramN, count, ret_type]
+    fn inferClosure(self: *TypeChecker, node: NodeIndex) CheckError!TypeId {
+        const data = self.nodeData(node);
+        const extra = self.tree.extra_data.items;
+        const params_start = data.lhs;
+        const param_count = self.findParamCount(params_start, extra);
+        const param_nodes = extra[params_start .. params_start + param_count];
+
+        const owned_params = try self.allocator.alloc(TypeId, param_count);
+        try self.allocated_param_slices.append(self.allocator, owned_params);
+        for (param_nodes, 0..) |param_node, i| {
+            owned_params[i] = types.null_type;
+            if (param_node == null_node) continue;
+            const param_type = self.resolveTypeNode(self.nodeData(param_node).lhs);
+            owned_params[i] = param_type;
+            const param_name = self.tokenSlice(self.nodeMainToken(param_node));
+            self.updateSymbolTypeByDeclNode(param_node, param_name, param_type);
+        }
+
+        const ret_pos = params_start + param_count + 1;
+        const ret_type_node = if (ret_pos < extra.len) extra[ret_pos] else null_node;
+        const return_type = if (ret_type_node != null_node)
+            self.resolveTypeNode(ret_type_node)
+        else
+            types.primitives.void_id;
+
+        const prev_return_type = self.current_fn_return_type;
+        const prev_has_return_type = self.current_fn_has_return_type;
+        self.current_fn_return_type = return_type;
+        self.current_fn_has_return_type = ret_type_node != null_node;
+        defer self.current_fn_return_type = prev_return_type;
+        defer self.current_fn_has_return_type = prev_has_return_type;
+
+        if (data.rhs != null_node) try self.checkBlock(data.rhs);
+
+        return try self.type_pool.addType(self.allocator, .{ .fn_type = .{
+            .params = owned_params,
+            .return_type = return_type,
+        } });
     }
 
     fn inferSimdLiteral(self: *TypeChecker, node: NodeIndex) CheckError!TypeId {

@@ -71,6 +71,7 @@ pub fn lowerProgram(
         .diags = diags,
         .struct_c_names = .empty,
         .func_local_names = .empty,
+        .closure_ctx_node = null_node,
         .methods = .empty,
     };
     // Register the source file for debug info
@@ -118,6 +119,10 @@ const LoweringContext = struct {
 
     // Source names already used as C locals in the current function.
     func_local_names: std.StringHashMapUnmanaged(void),
+
+    // Non-zero while lowering a closure body: the closure's AST node, used
+    // to report capture attempts (closures see a fresh variable space).
+    closure_ctx_node: NodeIndex,
 
     // Methods discovered in a prepass: (receiver struct TypeId, name) →
     // mangled C name + receiver kind, so call sites can dispatch regardless
@@ -274,6 +279,11 @@ const LoweringContext = struct {
             try self.emit(ir.makeInst(.local_get, r, local_idx, 0));
             return r;
         }
+        // Closures lower with a fresh variable space, so a name that misses
+        // here but resolved earlier is a capture of an outer variable.
+        if (self.closure_ctx_node != null_node) {
+            try self.unsupported(self.closure_ctx_node, "closures that capture outer variables");
+        }
         return ir.null_ref;
     }
 
@@ -400,6 +410,9 @@ const LoweringContext = struct {
             .simd_type => self.simdCType(type_id),
             .newtype => |newtype| self.cTypeForTypeId(newtype.underlying),
             .struct_type => self.struct_c_names.get(type_id) orelse "int64_t",
+            // Function values are generic pointers; calls cast to the
+            // concrete signature (see call_ptr).
+            .fn_type => "void*",
             else => "int64_t",
         };
     }
@@ -1659,10 +1672,7 @@ const LoweringContext = struct {
                 try self.unsupported(node_idx, "anonymous struct literals");
                 return ir.null_ref;
             },
-            .closure => {
-                try self.unsupported(node_idx, "closures");
-                return ir.null_ref;
-            },
+            .closure => return try self.lowerClosureLifted(node_idx, null),
             .variant => {
                 try self.unsupported(node_idx, "sum-type variants");
                 return ir.null_ref;
@@ -2426,27 +2436,198 @@ const LoweringContext = struct {
         return self.emitTypedCall(helper_name, arg_refs.items, return_type_name, false);
     }
 
+    /// Lift a closure literal into a top-level function and return a
+    /// function-pointer value. Capturing closures are rejected (the body
+    /// lowers with a fresh variable space; see getVar).
+    /// Returns the lifted function's mangled name via out_name when non-null.
+    fn lowerClosureLifted(self: *LoweringContext, node_idx: NodeIndex, out_name: ?*[]const u8) LowerError!ir.Ref {
+        const node = self.tree.nodes.items[node_idx];
+        const extra = self.tree.extra_data.items;
+        const params_start = node.data.lhs;
+        var param_count: u32 = 0;
+        while (params_start + param_count < extra.len) : (param_count += 1) {
+            if (extra[params_start + param_count] == param_count) break;
+        }
+        const param_nodes = extra[params_start .. params_start + param_count];
+        const body = node.data.rhs;
+
+        const fn_type_id = self.typeOfNode(node_idx);
+        var return_type: TypeId = types.primitives.void_id;
+        var param_types: []const TypeId = &.{};
+        if (fn_type_id != types.null_type) {
+            switch (self.type_pool.get(fn_type_id)) {
+                .fn_type => |ft| {
+                    return_type = ft.return_type;
+                    param_types = ft.params;
+                },
+                else => {},
+            }
+        }
+
+        const name = try std.fmt.allocPrint(self.allocator, "run_closure_{d}", .{self.module.functions.items.len});
+        try self.module.owned_strings.append(self.allocator, name);
+        if (out_name) |slot| slot.* = name;
+
+        // Swap in a fresh per-function lowering state for the closure body.
+        const saved_func = self.current_func;
+        const saved_block = self.current_block;
+        const saved_closure = self.closure_ctx_node;
+        var fresh_var_map: @TypeOf(self.var_map) = .empty;
+        var fresh_var_lookup: @TypeOf(self.var_lookup) = .empty;
+        var fresh_shadow: @TypeOf(self.var_shadow_stack) = .empty;
+        var fresh_shadow_scopes: @TypeOf(self.var_shadow_scope_stack) = .empty;
+        var fresh_scopes: @TypeOf(self.scope_stack) = .empty;
+        var fresh_defers: @TypeOf(self.defer_stack) = .empty;
+        var fresh_defer_scopes: @TypeOf(self.defer_scope_stack) = .empty;
+        var fresh_owned: @TypeOf(self.owned_stack) = .empty;
+        var fresh_owned_scopes: @TypeOf(self.owned_scope_stack) = .empty;
+        var fresh_loops: @TypeOf(self.loop_stack) = .empty;
+        var fresh_names: @TypeOf(self.func_local_names) = .empty;
+        std.mem.swap(@TypeOf(self.var_map), &self.var_map, &fresh_var_map);
+        std.mem.swap(@TypeOf(self.var_lookup), &self.var_lookup, &fresh_var_lookup);
+        std.mem.swap(@TypeOf(self.var_shadow_stack), &self.var_shadow_stack, &fresh_shadow);
+        std.mem.swap(@TypeOf(self.var_shadow_scope_stack), &self.var_shadow_scope_stack, &fresh_shadow_scopes);
+        std.mem.swap(@TypeOf(self.scope_stack), &self.scope_stack, &fresh_scopes);
+        std.mem.swap(@TypeOf(self.defer_stack), &self.defer_stack, &fresh_defers);
+        std.mem.swap(@TypeOf(self.defer_scope_stack), &self.defer_scope_stack, &fresh_defer_scopes);
+        std.mem.swap(@TypeOf(self.owned_stack), &self.owned_stack, &fresh_owned);
+        std.mem.swap(@TypeOf(self.owned_scope_stack), &self.owned_scope_stack, &fresh_owned_scopes);
+        std.mem.swap(@TypeOf(self.loop_stack), &self.loop_stack, &fresh_loops);
+        std.mem.swap(@TypeOf(self.func_local_names), &self.func_local_names, &fresh_names);
+        self.closure_ctx_node = node_idx;
+
+        const func_id = try self.module.addFunction(self.allocator, name);
+        self.current_func = self.module.getFunction(func_id);
+        self.current_func.?.return_type_name = self.cTypeForTypeId(return_type);
+
+        var param_refs: [64]ir.Ref = [_]ir.Ref{ir.null_ref} ** 64;
+        for (param_nodes, 0..) |param_node, i| {
+            if (param_node == null_node or i >= param_refs.len) continue;
+            const param_name = self.tokenSlice(self.tree.nodes.items[param_node].main_token);
+            const param_type = if (i < param_types.len) param_types[i] else types.null_type;
+            const c_name = try std.fmt.allocPrint(self.allocator, "_param_{s}", .{param_name});
+            try self.module.owned_strings.append(self.allocator, c_name);
+            param_refs[i] = try self.current_func.?.addParam(self.allocator, c_name, self.cTypeForTypeId(param_type));
+        }
+
+        const block_id = try self.current_func.?.addBlock(self.allocator);
+        self.current_block = self.current_func.?.getBlock(block_id);
+
+        try self.pushScope();
+        for (param_nodes, 0..) |param_node, i| {
+            if (param_node == null_node or i >= param_refs.len or param_refs[i] == ir.null_ref) continue;
+            const param_name = self.tokenSlice(self.tree.nodes.items[param_node].main_token);
+            const param_type = if (i < param_types.len) param_types[i] else types.null_type;
+            _ = try self.defineVar(param_name, self.cTypeForTypeId(param_type), self.alignmentForTypeId(param_type), param_refs[i]);
+        }
+        if (body != null_node) {
+            try self.lowerBlock(body);
+        }
+        try self.popScope();
+        if (self.current_block != null and !self.current_block.?.isTerminated()) {
+            try self.current_block.?.addInst(self.allocator, ir.makeInst(.ret_void, 0, 0, 0));
+        }
+
+        // Restore enclosing function state.
+        std.mem.swap(@TypeOf(self.var_map), &self.var_map, &fresh_var_map);
+        std.mem.swap(@TypeOf(self.var_lookup), &self.var_lookup, &fresh_var_lookup);
+        std.mem.swap(@TypeOf(self.var_shadow_stack), &self.var_shadow_stack, &fresh_shadow);
+        std.mem.swap(@TypeOf(self.var_shadow_scope_stack), &self.var_shadow_scope_stack, &fresh_shadow_scopes);
+        std.mem.swap(@TypeOf(self.scope_stack), &self.scope_stack, &fresh_scopes);
+        std.mem.swap(@TypeOf(self.defer_stack), &self.defer_stack, &fresh_defers);
+        std.mem.swap(@TypeOf(self.defer_scope_stack), &self.defer_scope_stack, &fresh_defer_scopes);
+        std.mem.swap(@TypeOf(self.owned_stack), &self.owned_stack, &fresh_owned);
+        std.mem.swap(@TypeOf(self.owned_scope_stack), &self.owned_scope_stack, &fresh_owned_scopes);
+        std.mem.swap(@TypeOf(self.loop_stack), &self.loop_stack, &fresh_loops);
+        std.mem.swap(@TypeOf(self.func_local_names), &self.func_local_names, &fresh_names);
+        fresh_var_map.deinit(self.allocator);
+        fresh_var_lookup.deinit(self.allocator);
+        fresh_shadow.deinit(self.allocator);
+        fresh_shadow_scopes.deinit(self.allocator);
+        fresh_scopes.deinit(self.allocator);
+        fresh_defers.deinit(self.allocator);
+        fresh_defer_scopes.deinit(self.allocator);
+        fresh_owned.deinit(self.allocator);
+        fresh_owned_scopes.deinit(self.allocator);
+        fresh_loops.deinit(self.allocator);
+        fresh_names.deinit(self.allocator);
+        self.closure_ctx_node = saved_closure;
+        self.current_func = saved_func;
+        self.current_block = saved_block;
+
+        // The closure value in the enclosing function: a function pointer.
+        if (self.current_func == null) return ir.null_ref;
+        const ci = try self.module.addTypedCallInfo(self.allocator, name, &.{}, "void*");
+        const r = self.allocRef();
+        try self.emit(ir.makeInst(.closure_create, r, ci, 0));
+        return r;
+    }
+
+    /// Build the C function-pointer cast type for an fn_type, e.g.
+    /// "int64_t (*)(int64_t, int64_t)".
+    fn fnPtrCastType(self: *LoweringContext, fn_type_id: TypeId) LowerError![]const u8 {
+        var ret_c: []const u8 = "void";
+        var params: []const TypeId = &.{};
+        if (fn_type_id != types.null_type) {
+            switch (self.type_pool.get(fn_type_id)) {
+                .fn_type => |ft| {
+                    ret_c = self.cTypeForTypeId(ft.return_type);
+                    params = ft.params;
+                },
+                else => {},
+            }
+        }
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(self.allocator);
+        try buf.appendSlice(self.allocator, ret_c);
+        try buf.appendSlice(self.allocator, " (*)(");
+        if (params.len == 0) {
+            try buf.appendSlice(self.allocator, "void");
+        } else {
+            for (params, 0..) |p, i| {
+                if (i > 0) try buf.appendSlice(self.allocator, ", ");
+                try buf.appendSlice(self.allocator, self.cTypeForTypeId(p));
+            }
+        }
+        try buf.appendSlice(self.allocator, ")");
+        const owned = try buf.toOwnedSlice(self.allocator);
+        try self.module.owned_strings.append(self.allocator, owned);
+        return owned;
+    }
+
     fn lowerRunStmt(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
         const node = self.tree.nodes.items[node_idx];
         const call_idx = node.data.lhs;
         if (call_idx == null_node) return;
 
         const call_node = self.tree.nodes.items[call_idx];
-        if (call_node.tag != .call) return;
 
-        // Get the target function name and mangle it
-        const callee_name = self.resolveCalleeName(call_node.data.lhs);
-        const target_name = try self.targetNameForCall(callee_name);
-
-        // Lower arguments (same pattern as lowerCall)
-        const args_start = call_node.data.rhs;
+        var target_name: []const u8 = "";
         var arg_refs: std.ArrayList(ir.Ref) = .empty;
         defer arg_refs.deinit(self.allocator);
 
-        const n = self.findTrailingCount(args_start);
-        for (self.tree.extra_data.items[args_start .. args_start + n]) |arg_node| {
-            const arg_ref = try self.lowerExpr(arg_node);
-            try arg_refs.append(self.allocator, arg_ref);
+        if (call_node.tag == .closure) {
+            // `run fun() { ... }` — spawn a lifted closure with no args.
+            _ = try self.lowerClosureLifted(call_idx, &target_name);
+        } else if (call_node.tag == .call) {
+            const callee_idx = call_node.data.lhs;
+            const args_start = call_node.data.rhs;
+            const n = self.findTrailingCount(args_start);
+            const arg_nodes = self.tree.extra_data.items[args_start .. args_start + n];
+
+            if (callee_idx != null_node and self.tree.nodes.items[callee_idx].tag == .closure) {
+                // `run fun() { ... }()` — spawn the lifted closure.
+                _ = try self.lowerClosureLifted(callee_idx, &target_name);
+            } else {
+                const callee_name = self.resolveCalleeName(callee_idx);
+                target_name = try self.targetNameForCall(callee_name);
+            }
+
+            for (arg_nodes) |arg_node| {
+                try arg_refs.append(self.allocator, try self.lowerExpr(arg_node));
+            }
+        } else {
+            return self.unsupported(node_idx, "spawning this expression with 'run'");
         }
 
         // Store spawn info in call_info so codegen can emit the function name as a symbol
@@ -2470,6 +2651,35 @@ const LoweringContext = struct {
         const arg_nodes = self.tree.extra_data.items[args_start .. args_start + arg_count];
         if (self.builtinCallName(callee_idx)) |builtin_name| {
             return try self.lowerBuiltinCall(builtin_name, node_idx, arg_nodes);
+        }
+
+        // Indirect call through a local holding a function value:
+        // `f := fun(x int) int { ... }; f(1)`.
+        if (callee_idx != null_node and self.tree.nodes.items[callee_idx].tag == .ident) {
+            const callee_name_slice = self.tokenSlice(self.tree.nodes.items[callee_idx].main_token);
+            const callee_type = self.typeOfNode(callee_idx);
+            if (self.lookupLocalIdx(callee_name_slice) != null and callee_type != types.null_type and
+                callee_type >= types.primitives.count)
+            {
+                switch (self.type_pool.get(callee_type)) {
+                    .fn_type => |ft| {
+                        const fn_ref = try self.getVar(callee_name_slice);
+                        var indirect_args: std.ArrayList(ir.Ref) = .empty;
+                        defer indirect_args.deinit(self.allocator);
+                        for (arg_nodes) |arg_node| {
+                            try indirect_args.append(self.allocator, try self.lowerExpr(arg_node));
+                        }
+                        const cast_type = try self.fnPtrCastType(callee_type);
+                        const ret_c = self.cTypeForTypeId(ft.return_type);
+                        const ci = try self.module.addTypedCallInfo(self.allocator, cast_type, indirect_args.items, ret_c);
+                        const is_void = std.mem.eql(u8, ret_c, "void");
+                        const result = if (is_void) ir.null_ref else self.allocRef();
+                        try self.emit(ir.makeInst(.call_ptr, result, ci, fn_ref));
+                        return result;
+                    },
+                    else => {},
+                }
+            }
         }
 
         // Method dispatch: `base.method(args)` where base is a struct value

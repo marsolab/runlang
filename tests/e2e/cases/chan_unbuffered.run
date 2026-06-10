@@ -1,0 +1,14 @@
+// expect: 10
+package main
+
+use "fmt"
+
+fun worker(ch chan int) {
+    ch <- 10
+}
+
+pub fun main() {
+    ch := alloc(chan[int])
+    run worker(ch)
+    fmt.println(<-ch)
+}

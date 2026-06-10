@@ -265,7 +265,7 @@ pub const CCodegen = struct {
                 break :blk "int64_t";
             },
             .load => "int64_t", // conservative default
-            .call => blk: {
+            .call, .call_ptr => blk: {
                 const ci = inst.arg1;
                 if (ci < self.module.call_infos.items.len) {
                     break :blk self.module.call_infos.items[ci].return_type_name;
@@ -466,6 +466,24 @@ pub const CCodegen = struct {
                 try self.emitIndent();
                 try self.writer().print("_t{d} = run_gen_ref_deref(_t{d});\n", .{ inst.result, inst.arg1 });
             },
+            .call_ptr => {
+                // arg1 = call_info (target_name holds the C function-pointer
+                // cast type), arg2 = function pointer ref.
+                const call_idx = inst.arg1;
+                if (call_idx >= self.module.call_infos.items.len) return;
+                const info = self.module.call_infos.items[call_idx];
+                try self.emitIndent();
+                if (inst.result != ir.null_ref) {
+                    try self.writer().print("_t{d} = (({s})_t{d})(", .{ inst.result, info.target_name, inst.arg2 });
+                } else {
+                    try self.writer().print("(({s})_t{d})(", .{ info.target_name, inst.arg2 });
+                }
+                for (info.args.items, 0..) |arg_ref, i| {
+                    if (i > 0) try self.writer().print(", ", .{});
+                    try self.writer().print("_t{d}", .{arg_ref});
+                }
+                try self.writer().print(");\n", .{});
+            },
             .call => {
                 // arg1 is the index into module.call_infos
                 const call_idx = inst.arg1;
@@ -583,8 +601,14 @@ pub const CCodegen = struct {
                 try self.writer().print("_t{d} = _t{d}; /* error_wrap */\n", .{ inst.result, inst.arg1 });
             },
             .closure_create => {
+                // arg1 = call_info whose target_name is the lifted function.
                 try self.emitIndent();
-                try self.writer().print("_t{d} = NULL; /* closure_create */\n", .{inst.result});
+                if (inst.arg1 < self.module.call_infos.items.len) {
+                    const info = self.module.call_infos.items[inst.arg1];
+                    try self.writer().print("_t{d} = (void*){s};\n", .{ inst.result, info.target_name });
+                } else {
+                    try self.writer().print("_t{d} = NULL; /* closure_create */\n", .{inst.result});
+                }
             },
             .cast => {
                 try self.emitIndent();
