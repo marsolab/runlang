@@ -312,8 +312,13 @@ static void *run_stack_alloc(size_t *out_size, size_t *out_committed) {
             fprintf(stderr, "run: failed to reserve stack (%zu bytes)\n", max_size);
             abort();
         }
-        /* Commit initial pages at the TOP of the stack (stack grows down) */
+        /* Commit initial pages at the TOP of the stack (stack grows down).
+         * At least one page: macOS arm64 uses 16 KB pages, larger than the
+         * default initial commit, and mprotect needs page-aligned ranges. */
         size_t initial = RUN_GROWABLE_INITIAL;
+        size_t page = run_vmem_page_size();
+        if (initial < page)
+            initial = page;
         void *commit_start = (char *)mem + max_size - initial;
         run_vmem_protect(commit_start, initial, RUN_VMEM_READWRITE);
         /* Guard page at the very bottom */
