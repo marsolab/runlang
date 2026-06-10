@@ -1,0 +1,10 @@
+// expect: 0
+package main
+
+use "fmt"
+
+pub fun main() {
+    m := alloc(map[int]int)
+    m[1] = 100
+    fmt.println(m[42])
+}

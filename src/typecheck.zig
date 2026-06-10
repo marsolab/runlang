@@ -2682,6 +2682,31 @@ const TypeChecker = struct {
         const index_type = try self.inferExpr(data.rhs);
 
         if (base_type == types.null_type) return types.null_type;
+
+        // Slice indexing: s[i] yields the element type.
+        switch (self.type_pool.get(base_type)) {
+            .slice_type => |sl| {
+                if (index_type != types.null_type and !self.type_pool.isInteger(index_type)) {
+                    const loc = self.tokenLoc(self.nodeMainToken(data.rhs));
+                    try self.diagnostics.addError(loc.start, loc.end, "slice index must be an integer expression");
+                }
+                return sl.elem;
+            },
+            .map_type => |m| {
+                if (index_type != types.null_type and m.key != types.null_type and
+                    !self.typesCompatible(m.key, index_type))
+                {
+                    const loc = self.tokenLoc(self.nodeMainToken(data.rhs));
+                    try self.diagnostics.addErrorFmt(loc.start, loc.end, "map key type mismatch: expected '{s}', got '{s}'", .{
+                        self.typeName(m.key),
+                        self.typeName(index_type),
+                    });
+                }
+                return m.value;
+            },
+            else => {},
+        }
+
         if (!self.type_pool.isSimd(base_type)) return types.null_type;
 
         if (index_type != types.null_type and !self.type_pool.isInteger(index_type)) {

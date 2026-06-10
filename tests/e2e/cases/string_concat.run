@@ -1,0 +1,9 @@
+// expect: foobar
+package main
+
+use "fmt"
+
+pub fun main() {
+    s := "foo" + "bar"
+    fmt.println(s)
+}
