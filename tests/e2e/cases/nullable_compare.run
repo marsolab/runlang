@@ -1,0 +1,23 @@
+// expect: 1
+// expect: 2
+package main
+
+use "fmt"
+
+fun find(x int) int? {
+    if x > 10 {
+        return x
+    }
+    return null
+}
+
+pub fun main() {
+    r := find(50)
+    if r != null {
+        fmt.println(1)
+    }
+    var b int? = null
+    if b == null {
+        fmt.println(2)
+    }
+}

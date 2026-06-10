@@ -1,0 +1,12 @@
+// expect: -1
+package main
+
+use "fmt"
+
+pub fun main() {
+    var b int? = null
+    switch b {
+        .some(v) :: fmt.println(v),
+        .null :: fmt.println(-1),
+    }
+}

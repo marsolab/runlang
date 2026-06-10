@@ -1,0 +1,18 @@
+// expect: -5
+package main
+
+use "fmt"
+
+fun find(x int) int? {
+    if x > 10 {
+        return x
+    }
+    return null
+}
+
+pub fun main() {
+    switch find(5) {
+        .some(v) :: fmt.println(v),
+        .null :: fmt.println(-5),
+    }
+}

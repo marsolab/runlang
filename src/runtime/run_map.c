@@ -2,6 +2,8 @@
 
 #include "run_string.h"
 
+#include <stdalign.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -115,7 +117,10 @@ run_map_t *run_map_new(size_t key_size, size_t val_size, run_hash_fn hash_fn, ru
 
     map->key_size = key_size;
     map->val_size = val_size;
-    map->entry_size = key_size + val_size;
+    /* Keep every entry's key slot aligned for direct casts in hash/eq
+     * functions (e.g. run_eq_string casts the key to run_string_t*). */
+    map->entry_size =
+        (key_size + val_size + _Alignof(max_align_t) - 1) & ~(_Alignof(max_align_t) - 1);
     map->hash_fn = hash_fn;
     map->eq_fn = eq_fn;
     map->capacity = RUN_MAP_INITIAL_CAP;
@@ -191,8 +196,11 @@ void run_map_set(run_map_t *map, const void *key, const void *val) {
     uint64_t insert_hash = hash;
     uint32_t insert_psl = psl;
 
-    /* Copy key+val into a temp buffer for potential swapping */
-    char entry_buf[512]; /* stack buffer for small entries */
+    /* Copy key+val into a temp buffer for potential swapping. The buffer is
+     * cast to key types by hash/eq callbacks (e.g. run_string_t*), so it must
+     * be maximally aligned — a plain char array has alignment 1 and faults
+     * on alignment-checking targets (this crashed on macOS arm64). */
+    _Alignas(max_align_t) char entry_buf[512]; /* stack buffer for small entries */
     char *insert_data;
     if (map->entry_size <= sizeof(entry_buf)) {
         insert_data = entry_buf;
@@ -236,7 +244,7 @@ void run_map_set(run_map_t *map, const void *key, const void *val) {
 
             /* Swap entry data */
             /* Use a second temp buffer */
-            char swap_buf[512];
+            _Alignas(max_align_t) char swap_buf[512];
             char *swap_data;
             if (map->entry_size <= sizeof(swap_buf)) {
                 swap_data = swap_buf;
