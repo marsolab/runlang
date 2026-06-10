@@ -1,0 +1,23 @@
+// expect: 41
+package main
+
+use "fmt"
+
+fun mayFail(x int) !int {
+    if x < 0 {
+        return errors.new("negative input")
+    }
+    return x * 2
+}
+
+fun compute(x int) !int {
+    v := try mayFail(x)
+    return v + 1
+}
+
+pub fun main() {
+    switch compute(20) {
+        .ok(v) :: fmt.println(v),
+        .err(e) :: fmt.println(e),
+    }
+}
