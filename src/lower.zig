@@ -72,6 +72,7 @@ pub fn lowerProgram(
         .struct_c_names = .empty,
         .func_local_names = .empty,
         .closure_ctx_node = null_node,
+        .current_fn_return_type_id = types.null_type,
         .methods = .empty,
     };
     // Register the source file for debug info
@@ -123,6 +124,10 @@ const LoweringContext = struct {
     // Non-zero while lowering a closure body: the closure's AST node, used
     // to report capture attempts (closures see a fresh variable space).
     closure_ctx_node: NodeIndex,
+
+    // Return type of the function currently being lowered (null_type when
+    // void/unknown) — drives error-union return/try propagation.
+    current_fn_return_type_id: TypeId,
 
     // Methods discovered in a prepass: (receiver struct TypeId, name) →
     // mangled C name + receiver kind, so call sites can dispatch regardless
@@ -410,6 +415,7 @@ const LoweringContext = struct {
             .simd_type => self.simdCType(type_id),
             .newtype => |newtype| self.cTypeForTypeId(newtype.underlying),
             .struct_type => self.struct_c_names.get(type_id) orelse "int64_t",
+            .error_union_type => self.struct_c_names.get(type_id) orelse "int64_t",
             // Function values are generic pointers; calls cast to the
             // concrete signature (see call_ptr).
             .fn_type => "void*",
@@ -512,6 +518,23 @@ const LoweringContext = struct {
             }
         }
 
+        // Error unions get C names too:
+        // { bool is_error; run_string_t error_msg; T value; }
+        id = 0;
+        while (id < pool_len) : (id += 1) {
+            switch (self.type_pool.get(id)) {
+                .error_union_type => |eu| {
+                    const payload_c = if (eu.payload == types.null_type or eu.payload == types.primitives.void_id)
+                        "void"
+                    else
+                        self.cTypeForTypeId(eu.payload);
+                    const c_name = try self.sanitizedTypeName("run_err_", payload_c);
+                    try self.struct_c_names.put(self.allocator, id, c_name);
+                },
+                else => {},
+            }
+        }
+
         id = 0;
         while (id < pool_len) : (id += 1) {
             switch (self.type_pool.get(id)) {
@@ -550,6 +573,51 @@ const LoweringContext = struct {
                 else => {},
             }
         }
+
+        // Emit error-union typedefs after struct typedefs so payload fields
+        // can reference run_type_* by name.
+        id = 0;
+        while (id < pool_len) : (id += 1) {
+            switch (self.type_pool.get(id)) {
+                .error_union_type => |eu| {
+                    const c_name = self.struct_c_names.get(id).?;
+                    var already = false;
+                    for (self.module.struct_infos.items) |si| {
+                        if (std.mem.eql(u8, si.c_name, c_name)) {
+                            already = true;
+                            break;
+                        }
+                    }
+                    if (already) continue;
+                    var info = ir.StructInfo{ .c_name = c_name, .fields = .empty };
+                    try info.fields.append(self.allocator, .{ .name = "is_error", .c_type = "bool" });
+                    try info.fields.append(self.allocator, .{ .name = "error_msg", .c_type = "run_string_t" });
+                    if (eu.payload != types.null_type and eu.payload != types.primitives.void_id) {
+                        try info.fields.append(self.allocator, .{ .name = "value", .c_type = self.cTypeForTypeId(eu.payload) });
+                    }
+                    try self.module.struct_infos.append(self.allocator, info);
+                },
+                else => {},
+            }
+        }
+    }
+
+    /// Build an identifier-safe C type name with the given prefix, e.g.
+    /// "run_err_" + "run_chan_t*" -> "run_err_run_chan_t_ptr".
+    fn sanitizedTypeName(self: *LoweringContext, comptime prefix: []const u8, c_type: []const u8) LowerError![]const u8 {
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(self.allocator);
+        try buf.appendSlice(self.allocator, prefix);
+        for (c_type) |ch| {
+            switch (ch) {
+                '*' => try buf.appendSlice(self.allocator, "_ptr"),
+                ' ' => try buf.append(self.allocator, '_'),
+                else => try buf.append(self.allocator, ch),
+            }
+        }
+        const owned = try buf.toOwnedSlice(self.allocator);
+        try self.module.owned_strings.append(self.allocator, owned);
+        return owned;
     }
 
     /// Locate a fn_decl's receiver node, or null_node for plain functions.
@@ -693,6 +761,7 @@ const LoweringContext = struct {
         const func_id = try self.module.addFunction(self.allocator, mangled);
         self.current_func = self.module.getFunction(func_id);
         self.func_local_names.clearRetainingCapacity();
+        self.current_fn_return_type_id = types.null_type;
         if (self.next_fn_is_inline) {
             self.current_func.?.is_inline = true;
             self.next_fn_is_inline = false;
@@ -728,6 +797,7 @@ const LoweringContext = struct {
             switch (self.type_pool.get(fn_type_id)) {
                 .fn_type => |fn_type| {
                     self.current_func.?.return_type_name = self.cTypeForTypeId(fn_type.return_type);
+                    self.current_fn_return_type_id = fn_type.return_type;
                     for (param_nodes, 0..) |param_node, i| {
                         if (param_node == null_node or i >= fn_type.params.len or i >= param_refs.len) continue;
                         const param_name = self.tokenSlice(self.tree.nodes.items[param_node].main_token);
@@ -764,7 +834,14 @@ const LoweringContext = struct {
         try self.popScope();
 
         if (self.current_block != null and !self.current_block.?.isTerminated()) {
-            try self.current_block.?.addInst(self.allocator, ir.makeInst(.ret_void, 0, 0, 0));
+            if (self.isErrorUnion(self.current_fn_return_type_id)) {
+                // Falling off the end of a `!`-returning function yields ok.
+                const ok_ref = try self.buildErrUnionValue(self.current_fn_return_type_id, ir.null_ref, ir.null_ref);
+                try self.emitAllCleanup();
+                try self.emit(ir.makeInst(.ret, 0, ok_ref, 0));
+            } else {
+                try self.current_block.?.addInst(self.allocator, ir.makeInst(.ret_void, 0, 0, 0));
+            }
         }
     }
 
@@ -789,16 +866,7 @@ const LoweringContext = struct {
             .expr_stmt => {
                 _ = try self.lowerExpr(node.data.lhs);
             },
-            .return_stmt => {
-                if (node.data.lhs != null_node) {
-                    const val = try self.lowerExpr(node.data.lhs);
-                    try self.emitAllCleanup();
-                    try self.emit(ir.makeInst(.ret, 0, val, 0));
-                } else {
-                    try self.emitAllCleanup();
-                    try self.emit(ir.makeInst(.ret_void, 0, 0, 0));
-                }
-            },
+            .return_stmt => try self.lowerReturnStmt(node_idx),
             .var_decl, .let_decl => try self.lowerVarDecl(node_idx),
             .short_var_decl => try self.lowerShortVarDecl(node_idx),
             .assign => try self.lowerAssign(node_idx),
@@ -1349,6 +1417,154 @@ const LoweringContext = struct {
         return self.emitTypedCall(mi.mangled, arg_refs.items, return_type_name, false);
     }
 
+    /// True when a type id is an error union.
+    fn isErrorUnion(self: *const LoweringContext, type_id: TypeId) bool {
+        if (type_id == types.null_type or type_id < types.primitives.count) return false;
+        return switch (self.type_pool.get(type_id)) {
+            .error_union_type => true,
+            else => false,
+        };
+    }
+
+    /// Payload type of an error union (null_type for bare `!`).
+    fn errUnionPayload(self: *const LoweringContext, eu_type: TypeId) TypeId {
+        return switch (self.type_pool.get(eu_type)) {
+            .error_union_type => |eu| eu.payload,
+            else => types.null_type,
+        };
+    }
+
+    /// True when the AST node is a call to `errors.new(...)`.
+    fn isErrorsNewCall(self: *const LoweringContext, node_idx: NodeIndex) bool {
+        if (node_idx == null_node) return false;
+        const node = self.tree.nodes.items[node_idx];
+        if (node.tag != .call) return false;
+        const callee_idx = node.data.lhs;
+        if (callee_idx == null_node) return false;
+        const callee = self.tree.nodes.items[callee_idx];
+        if (callee.tag != .field_access) return false;
+        const obj = self.tree.nodes.items[callee.data.lhs];
+        if (obj.tag != .ident) return false;
+        if (!std.mem.eql(u8, self.tokenSlice(obj.main_token), "errors")) return false;
+        const member_tok = callee.main_token + 1;
+        return member_tok < self.tokens.len and std.mem.eql(u8, self.tokenSlice(member_tok), "new");
+    }
+
+    /// Build an error-union value in a fresh temp local. With `error_msg_ref`
+    /// set, the value is an error; otherwise `payload_ref` (or nothing, for
+    /// bare `!`) fills the success value. Returns the loaded struct value.
+    fn buildErrUnionValue(
+        self: *LoweringContext,
+        eu_type: TypeId,
+        payload_ref: ir.Ref,
+        error_msg_ref: ir.Ref,
+    ) LowerError!ir.Ref {
+        const eu_c = self.struct_c_names.get(eu_type) orelse "int64_t";
+        const tmp_idx = try self.makeTempLocal("_err", eu_c, 0);
+        try self.emit(ir.makeInst(.local_zero, 0, tmp_idx, 0));
+        if (error_msg_ref != ir.null_ref) {
+            const true_ref = self.allocRef();
+            try self.emit(ir.makeInst(.const_bool, true_ref, 1, 0));
+            const fi_err = try self.module.addFieldInfo(self.allocator, eu_c, "is_error", "bool");
+            try self.emit(ir.makeInst(.local_field_set, true_ref, tmp_idx, fi_err));
+            const fi_msg = try self.module.addFieldInfo(self.allocator, eu_c, "error_msg", "run_string_t");
+            try self.emit(ir.makeInst(.local_field_set, error_msg_ref, tmp_idx, fi_msg));
+        } else if (payload_ref != ir.null_ref) {
+            const payload = self.errUnionPayload(eu_type);
+            const fi_val = try self.module.addFieldInfo(self.allocator, eu_c, "value", self.cTypeForTypeId(payload));
+            try self.emit(ir.makeInst(.local_field_set, payload_ref, tmp_idx, fi_val));
+        }
+        const r = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, r, tmp_idx, 0));
+        return r;
+    }
+
+    fn lowerReturnStmt(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
+        const node = self.tree.nodes.items[node_idx];
+        const value_node = node.data.lhs;
+
+        // Functions returning !T wrap the payload (or an errors.new call)
+        // into the error-union struct.
+        if (self.isErrorUnion(self.current_fn_return_type_id)) {
+            const eu_type = self.current_fn_return_type_id;
+            var result_ref: ir.Ref = ir.null_ref;
+            if (self.isErrorsNewCall(value_node)) {
+                const call_node = self.tree.nodes.items[value_node];
+                const args_start = call_node.data.rhs;
+                const arg_count = self.findTrailingCount(args_start);
+                const msg_ref = if (arg_count > 0)
+                    try self.lowerExpr(self.tree.extra_data.items[args_start])
+                else
+                    ir.null_ref;
+                result_ref = try self.buildErrUnionValue(eu_type, ir.null_ref, msg_ref);
+            } else if (value_node != null_node) {
+                const val = try self.lowerExpr(value_node);
+                result_ref = try self.buildErrUnionValue(eu_type, val, ir.null_ref);
+            } else {
+                result_ref = try self.buildErrUnionValue(eu_type, ir.null_ref, ir.null_ref);
+            }
+            try self.emitAllCleanup();
+            try self.emit(ir.makeInst(.ret, 0, result_ref, 0));
+            return;
+        }
+
+        if (value_node != null_node) {
+            const val = try self.lowerExpr(value_node);
+            try self.emitAllCleanup();
+            try self.emit(ir.makeInst(.ret, 0, val, 0));
+        } else {
+            try self.emitAllCleanup();
+            try self.emit(ir.makeInst(.ret_void, 0, 0, 0));
+        }
+    }
+
+    /// `try expr` — unwrap on success, propagate the error to the caller on
+    /// failure (the enclosing function must return an error union).
+    fn lowerTryExpr(self: *LoweringContext, node_idx: NodeIndex) LowerError!ir.Ref {
+        const node = self.tree.nodes.items[node_idx];
+        const func = self.current_func orelse return ir.null_ref;
+        const operand_type = self.typeOfNode(node.data.lhs);
+        if (!self.isErrorUnion(operand_type) or !self.isErrorUnion(self.current_fn_return_type_id)) {
+            try self.unsupported(node_idx, "'try' on this expression");
+            return ir.null_ref;
+        }
+        const eu_c = self.struct_c_names.get(operand_type) orelse "int64_t";
+        const payload = self.errUnionPayload(operand_type);
+
+        const operand_ref = try self.lowerExpr(node.data.lhs);
+        const tmp_idx = try self.makeTempLocal("_try", eu_c, 0);
+        try self.emit(ir.makeInst(.local_set, 0, tmp_idx, operand_ref));
+        const fi_err = try self.module.addFieldInfo(self.allocator, eu_c, "is_error", "bool");
+        const is_err_ref = self.allocRef();
+        try self.emit(ir.makeInst(.local_field_get, is_err_ref, tmp_idx, fi_err));
+
+        const entry_bb = self.currentBlockId() orelse return ir.null_ref;
+        const err_bb = try func.addBlock(self.allocator);
+        const ok_bb = try func.addBlock(self.allocator);
+        self.current_block = func.getBlock(entry_bb);
+        try self.emit(ir.makeInst(.br_cond, 0, is_err_ref, err_bb));
+        try self.emit(ir.makeInst(.br, 0, ok_bb, 0));
+
+        // Error path: re-wrap the message in the enclosing return type.
+        self.current_block = func.getBlock(err_bb);
+        const fi_msg = try self.module.addFieldInfo(self.allocator, eu_c, "error_msg", "run_string_t");
+        const msg_ref = self.allocRef();
+        try self.emit(ir.makeInst(.local_field_get, msg_ref, tmp_idx, fi_msg));
+        const propagated = try self.buildErrUnionValue(self.current_fn_return_type_id, ir.null_ref, msg_ref);
+        try self.emitAllCleanup();
+        try self.emit(ir.makeInst(.ret, 0, propagated, 0));
+
+        // Success path: unwrap the payload.
+        self.current_block = func.getBlock(ok_bb);
+        if (payload == types.null_type or payload == types.primitives.void_id) {
+            return ir.null_ref;
+        }
+        const fi_val = try self.module.addFieldInfo(self.allocator, eu_c, "value", self.cTypeForTypeId(payload));
+        const val_ref = self.allocRef();
+        try self.emit(ir.makeInst(.local_field_get, val_ref, tmp_idx, fi_val));
+        return val_ref;
+    }
+
     /// True if a switch pattern is the wildcard `_`.
     fn isWildcardPattern(self: *const LoweringContext, pat_idx: NodeIndex) bool {
         if (pat_idx == null_node) return false;
@@ -1378,13 +1594,18 @@ const LoweringContext = struct {
         const arm_count = self.findTrailingCount(arms_start);
         const arm_nodes = extra[arms_start .. arms_start + arm_count];
 
-        // Variant patterns (sum types, error unions, nullables) need payload
-        // destructuring that has no lowering yet — fail loudly.
+        // Error-union subjects destructure with .ok(x)/.err(e) arms.
+        if (self.isErrorUnion(self.typeOfNode(node.data.lhs))) {
+            return self.lowerErrorUnionSwitch(node_idx, arm_nodes);
+        }
+
+        // Variant patterns on sum types need payload destructuring that has
+        // no lowering yet — fail loudly.
         for (arm_nodes) |arm| {
             if (arm == null_node) continue;
             const pat_idx = self.tree.nodes.items[arm].data.lhs;
             if (pat_idx != null_node and self.tree.nodes.items[pat_idx].tag == .variant) {
-                return self.unsupported(node_idx, "switch over sum-type/error variants");
+                return self.unsupported(node_idx, "switch over sum-type variants");
             }
         }
 
@@ -1446,6 +1667,100 @@ const LoweringContext = struct {
 
             self.current_block = func.getBlock(body_bbs.items[k]);
             try self.pushScope();
+            const body_idx = arm_node.data.rhs;
+            if (body_idx != null_node) {
+                if (self.tree.nodes.items[body_idx].tag == .block) {
+                    try self.lowerBlock(body_idx);
+                } else {
+                    _ = try self.lowerExpr(body_idx);
+                }
+            }
+            try self.popScope();
+            if (self.current_block != null and !self.current_block.?.isTerminated()) {
+                try self.emit(ir.makeInst(.br, 0, after_bb, 0));
+            }
+        }
+
+        self.current_block = func.getBlock(after_bb);
+    }
+
+    /// Switch on an error union: `.ok(x) :: ...` / `.err(e) :: ...` / `_`.
+    fn lowerErrorUnionSwitch(self: *LoweringContext, node_idx: NodeIndex, arm_nodes: []const NodeIndex) LowerError!void {
+        const node = self.tree.nodes.items[node_idx];
+        const func = self.current_func orelse return;
+        const subject_type = self.typeOfNode(node.data.lhs);
+        const eu_c = self.struct_c_names.get(subject_type) orelse "int64_t";
+        const payload = self.errUnionPayload(subject_type);
+
+        const subj_ref = try self.lowerExpr(node.data.lhs);
+        const subj_idx = try self.makeTempLocal("_switch_eu", eu_c, 0);
+        try self.emit(ir.makeInst(.local_set, 0, subj_idx, subj_ref));
+        const fi_err = try self.module.addFieldInfo(self.allocator, eu_c, "is_error", "bool");
+
+        const entry_bb = self.currentBlockId() orelse return;
+        const after_bb = try func.addBlock(self.allocator);
+        var test_bbs: std.ArrayList(ir.BlockId) = .empty;
+        defer test_bbs.deinit(self.allocator);
+        var body_bbs: std.ArrayList(ir.BlockId) = .empty;
+        defer body_bbs.deinit(self.allocator);
+        for (arm_nodes) |_| {
+            try test_bbs.append(self.allocator, try func.addBlock(self.allocator));
+            try body_bbs.append(self.allocator, try func.addBlock(self.allocator));
+        }
+
+        self.current_block = func.getBlock(entry_bb);
+        try self.emit(ir.makeInst(.br, 0, if (arm_nodes.len > 0) test_bbs.items[0] else after_bb, 0));
+
+        for (arm_nodes, 0..) |arm, k| {
+            const next_target = if (k + 1 < arm_nodes.len) test_bbs.items[k + 1] else after_bb;
+            const arm_node = self.tree.nodes.items[arm];
+            const pat_idx = arm_node.data.lhs;
+
+            var is_ok_arm = false;
+            var is_err_arm = false;
+            var payload_name: []const u8 = "";
+            if (pat_idx != null_node and self.tree.nodes.items[pat_idx].tag == .variant) {
+                const pat = self.tree.nodes.items[pat_idx];
+                const vname_tok = pat.main_token + 1;
+                const vname = if (vname_tok < self.tokens.len) self.tokenSlice(vname_tok) else "";
+                is_ok_arm = std.mem.eql(u8, vname, "ok");
+                is_err_arm = std.mem.eql(u8, vname, "err");
+                if (pat.data.lhs != null_node and self.tree.nodes.items[pat.data.lhs].tag == .ident) {
+                    payload_name = self.tokenSlice(self.tree.nodes.items[pat.data.lhs].main_token);
+                }
+            }
+
+            self.current_block = func.getBlock(test_bbs.items[k]);
+            if (is_ok_arm or is_err_arm) {
+                const e_ref = self.allocRef();
+                try self.emit(ir.makeInst(.local_field_get, e_ref, subj_idx, fi_err));
+                const cond_ref = if (is_err_arm) e_ref else blk: {
+                    const not_ref = self.allocRef();
+                    try self.emit(ir.makeInst(.log_not, not_ref, e_ref, 0));
+                    break :blk not_ref;
+                };
+                try self.emit(ir.makeInst(.br_cond, 0, cond_ref, body_bbs.items[k]));
+                try self.emit(ir.makeInst(.br, 0, next_target, 0));
+            } else {
+                // Wildcard (or unrecognized pattern): always matches.
+                try self.emit(ir.makeInst(.br, 0, body_bbs.items[k], 0));
+            }
+
+            self.current_block = func.getBlock(body_bbs.items[k]);
+            try self.pushScope();
+            if (payload_name.len > 0 and !std.mem.eql(u8, payload_name, "_")) {
+                if (is_ok_arm and payload != types.null_type and payload != types.primitives.void_id) {
+                    const fi_val = try self.module.addFieldInfo(self.allocator, eu_c, "value", self.cTypeForTypeId(payload));
+                    const v_ref = self.allocRef();
+                    try self.emit(ir.makeInst(.local_field_get, v_ref, subj_idx, fi_val));
+                    _ = try self.defineVar(payload_name, self.cTypeForTypeId(payload), self.alignmentForTypeId(payload), v_ref);
+                } else if (is_err_arm) {
+                    const fi_msg = try self.module.addFieldInfo(self.allocator, eu_c, "error_msg", "run_string_t");
+                    const m_ref = self.allocRef();
+                    try self.emit(ir.makeInst(.local_field_get, m_ref, subj_idx, fi_msg));
+                    _ = try self.defineVar(payload_name, "run_string_t", 0, m_ref);
+                }
+            }
             const body_idx = arm_node.data.rhs;
             if (body_idx != null_node) {
                 if (self.tree.nodes.items[body_idx].tag == .block) {
@@ -1677,10 +1992,7 @@ const LoweringContext = struct {
                 try self.unsupported(node_idx, "sum-type variants");
                 return ir.null_ref;
             },
-            .try_expr => {
-                try self.unsupported(node_idx, "'try' error handling");
-                return ir.null_ref;
-            },
+            .try_expr => return try self.lowerTryExpr(node_idx),
             else => {
                 try self.unsupported(node_idx, "this expression");
                 return ir.null_ref;
@@ -2472,6 +2784,7 @@ const LoweringContext = struct {
         const saved_func = self.current_func;
         const saved_block = self.current_block;
         const saved_closure = self.closure_ctx_node;
+        const saved_ret_type = self.current_fn_return_type_id;
         var fresh_var_map: @TypeOf(self.var_map) = .empty;
         var fresh_var_lookup: @TypeOf(self.var_lookup) = .empty;
         var fresh_shadow: @TypeOf(self.var_shadow_stack) = .empty;
@@ -2495,6 +2808,7 @@ const LoweringContext = struct {
         std.mem.swap(@TypeOf(self.loop_stack), &self.loop_stack, &fresh_loops);
         std.mem.swap(@TypeOf(self.func_local_names), &self.func_local_names, &fresh_names);
         self.closure_ctx_node = node_idx;
+        self.current_fn_return_type_id = return_type;
 
         const func_id = try self.module.addFunction(self.allocator, name);
         self.current_func = self.module.getFunction(func_id);
@@ -2525,7 +2839,14 @@ const LoweringContext = struct {
         }
         try self.popScope();
         if (self.current_block != null and !self.current_block.?.isTerminated()) {
-            try self.current_block.?.addInst(self.allocator, ir.makeInst(.ret_void, 0, 0, 0));
+            if (self.isErrorUnion(self.current_fn_return_type_id)) {
+                // Falling off the end of a `!`-returning function yields ok.
+                const ok_ref = try self.buildErrUnionValue(self.current_fn_return_type_id, ir.null_ref, ir.null_ref);
+                try self.emitAllCleanup();
+                try self.emit(ir.makeInst(.ret, 0, ok_ref, 0));
+            } else {
+                try self.current_block.?.addInst(self.allocator, ir.makeInst(.ret_void, 0, 0, 0));
+            }
         }
 
         // Restore enclosing function state.
@@ -2552,6 +2873,7 @@ const LoweringContext = struct {
         fresh_loops.deinit(self.allocator);
         fresh_names.deinit(self.allocator);
         self.closure_ctx_node = saved_closure;
+        self.current_fn_return_type_id = saved_ret_type;
         self.current_func = saved_func;
         self.current_block = saved_block;
 

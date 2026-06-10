@@ -1,0 +1,17 @@
+// expect: ok
+package main
+
+use "fmt"
+
+fun validate(x int) ! {
+    if x > 100 {
+        return errors.new("too big")
+    }
+}
+
+pub fun main() {
+    switch validate(7) {
+        .ok :: fmt.println("ok"),
+        .err(e) :: fmt.println(e),
+    }
+}
