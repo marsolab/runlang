@@ -1,0 +1,14 @@
+// expect: 42
+package main
+
+use "fmt"
+
+pub type Box struct {
+    value int
+}
+
+pub fun main() {
+    b := Box{value: 1}
+    b.value = 42
+    fmt.println(b.value)
+}

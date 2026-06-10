@@ -1,0 +1,17 @@
+// expect: 25
+package main
+
+use "fmt"
+
+pub type Square struct {
+    side int
+}
+
+fun (s Square) area() int {
+    return s.side * s.side
+}
+
+pub fun main() {
+    s := Square{side: 5}
+    fmt.println(s.area())
+}

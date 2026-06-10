@@ -69,6 +69,9 @@ pub fn lowerProgram(
         .owned_scope_stack = .empty,
         .loop_stack = .empty,
         .diags = diags,
+        .struct_c_names = .empty,
+        .func_local_names = .empty,
+        .methods = .empty,
     };
     // Register the source file for debug info
     if (source_path) |path| {
@@ -110,6 +113,17 @@ const LoweringContext = struct {
     // Destination for "not supported yet" errors; null in legacy callers.
     diags: ?*diagnostics.DiagnosticList,
 
+    // C typedef names for struct TypeIds (registered before lowering bodies).
+    struct_c_names: std.AutoHashMapUnmanaged(TypeId, []const u8),
+
+    // Source names already used as C locals in the current function.
+    func_local_names: std.StringHashMapUnmanaged(void),
+
+    // Methods discovered in a prepass: (receiver struct TypeId, name) →
+    // mangled C name + receiver kind, so call sites can dispatch regardless
+    // of declaration order.
+    methods: std.ArrayList(MethodInfo),
+
     const VarEntry = struct {
         name: []const u8,
         local_idx: u32,
@@ -138,6 +152,15 @@ const LoweringContext = struct {
         /// cleanup for scopes opened inside the loop before jumping out.
         defer_depth: usize,
         owned_depth: usize,
+    };
+
+    const ReceiverKind = enum { value, ptr, const_ptr };
+
+    const MethodInfo = struct {
+        struct_type: TypeId,
+        name: []const u8,
+        mangled: []const u8,
+        receiver_kind: ReceiverKind,
     };
 
     /// Report a construct that has no lowering yet. Without a diagnostics
@@ -218,7 +241,16 @@ const LoweringContext = struct {
 
     fn defineVar(self: *LoweringContext, name: []const u8, c_type: []const u8, alignment: u32, init_ref: ir.Ref) LowerError!u32 {
         const prev_local = self.var_lookup.get(name);
-        const local_idx = try self.module.addLocalInfoAligned(self.allocator, name, c_type, alignment);
+        // Uniquify the emitted C name within the current function so that
+        // shadowed locals don't collapse into one C declaration.
+        var c_name = name;
+        if (self.func_local_names.contains(name)) {
+            c_name = try std.fmt.allocPrint(self.allocator, "{s}__{d}", .{ name, self.module.local_infos.items.len });
+            try self.module.owned_strings.append(self.allocator, c_name);
+        } else {
+            try self.func_local_names.put(self.allocator, name, {});
+        }
+        const local_idx = try self.module.addLocalInfoAligned(self.allocator, c_name, c_type, alignment);
         try self.var_map.append(self.allocator, .{ .name = name, .local_idx = local_idx });
         try self.var_shadow_stack.append(self.allocator, .{
             .name = name,
@@ -367,6 +399,7 @@ const LoweringContext = struct {
             .map_type => "run_map_t*",
             .simd_type => self.simdCType(type_id),
             .newtype => |newtype| self.cTypeForTypeId(newtype.underlying),
+            .struct_type => self.struct_c_names.get(type_id) orelse "int64_t",
             else => "int64_t",
         };
     }
@@ -425,6 +458,11 @@ const LoweringContext = struct {
         const count = root.data.rhs;
         const decl_indices = self.tree.extra_data.items[start .. start + count];
 
+        try self.registerStructTypes();
+        for (decl_indices) |decl_idx| {
+            try self.registerMethodDecl(decl_idx);
+        }
+
         for (decl_indices) |decl_idx| {
             try self.lowerTopLevel(decl_idx);
         }
@@ -439,6 +477,146 @@ const LoweringContext = struct {
         self.owned_stack.deinit(self.allocator);
         self.owned_scope_stack.deinit(self.allocator);
         self.loop_stack.deinit(self.allocator);
+        self.struct_c_names.deinit(self.allocator);
+        self.func_local_names.deinit(self.allocator);
+        self.methods.deinit(self.allocator);
+    }
+
+    /// Register a C typedef for every struct type in the pool. Two passes:
+    /// names first so fields referencing other structs resolve regardless of
+    /// declaration order.
+    fn registerStructTypes(self: *LoweringContext) LowerError!void {
+        const pool_len: TypeId = @intCast(self.type_pool.types.items.len);
+        var id: TypeId = 0;
+        while (id < pool_len) : (id += 1) {
+            switch (self.type_pool.get(id)) {
+                .struct_type => |st| {
+                    const c_name = try std.fmt.allocPrint(self.allocator, "run_type_{s}", .{st.name});
+                    try self.module.owned_strings.append(self.allocator, c_name);
+                    try self.struct_c_names.put(self.allocator, id, c_name);
+                },
+                else => {},
+            }
+        }
+
+        id = 0;
+        while (id < pool_len) : (id += 1) {
+            switch (self.type_pool.get(id)) {
+                .struct_type => |st| {
+                    const c_name = self.struct_c_names.get(id).?;
+                    // The pool can contain a placeholder entry and a final
+                    // entry for the same nominal struct: keep one typedef,
+                    // preferring the one that has the fields.
+                    var existing: ?*ir.StructInfo = null;
+                    for (self.module.struct_infos.items) |*si| {
+                        if (std.mem.eql(u8, si.c_name, c_name)) {
+                            existing = si;
+                            break;
+                        }
+                    }
+                    if (existing) |si| {
+                        if (si.fields.items.len == 0 and st.fields.len > 0) {
+                            for (st.fields) |f| {
+                                try si.fields.append(self.allocator, .{
+                                    .name = f.name,
+                                    .c_type = self.cTypeForTypeId(f.type_id),
+                                });
+                            }
+                        }
+                        continue;
+                    }
+                    var info = ir.StructInfo{ .c_name = c_name, .fields = .empty };
+                    for (st.fields) |f| {
+                        try info.fields.append(self.allocator, .{
+                            .name = f.name,
+                            .c_type = self.cTypeForTypeId(f.type_id),
+                        });
+                    }
+                    try self.module.struct_infos.append(self.allocator, info);
+                },
+                else => {},
+            }
+        }
+    }
+
+    /// Locate a fn_decl's receiver node, or null_node for plain functions.
+    /// fn_decl extra layout: [param1..paramN, count, receiver_node, ret_type]
+    fn fnDeclReceiver(self: *const LoweringContext, fn_node: NodeIndex) NodeIndex {
+        const node = self.tree.nodes.items[fn_node];
+        const extra = self.tree.extra_data.items;
+        const params_start = node.data.lhs;
+        var param_count: u32 = 0;
+        while (params_start + param_count < extra.len) : (param_count += 1) {
+            if (extra[params_start + param_count] == param_count) break;
+        }
+        const recv_pos = params_start + param_count + 1;
+        if (recv_pos >= extra.len) return null_node;
+        return extra[recv_pos];
+    }
+
+    /// Prepass: record (struct type, method name) → mangled C name for each
+    /// method declaration so call sites can dispatch in any order.
+    fn registerMethodDecl(self: *LoweringContext, decl_idx: NodeIndex) LowerError!void {
+        if (decl_idx == null_node) return;
+        const node = self.tree.nodes.items[decl_idx];
+        switch (node.tag) {
+            .pub_decl, .inline_decl => return self.registerMethodDecl(node.data.lhs),
+            .fn_decl => {},
+            else => return,
+        }
+
+        const receiver_node = self.fnDeclReceiver(decl_idx);
+        if (receiver_node == null_node) return;
+        const recv = self.tree.nodes.items[receiver_node];
+        const recv_type_node = recv.data.lhs;
+        if (recv_type_node == null_node) return;
+
+        const kind: ReceiverKind = switch (self.tree.nodes.items[recv_type_node].tag) {
+            .type_ptr => .ptr,
+            .type_const_ptr => .const_ptr,
+            else => .value,
+        };
+        const recv_type_raw = self.resolveTypeNode(recv_type_node);
+        const struct_type = self.type_pool.unwrapPointer(recv_type_raw) orelse recv_type_raw;
+        if (struct_type == types.null_type) return;
+        const struct_name = switch (self.type_pool.get(struct_type)) {
+            .struct_type => |st| st.name,
+            else => return,
+        };
+
+        const method_name = self.methodNameSlice(decl_idx);
+        const mangled = try std.fmt.allocPrint(self.allocator, "run_main__{s}__{s}", .{ struct_name, method_name });
+        try self.module.owned_strings.append(self.allocator, mangled);
+        try self.methods.append(self.allocator, .{
+            .struct_type = struct_type,
+            .name = method_name,
+            .mangled = mangled,
+            .receiver_kind = kind,
+        });
+    }
+
+    /// The declared name of a fn_decl, skipping a receiver clause if present.
+    fn methodNameSlice(self: *const LoweringContext, fn_node: NodeIndex) []const u8 {
+        const fn_tok = self.tree.nodes.items[fn_node].main_token;
+        var name_tok = fn_tok + 1;
+        if (self.tokens[name_tok].tag == .l_paren) {
+            var depth: u32 = 1;
+            name_tok += 1;
+            while (name_tok < self.tokens.len and depth > 0) : (name_tok += 1) {
+                if (self.tokens[name_tok].tag == .l_paren) depth += 1;
+                if (self.tokens[name_tok].tag == .r_paren) depth -= 1;
+            }
+        }
+        return self.tokenSlice(name_tok);
+    }
+
+    fn lookupMethodInfo(self: *const LoweringContext, struct_type: TypeId, name: []const u8) ?MethodInfo {
+        for (self.methods.items) |mi| {
+            if (std.mem.eql(u8, mi.name, name) and self.type_pool.typeEql(mi.struct_type, struct_type)) {
+                return mi;
+            }
+        }
+        return null;
     }
 
     fn lowerTopLevel(self: *LoweringContext, node_idx: NodeIndex) LowerError!void {
@@ -462,19 +640,35 @@ const LoweringContext = struct {
         self.setSrcLocFromNode(node_idx);
         const extra = self.tree.extra_data.items;
 
-        var name_tok = fn_tok + 1;
-        if (self.tokens[name_tok].tag == .l_paren) {
-            var depth: u32 = 1;
-            name_tok += 1;
-            while (name_tok < self.tokens.len and depth > 0) : (name_tok += 1) {
-                if (self.tokens[name_tok].tag == .l_paren) depth += 1;
-                if (self.tokens[name_tok].tag == .r_paren) depth -= 1;
-            }
-        }
-        const name = self.tokenSlice(name_tok);
+        const name = self.methodNameSlice(node_idx);
 
-        const mangled = try std.fmt.allocPrint(self.allocator, "run_main__{s}", .{name});
-        try self.module.owned_strings.append(self.allocator, mangled);
+        // Methods (declarations with a receiver) were registered in the
+        // prepass; reuse their mangled name so call sites match.
+        const receiver_node = self.fnDeclReceiver(node_idx);
+        var receiver_kind: ReceiverKind = .value;
+        var receiver_struct_type: TypeId = types.null_type;
+        const mangled = blk: {
+            if (receiver_node != null_node) {
+                const recv_type_node = self.tree.nodes.items[receiver_node].data.lhs;
+                if (recv_type_node != null_node) {
+                    receiver_kind = switch (self.tree.nodes.items[recv_type_node].tag) {
+                        .type_ptr => .ptr,
+                        .type_const_ptr => .const_ptr,
+                        else => .value,
+                    };
+                    const recv_type_raw = self.resolveTypeNode(recv_type_node);
+                    receiver_struct_type = self.type_pool.unwrapPointer(recv_type_raw) orelse recv_type_raw;
+                    if (receiver_struct_type != types.null_type) {
+                        if (self.lookupMethodInfo(receiver_struct_type, name)) |mi| {
+                            break :blk mi.mangled;
+                        }
+                    }
+                }
+            }
+            const plain = try std.fmt.allocPrint(self.allocator, "run_main__{s}", .{name});
+            try self.module.owned_strings.append(self.allocator, plain);
+            break :blk plain;
+        };
 
         // Record debug info for function name demangling
         try self.module.func_debug_infos.append(self.allocator, .{
@@ -485,6 +679,7 @@ const LoweringContext = struct {
 
         const func_id = try self.module.addFunction(self.allocator, mangled);
         self.current_func = self.module.getFunction(func_id);
+        self.func_local_names.clearRetainingCapacity();
         if (self.next_fn_is_inline) {
             self.current_func.?.is_inline = true;
             self.next_fn_is_inline = false;
@@ -497,6 +692,23 @@ const LoweringContext = struct {
         }
         const param_nodes = extra[params_start .. params_start + param_count];
         const fn_type_id = self.typeOfNode(node_idx);
+
+        // The receiver becomes the first C parameter: a generational
+        // reference for &T/@T receivers, the struct value for T receivers.
+        var recv_ref: ir.Ref = ir.null_ref;
+        var recv_name: []const u8 = "";
+        var recv_c_type: []const u8 = "int64_t";
+        if (receiver_node != null_node and receiver_struct_type != types.null_type) {
+            recv_name = self.tokenSlice(self.tree.nodes.items[receiver_node].main_token);
+            recv_c_type = switch (receiver_kind) {
+                .ptr, .const_ptr => "run_gen_ref_t",
+                .value => self.cTypeForTypeId(receiver_struct_type),
+            };
+            const recv_param_name = try std.fmt.allocPrint(self.allocator, "_param_{s}", .{recv_name});
+            try self.module.owned_strings.append(self.allocator, recv_param_name);
+            recv_ref = try self.current_func.?.addParam(self.allocator, recv_param_name, recv_c_type);
+        }
+
         var param_refs: [64]ir.Ref = [_]ir.Ref{ir.null_ref} ** 64;
         var param_type_ids: [64]TypeId = [_]TypeId{types.null_type} ** 64;
         if (fn_type_id != types.null_type) {
@@ -522,6 +734,9 @@ const LoweringContext = struct {
         self.current_block = self.current_func.?.getBlock(block_id);
 
         try self.pushScope();
+        if (recv_ref != ir.null_ref and recv_name.len > 0) {
+            _ = try self.defineVar(recv_name, recv_c_type, 0, recv_ref);
+        }
         for (param_nodes, 0..) |param_node, i| {
             if (param_node == null_node or i >= param_refs.len or param_refs[i] == ir.null_ref) continue;
             const param_name = self.tokenSlice(self.tree.nodes.items[param_node].main_token);
@@ -672,6 +887,10 @@ const LoweringContext = struct {
 
         if (node.data.lhs != null_node) {
             const target = self.tree.nodes.items[node.data.lhs];
+            if (target.tag == .field_access) {
+                try self.lowerFieldAssign(node.data.lhs, val);
+                return;
+            }
             if (target.tag == .ident) {
                 const target_name = self.tokenSlice(target.main_token);
 
@@ -898,6 +1117,223 @@ const LoweringContext = struct {
 
         try self.popScope();
         self.current_block = func.getBlock(after_bb);
+    }
+
+    /// Resolve a struct field by name. Returns its type id, or null.
+    fn structFieldType(self: *const LoweringContext, struct_type: TypeId, field_name: []const u8) ?TypeId {
+        switch (self.type_pool.get(struct_type)) {
+            .struct_type => |st| {
+                for (st.fields) |f| {
+                    if (std.mem.eql(u8, f.name, field_name)) return f.type_id;
+                }
+            },
+            else => {},
+        }
+        return null;
+    }
+
+    fn isStructType(self: *const LoweringContext, type_id: TypeId) bool {
+        if (type_id == types.null_type or type_id < types.primitives.count) return false;
+        return switch (self.type_pool.get(type_id)) {
+            .struct_type => true,
+            else => false,
+        };
+    }
+
+    /// Make a fresh named local and return its index.
+    fn makeTempLocal(self: *LoweringContext, comptime prefix: []const u8, c_type: []const u8, alignment: u32) LowerError!u32 {
+        const func = self.current_func orelse return error.OutOfMemory;
+        const name = try std.fmt.allocPrint(self.allocator, prefix ++ "_{d}_{d}", .{ self.module.local_infos.items.len, func.next_ref });
+        try self.module.owned_strings.append(self.allocator, name);
+        return self.module.addLocalInfoAligned(self.allocator, name, c_type, alignment);
+    }
+
+    /// Lower a struct-typed base expression to a named local holding the
+    /// value, so fields can be read with `.field`. Reuses the existing local
+    /// when the base is a plain identifier.
+    fn lowerStructBaseToLocal(self: *LoweringContext, base_idx: NodeIndex, struct_type: TypeId) LowerError!?u32 {
+        const base = self.tree.nodes.items[base_idx];
+        if (base.tag == .ident) {
+            const name = self.tokenSlice(base.main_token);
+            if (self.lookupLocalIdx(name)) |local_idx| return local_idx;
+        }
+        const c_type = self.cTypeForTypeId(struct_type);
+        const val_ref = try self.lowerExpr(base_idx);
+        if (val_ref == ir.null_ref) return null;
+        const tmp_idx = try self.makeTempLocal("_sval", c_type, self.alignmentForTypeId(struct_type));
+        try self.emit(ir.makeInst(.local_set, 0, tmp_idx, val_ref));
+        return tmp_idx;
+    }
+
+    /// Field access on a struct value or pointer-to-struct.
+    fn lowerFieldAccess(self: *LoweringContext, node_idx: NodeIndex) LowerError!ir.Ref {
+        const node = self.tree.nodes.items[node_idx];
+        const base_idx = node.data.lhs;
+        const field_name = self.tokenSlice(node.main_token + 1);
+        const base_type = self.typeOfNode(base_idx);
+
+        if (self.isStructType(base_type)) {
+            const field_type = self.structFieldType(base_type, field_name) orelse {
+                try self.unsupported(node_idx, "this field access");
+                return ir.null_ref;
+            };
+            const struct_c = self.struct_c_names.get(base_type) orelse "int64_t";
+            const fi = try self.module.addFieldInfo(self.allocator, struct_c, field_name, self.cTypeForTypeId(field_type));
+            const local_idx = (try self.lowerStructBaseToLocal(base_idx, base_type)) orelse {
+                try self.unsupported(node_idx, "field access on this expression");
+                return ir.null_ref;
+            };
+            const r = self.allocRef();
+            try self.emit(ir.makeInst(.local_field_get, r, local_idx, fi));
+            return r;
+        }
+
+        if (self.type_pool.unwrapPointer(base_type)) |pointee| {
+            if (self.isStructType(pointee)) {
+                const field_type = self.structFieldType(pointee, field_name) orelse {
+                    try self.unsupported(node_idx, "this field access");
+                    return ir.null_ref;
+                };
+                const struct_c = self.struct_c_names.get(pointee) orelse "int64_t";
+                const fi = try self.module.addFieldInfo(self.allocator, struct_c, field_name, self.cTypeForTypeId(field_type));
+                const ref_val = try self.lowerExpr(base_idx);
+                const ptr = self.allocRef();
+                try self.emit(ir.makeInst(.gen_ref_deref, ptr, ref_val, 0));
+                const r = self.allocRef();
+                try self.emit(ir.makeInst(.ptr_field_get, r, ptr, fi));
+                return r;
+            }
+        }
+
+        try self.unsupported(node_idx, "field access on this expression");
+        return ir.null_ref;
+    }
+
+    /// `base.field = value` for struct locals and pointers-to-struct.
+    fn lowerFieldAssign(self: *LoweringContext, lhs_idx: NodeIndex, val_ref: ir.Ref) LowerError!void {
+        const lhs = self.tree.nodes.items[lhs_idx];
+        const base_idx = lhs.data.lhs;
+        const field_name = self.tokenSlice(lhs.main_token + 1);
+        const base_type = self.typeOfNode(base_idx);
+
+        if (self.isStructType(base_type)) {
+            const base = self.tree.nodes.items[base_idx];
+            if (base.tag == .ident) {
+                const name = self.tokenSlice(base.main_token);
+                if (self.lookupLocalIdx(name)) |local_idx| {
+                    const field_type = self.structFieldType(base_type, field_name) orelse {
+                        return self.unsupported(lhs_idx, "assignment to this field");
+                    };
+                    const struct_c = self.struct_c_names.get(base_type) orelse "int64_t";
+                    const fi = try self.module.addFieldInfo(self.allocator, struct_c, field_name, self.cTypeForTypeId(field_type));
+                    try self.emit(ir.makeInst(.local_field_set, val_ref, local_idx, fi));
+                    return;
+                }
+            }
+            return self.unsupported(lhs_idx, "assignment to a field of this expression");
+        }
+
+        if (self.type_pool.unwrapPointer(base_type)) |pointee| {
+            if (self.isStructType(pointee)) {
+                const field_type = self.structFieldType(pointee, field_name) orelse {
+                    return self.unsupported(lhs_idx, "assignment to this field");
+                };
+                const struct_c = self.struct_c_names.get(pointee) orelse "int64_t";
+                const fi = try self.module.addFieldInfo(self.allocator, struct_c, field_name, self.cTypeForTypeId(field_type));
+                const ref_val = try self.lowerExpr(base_idx);
+                const ptr = self.allocRef();
+                try self.emit(ir.makeInst(.gen_ref_deref, ptr, ref_val, 0));
+                try self.emit(ir.makeInst(.ptr_field_set, val_ref, ptr, fi));
+                return;
+            }
+        }
+
+        return self.unsupported(lhs_idx, "assignment to a field of this expression");
+    }
+
+    /// `Type{ field: value, ... }` — zero a temp local, set fields, load it.
+    fn lowerStructLiteral(self: *LoweringContext, node_idx: NodeIndex) LowerError!ir.Ref {
+        const node = self.tree.nodes.items[node_idx];
+        const struct_type = self.typeOfNode(node_idx);
+        if (!self.isStructType(struct_type)) {
+            try self.unsupported(node_idx, "this struct literal");
+            return ir.null_ref;
+        }
+        const struct_c = self.struct_c_names.get(struct_type) orelse "int64_t";
+        const tmp_idx = try self.makeTempLocal("_slit", struct_c, self.alignmentForTypeId(struct_type));
+        try self.emit(ir.makeInst(.local_zero, 0, tmp_idx, 0));
+
+        const extra = self.tree.extra_data.items;
+        const fields_start = node.data.rhs;
+        const field_count = self.findTrailingCount(fields_start);
+        const field_nodes = extra[fields_start .. fields_start + field_count];
+        for (field_nodes) |field_node| {
+            if (field_node == null_node) continue;
+            const fnode = self.tree.nodes.items[field_node];
+            const fname = self.tokenSlice(fnode.main_token);
+            const field_type = self.structFieldType(struct_type, fname) orelse continue;
+            const fi = try self.module.addFieldInfo(self.allocator, struct_c, fname, self.cTypeForTypeId(field_type));
+            const val_ref = try self.lowerExpr(fnode.data.lhs);
+            try self.emit(ir.makeInst(.local_field_set, val_ref, tmp_idx, fi));
+        }
+
+        const r = self.allocRef();
+        try self.emit(ir.makeInst(.local_get, r, tmp_idx, 0));
+        return r;
+    }
+
+    /// Lower `base.method(args)` to a call of the mangled method with the
+    /// receiver as first argument.
+    fn lowerMethodCall(
+        self: *LoweringContext,
+        call_idx: NodeIndex,
+        mi: MethodInfo,
+        base_idx: NodeIndex,
+        arg_nodes: []const NodeIndex,
+    ) LowerError!ir.Ref {
+        const base_type = self.typeOfNode(base_idx);
+        const base_is_ptr = self.type_pool.unwrapPointer(base_type) != null;
+
+        const recv_ref = switch (mi.receiver_kind) {
+            .ptr, .const_ptr => blk: {
+                if (base_is_ptr) {
+                    break :blk try self.lowerExpr(base_idx);
+                }
+                // Auto address-of: methods on a local take its storage.
+                const local_idx = (try self.lowerStructBaseToLocal(base_idx, mi.struct_type)) orelse {
+                    try self.unsupported(call_idx, "method call on this expression");
+                    return ir.null_ref;
+                };
+                const addr = self.allocRef();
+                try self.emit(ir.makeInst(.local_addr, addr, local_idx, 0));
+                const ref = self.allocRef();
+                try self.emit(ir.makeInst(.gen_ref_stack, ref, addr, 0));
+                break :blk ref;
+            },
+            .value => blk: {
+                if (base_is_ptr) {
+                    const ref_val = try self.lowerExpr(base_idx);
+                    const ptr = self.allocRef();
+                    try self.emit(ir.makeInst(.gen_ref_deref, ptr, ref_val, 0));
+                    const type_idx = try self.module.addValueTypeName(self.allocator, self.cTypeForTypeId(mi.struct_type));
+                    const val = self.allocRef();
+                    try self.emit(ir.makeInst(.ptr_load_value, val, ptr, type_idx));
+                    break :blk val;
+                }
+                break :blk try self.lowerExpr(base_idx);
+            },
+        };
+
+        var arg_refs: std.ArrayList(ir.Ref) = .empty;
+        defer arg_refs.deinit(self.allocator);
+        try arg_refs.append(self.allocator, recv_ref);
+        for (arg_nodes) |arg_node| {
+            try arg_refs.append(self.allocator, try self.lowerExpr(arg_node));
+        }
+
+        const result_type = self.typeOfNode(call_idx);
+        const return_type_name = if (result_type == types.null_type) "void" else self.cTypeForTypeId(result_type);
+        return self.emitTypedCall(mi.mangled, arg_refs.items, return_type_name, false);
     }
 
     /// True if a switch pattern is the wildcard `_`.
@@ -1171,20 +1607,23 @@ const LoweringContext = struct {
                 return ir.null_ref;
             },
             .addr_of, .addr_of_const => {
-                // &ident/@ident should capture the local's storage, not its loaded value.
+                // &ident/@ident should capture the local's storage, not its
+                // loaded value. Stack slots have no allocation header, so the
+                // reference is created unchecked (generation 0) instead of
+                // reading garbage where a heap header would be.
                 const operand_node = node.data.lhs;
-                const ptr_ref = blk: {
-                    if (operand_node != null_node and self.tree.nodes.items[operand_node].tag == .ident) {
-                        const name = self.tokenSlice(self.tree.nodes.items[operand_node].main_token);
-                        if (self.lookupLocalIdx(name)) |local_idx| {
-                            const local_ptr = self.allocRef();
-                            try self.emit(ir.makeInst(.local_addr, local_ptr, local_idx, 0));
-                            break :blk local_ptr;
-                        }
+                if (operand_node != null_node and self.tree.nodes.items[operand_node].tag == .ident) {
+                    const name = self.tokenSlice(self.tree.nodes.items[operand_node].main_token);
+                    if (self.lookupLocalIdx(name)) |local_idx| {
+                        const local_ptr = self.allocRef();
+                        try self.emit(ir.makeInst(.local_addr, local_ptr, local_idx, 0));
+                        const ref_result = self.allocRef();
+                        try self.emit(ir.makeInst(.gen_ref_stack, ref_result, local_ptr, 0));
+                        return ref_result;
                     }
+                }
 
-                    break :blk try self.lowerExpr(operand_node);
-                };
+                const ptr_ref = try self.lowerExpr(operand_node);
                 const ref_result = self.allocRef();
                 try self.emit(ir.makeInst(.gen_ref_create, ref_result, ptr_ref, 0));
                 return ref_result;
@@ -1196,10 +1635,7 @@ const LoweringContext = struct {
                 try self.emit(ir.makeInst(.gen_ref_deref, deref_result, operand, 0));
                 return deref_result;
             },
-            .field_access => {
-                try self.unsupported(node_idx, "field access on this expression");
-                return ir.null_ref;
-            },
+            .field_access => return try self.lowerFieldAccess(node_idx),
             .ident => {
                 const name = self.tokenSlice(node.main_token);
                 return try self.getVar(name);
@@ -1218,10 +1654,7 @@ const LoweringContext = struct {
             },
             .if_expr => return try self.lowerIfExpr(node_idx),
             .asm_expr => return try self.lowerAsmExpr(node_idx),
-            .struct_literal => {
-                try self.unsupported(node_idx, "struct literals");
-                return ir.null_ref;
-            },
+            .struct_literal => return try self.lowerStructLiteral(node_idx),
             .anon_struct_literal => {
                 try self.unsupported(node_idx, "anonymous struct literals");
                 return ir.null_ref;
@@ -1421,6 +1854,23 @@ const LoweringContext = struct {
         return 0;
     }
 
+    /// Find a nominal type (struct, newtype, sum, interface) by name. Later
+    /// pool entries win, matching typecheck's final registrations.
+    fn findNamedType(self: *const LoweringContext, name: []const u8) TypeId {
+        var result: TypeId = types.null_type;
+        for (self.type_pool.types.items, 0..) |typ, i| {
+            const type_name = switch (typ) {
+                .struct_type => |st| st.name,
+                .newtype => |nt| nt.name,
+                .sum_type => |st| st.name,
+                .interface_type => |it| it.name,
+                else => continue,
+            };
+            if (std.mem.eql(u8, type_name, name)) result = @intCast(i);
+        }
+        return result;
+    }
+
     fn resolveTypeNode(self: *LoweringContext, node_idx: NodeIndex) TypeId {
         if (node_idx == null_node) return types.null_type;
         const node = self.tree.nodes.items[node_idx];
@@ -1429,7 +1879,10 @@ const LoweringContext = struct {
                 const name = self.tokenSlice(node.main_token);
                 if (TypePool.lookupPrimitive(name)) |prim| break :blk prim;
                 const typed = self.typeOfNode(node_idx);
-                break :blk typed;
+                if (typed != types.null_type) break :blk typed;
+                // Type nodes (e.g. method receiver types) are not in the
+                // typecheck type_map; resolve nominal types by pool scan.
+                break :blk self.findNamedType(name);
             },
             .type_ptr => blk: {
                 const inner = self.resolveTypeNode(node.data.lhs);
@@ -1558,8 +2011,21 @@ const LoweringContext = struct {
             };
         }
         return switch (self.type_pool.get(type_id)) {
-            .ptr_type, .chan_type, .map_type => 8,
+            // &T/@T lower to run_gen_ref_t (pointer + generation).
+            .ptr_type => 16,
+            .chan_type, .map_type => 8,
             .newtype => |newtype| self.sizeOfTypeId(newtype.underlying),
+            .struct_type => |st| blk: {
+                var offset: u32 = 0;
+                var max_align: u32 = 1;
+                for (st.fields) |f| {
+                    const field_align = @max(@as(u32, 1), self.alignOfTypeId(f.type_id));
+                    const field_size = self.sizeOfTypeId(f.type_id);
+                    max_align = @max(max_align, field_align);
+                    offset = std.mem.alignForward(u32, offset, field_align) + field_size;
+                }
+                break :blk @max(@as(u32, 1), std.mem.alignForward(u32, offset, max_align));
+            },
             else => 8,
         };
     }
@@ -1567,6 +2033,19 @@ const LoweringContext = struct {
     fn alignOfTypeId(self: *const LoweringContext, type_id: TypeId) u32 {
         if (self.type_pool.simdAlignment(type_id)) |alignment| return alignment;
         if (type_id == types.primitives.string_id) return 8;
+        if (type_id >= types.primitives.count) {
+            switch (self.type_pool.get(type_id)) {
+                .struct_type => |st| {
+                    var max_align: u32 = 1;
+                    for (st.fields) |f| {
+                        max_align = @max(max_align, self.alignOfTypeId(f.type_id));
+                    }
+                    return max_align;
+                },
+                .ptr_type => return 8,
+                else => {},
+            }
+        }
         return @max(@as(u32, 1), @min(self.sizeOfTypeId(type_id), @as(u32, 8)));
     }
 
@@ -1991,6 +2470,21 @@ const LoweringContext = struct {
         const arg_nodes = self.tree.extra_data.items[args_start .. args_start + arg_count];
         if (self.builtinCallName(callee_idx)) |builtin_name| {
             return try self.lowerBuiltinCall(builtin_name, node_idx, arg_nodes);
+        }
+
+        // Method dispatch: `base.method(args)` where base is a struct value
+        // or a pointer to one.
+        if (callee_idx != null_node and self.tree.nodes.items[callee_idx].tag == .field_access) {
+            const fa = self.tree.nodes.items[callee_idx];
+            const base_idx = fa.data.lhs;
+            const base_type = self.typeOfNode(base_idx);
+            const struct_ty = self.type_pool.unwrapPointer(base_type) orelse base_type;
+            if (self.isStructType(struct_ty)) {
+                const method_name = self.tokenSlice(fa.main_token + 1);
+                if (self.lookupMethodInfo(struct_ty, method_name)) |mi| {
+                    return try self.lowerMethodCall(node_idx, mi, base_idx, arg_nodes);
+                }
+            }
         }
 
         const callee_name = self.resolveCalleeName(callee_idx);

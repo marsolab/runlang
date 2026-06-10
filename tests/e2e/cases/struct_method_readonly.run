@@ -1,0 +1,18 @@
+// expect: 12
+package main
+
+use "fmt"
+
+pub type Rect struct {
+    w int
+    h int
+}
+
+fun (r @Rect) area() int {
+    return r.w * r.h
+}
+
+pub fun main() {
+    r := Rect{w: 3, h: 4}
+    fmt.println(r.area())
+}

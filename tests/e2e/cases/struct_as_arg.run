@@ -1,0 +1,18 @@
+// expect: 30
+package main
+
+use "fmt"
+
+pub type Pair struct {
+    a int
+    b int
+}
+
+fun sum(p Pair) int {
+    return p.a + p.b
+}
+
+pub fun main() {
+    p := Pair{a: 10, b: 20}
+    fmt.println(sum(p))
+}

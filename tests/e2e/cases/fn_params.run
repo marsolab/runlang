@@ -1,0 +1,12 @@
+// expect: 7
+package main
+
+use "fmt"
+
+fun add(a int, b int) int {
+    return a + b
+}
+
+pub fun main() {
+    fmt.println(add(3, 4))
+}

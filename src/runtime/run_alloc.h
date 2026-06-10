@@ -49,6 +49,13 @@ uint64_t run_gen_get(void *ptr);
 run_gen_ref_t run_gen_ref_create(void *ptr);
 
 /**
+ * Create an unchecked reference to a stack address. Stack slots carry no
+ * allocation header, so the reference stores generation 0 (reserved — heap
+ * generations start at 1) and dereferences skip the generation check.
+ */
+run_gen_ref_t run_gen_ref_stack(void *ptr);
+
+/**
  * Dereference a generational reference with a safety check.
  * Returns the raw pointer if the generation matches; aborts otherwise.
  * Can be disabled at compile time with -DRUN_NO_GEN_CHECKS.
