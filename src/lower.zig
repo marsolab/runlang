@@ -1414,12 +1414,22 @@ const LoweringContext = struct {
             try self.unsupported(node_idx, "this struct literal");
             return ir.null_ref;
         }
+        return self.lowerStructLiteralFields(struct_type, node.data.rhs);
+    }
+
+    /// `.{ field: value, ... }` with a struct type known from context
+    /// (declaration, assignment, or return position).
+    fn lowerAnonStructLiteral(self: *LoweringContext, struct_type: TypeId, node_idx: NodeIndex) LowerError!ir.Ref {
+        const node = self.tree.nodes.items[node_idx];
+        return self.lowerStructLiteralFields(struct_type, node.data.rhs);
+    }
+
+    fn lowerStructLiteralFields(self: *LoweringContext, struct_type: TypeId, fields_start: u32) LowerError!ir.Ref {
         const struct_c = self.struct_c_names.get(struct_type) orelse "int64_t";
         const tmp_idx = try self.makeTempLocal("_slit", struct_c, self.alignmentForTypeId(struct_type));
         try self.emit(ir.makeInst(.local_zero, 0, tmp_idx, 0));
 
         const extra = self.tree.extra_data.items;
-        const fields_start = node.data.rhs;
         const field_count = self.findTrailingCount(fields_start);
         const field_nodes = extra[fields_start .. fields_start + field_count];
         for (field_nodes) |field_node| {
@@ -1572,7 +1582,7 @@ const LoweringContext = struct {
                     ir.null_ref;
                 result_ref = try self.buildErrUnionValue(eu_type, ir.null_ref, msg_ref);
             } else if (value_node != null_node) {
-                const val = try self.lowerExpr(value_node);
+                const val = try self.lowerCoerced(self.errUnionPayload(eu_type), value_node);
                 result_ref = try self.buildErrUnionValue(eu_type, val, ir.null_ref);
             } else {
                 result_ref = try self.buildErrUnionValue(eu_type, ir.null_ref, ir.null_ref);
@@ -2113,6 +2123,11 @@ const LoweringContext = struct {
     /// allows implicit wrapping (T -> T?, null -> T?). Returns the value ref.
     fn lowerCoerced(self: *LoweringContext, target_type: TypeId, value_node: NodeIndex) LowerError!ir.Ref {
         if (value_node == null_node) return ir.null_ref;
+        if (self.isStructType(target_type) and
+            self.tree.nodes.items[value_node].tag == .anon_struct_literal)
+        {
+            return self.lowerAnonStructLiteral(target_type, value_node);
+        }
         if (self.isNullableType(target_type)) {
             if (self.tree.nodes.items[value_node].tag == .null_literal) {
                 return self.buildOptValue(target_type, ir.null_ref);

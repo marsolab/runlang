@@ -1,0 +1,14 @@
+// expect: 30
+package main
+
+use "fmt"
+
+pub type Pair struct {
+    a int
+    b int
+}
+
+pub fun main() {
+    var p Pair = .{ a: 10, b: 20 }
+    fmt.println(p.a + p.b)
+}
