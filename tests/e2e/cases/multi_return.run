@@ -1,0 +1,15 @@
+// expect: 3
+// expect: 1
+package main
+
+use "fmt"
+
+fun divmod(a int, b int) struct { quotient int, remainder int } {
+    return .{ quotient: a / b, remainder: a % b }
+}
+
+pub fun main() {
+    r := divmod(10, 3)
+    fmt.println(r.quotient)
+    fmt.println(r.remainder)
+}

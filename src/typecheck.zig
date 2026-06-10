@@ -30,6 +30,8 @@ pub const TypeCheckResult = struct {
     allocated_method_sig_slices: std.ArrayList([]const types.MethodSig),
     /// Variant slices allocated for SumType entries; must be freed.
     allocated_variant_slices: std.ArrayList([]const types.Variant),
+    /// Synthesized type names (anonymous structs); must be freed.
+    allocated_names: std.ArrayList([]const u8),
 
     pub fn deinit(self: *TypeCheckResult, allocator: std.mem.Allocator) void {
         for (self.allocated_param_slices.items) |slice| {
@@ -52,6 +54,10 @@ pub const TypeCheckResult = struct {
             allocator.free(slice);
         }
         self.allocated_variant_slices.deinit(allocator);
+        for (self.allocated_names.items) |name| {
+            allocator.free(name);
+        }
+        self.allocated_names.deinit(allocator);
         self.diagnostics.deinit();
         self.type_map.deinit(allocator);
         self.type_pool.deinit(allocator);
@@ -94,6 +100,8 @@ const TypeChecker = struct {
     allocated_method_sig_slices: std.ArrayList([]const types.MethodSig),
     /// Tracks Variant slices allocated for SumType entries.
     allocated_variant_slices: std.ArrayList([]const types.Variant),
+    /// Synthesized type names (anonymous structs); transferred to the result.
+    allocated_names: std.ArrayList([]const u8),
 
     const CheckError = error{OutOfMemory};
 
@@ -123,6 +131,7 @@ const TypeChecker = struct {
             .allocated_type_id_slices = .empty,
             .allocated_method_sig_slices = .empty,
             .allocated_variant_slices = .empty,
+            .allocated_names = .empty,
         };
     }
 
@@ -138,6 +147,7 @@ const TypeChecker = struct {
             .allocated_type_id_slices = self.allocated_type_id_slices,
             .allocated_method_sig_slices = self.allocated_method_sig_slices,
             .allocated_variant_slices = self.allocated_variant_slices,
+            .allocated_names = self.allocated_names,
         };
     }
 
@@ -3242,6 +3252,37 @@ const TypeChecker = struct {
         if (node == null_node) return types.null_type;
         const tag = self.nodeTag(node);
         return switch (tag) {
+            // Anonymous struct type in type position (e.g. multiple return
+            // values): synthesize a struct type named after the node so each
+            // occurrence is one nominal type shared by definition and use.
+            .type_anon_struct => blk: {
+                const data = self.nodeData(node);
+                const extra = self.tree.extra_data.items;
+                const fields_start = data.lhs;
+                const field_count = data.rhs;
+                if (fields_start + field_count > extra.len) break :blk types.null_type;
+
+                const name = std.fmt.allocPrint(self.allocator, "__anon_{d}", .{node}) catch break :blk types.null_type;
+                self.allocated_names.append(self.allocator, name) catch break :blk types.null_type;
+
+                const fields = self.allocator.alloc(types.StructField, field_count) catch break :blk types.null_type;
+                self.allocated_field_slices.append(self.allocator, fields) catch break :blk types.null_type;
+                for (0..field_count) |i| {
+                    const field_node = extra[fields_start + i];
+                    fields[i] = .{
+                        .name = self.tokenSlice(self.nodeMainToken(field_node)),
+                        .type_id = self.resolveTypeNode(self.nodeData(field_node).lhs),
+                    };
+                }
+                const id = self.type_pool.addType(self.allocator, .{ .struct_type = .{
+                    .name = name,
+                    .fields = fields,
+                    .methods = &.{},
+                    .implements = &.{},
+                } }) catch break :blk types.null_type;
+                self.type_map.items[node] = id;
+                break :blk id;
+            },
             .type_name, .ident => {
                 const name = self.tokenSlice(self.nodeMainToken(node));
                 // Check primitives first.
