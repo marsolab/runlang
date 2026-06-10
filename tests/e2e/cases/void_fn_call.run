@@ -1,0 +1,12 @@
+// expect: 7
+package main
+
+use "fmt"
+
+fun show(x int) {
+    fmt.println(x)
+}
+
+pub fun main() {
+    show(7)
+}

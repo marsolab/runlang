@@ -1,0 +1,25 @@
+// expect: 1
+// expect: 42
+// expect: boom
+package main
+
+use "fmt"
+
+type State = .loading | .ready(int) | .failed(string)
+
+fun describe(s State) {
+    switch s {
+        .loading :: fmt.println(1),
+        .ready(v) :: fmt.println(v),
+        .failed(msg) :: fmt.println(msg),
+    }
+}
+
+pub fun main() {
+    var a State = .loading
+    var b State = .ready(42)
+    var c State = .failed("boom")
+    describe(a)
+    describe(b)
+    describe(c)
+}
