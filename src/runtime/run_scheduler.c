@@ -36,8 +36,8 @@
 /* Headroom committed below sp at each prologue check, so calls that never
  * run the check themselves (libc: printf, snprintf, ...) have stack to use. */
 #define RUN_STACK_CHECK_HEADROOM ((size_t)32 * 1024)
-#define RUN_STACK_SHRINK_THRESHOLD 4                /* shrink below 25% usage */
-#define RUN_STACK_SHRINK_HYSTERESIS 2               /* keep 2x live usage */
+#define RUN_STACK_SHRINK_THRESHOLD 4  /* shrink below 25% usage */
+#define RUN_STACK_SHRINK_HYSTERESIS 2 /* keep 2x live usage */
 
 /* ========================================================================
  * Thread-Local Storage
