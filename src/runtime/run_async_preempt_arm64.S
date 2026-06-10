@@ -1,3 +1,15 @@
+/*
+ * run_async_preempt_arm64.S — asynchronous preemption trampoline (aarch64)
+ *
+ * The SIGURG handler rewrites the interrupted thread's PC to this function,
+ * after pushing the interrupted LR at sp-16 and moving the interrupted PC
+ * into LR (so the frame looks like an injected call).
+ *
+ * Because the interruption point is arbitrary, the full register state must
+ * be preserved: all GPRs, NZCV condition flags, FPSR/FPCR, and q0-q31.
+ * run_yield context-switches and clobbers everything a C call may clobber.
+ */
+
 .text
 .globl run_async_preempt
 #if defined(__APPLE__)
@@ -5,8 +17,6 @@
 _run_async_preempt:
 #endif
 run_async_preempt:
-    /* Save all general-purpose registers that normal function calls may touch
-       or that run_context_switch would otherwise capture from run_yield. */
     str     x30, [sp, #-16]!
     str     x29, [sp, #-16]!
     stp     x27, x28, [sp, #-16]!
@@ -24,6 +34,31 @@ run_async_preempt:
     stp     x14, x15, [sp, #-16]!
     stp     x16, x17, [sp, #-16]!
     str     x18, [sp, #-16]!
+    /* Condition flags and FP control/status. Loads/stores and address
+       arithmetic do not modify NZCV, so reading it here is safe; x9-x11
+       were saved above and are free to clobber. */
+    mrs     x9, nzcv
+    mrs     x10, fpsr
+    mrs     x11, fpcr
+    stp     x9, x10, [sp, #-16]!
+    str     x11, [sp, #-16]!
+    /* Full SIMD register file. */
+    stp     q30, q31, [sp, #-32]!
+    stp     q28, q29, [sp, #-32]!
+    stp     q26, q27, [sp, #-32]!
+    stp     q24, q25, [sp, #-32]!
+    stp     q22, q23, [sp, #-32]!
+    stp     q20, q21, [sp, #-32]!
+    stp     q18, q19, [sp, #-32]!
+    stp     q16, q17, [sp, #-32]!
+    stp     q14, q15, [sp, #-32]!
+    stp     q12, q13, [sp, #-32]!
+    stp     q10, q11, [sp, #-32]!
+    stp     q8, q9, [sp, #-32]!
+    stp     q6, q7, [sp, #-32]!
+    stp     q4, q5, [sp, #-32]!
+    stp     q2, q3, [sp, #-32]!
+    stp     q0, q1, [sp, #-32]!
     /* Call run_yield() */
 #if defined(__APPLE__)
     bl      _run_yield
@@ -32,7 +67,30 @@ run_async_preempt:
     bl      run_yield
     bl      run_async_preempt_done
 #endif
-    /* Restore */
+    /* Restore SIMD registers */
+    ldp     q0, q1, [sp], #32
+    ldp     q2, q3, [sp], #32
+    ldp     q4, q5, [sp], #32
+    ldp     q6, q7, [sp], #32
+    ldp     q8, q9, [sp], #32
+    ldp     q10, q11, [sp], #32
+    ldp     q12, q13, [sp], #32
+    ldp     q14, q15, [sp], #32
+    ldp     q16, q17, [sp], #32
+    ldp     q18, q19, [sp], #32
+    ldp     q20, q21, [sp], #32
+    ldp     q22, q23, [sp], #32
+    ldp     q24, q25, [sp], #32
+    ldp     q26, q27, [sp], #32
+    ldp     q28, q29, [sp], #32
+    ldp     q30, q31, [sp], #32
+    /* Restore flags and FP control/status */
+    ldr     x11, [sp], #16
+    ldp     x9, x10, [sp], #16
+    msr     nzcv, x9
+    msr     fpsr, x10
+    msr     fpcr, x11
+    /* Restore GPRs */
     ldr     x18, [sp], #16
     ldp     x16, x17, [sp], #16
     ldp     x14, x15, [sp], #16
@@ -58,5 +116,6 @@ run_async_preempt:
     br      x16
 
 #if defined(__linux__)
+/* Mark stack as non-executable (GNU ld security) */
 .section .note.GNU-stack,"",@progbits
 #endif
