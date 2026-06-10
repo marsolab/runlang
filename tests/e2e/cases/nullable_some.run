@@ -1,0 +1,12 @@
+// expect: 42
+package main
+
+use "fmt"
+
+pub fun main() {
+    var a int? = 42
+    switch a {
+        .some(v) :: fmt.println(v),
+        .null :: fmt.println(-1),
+    }
+}

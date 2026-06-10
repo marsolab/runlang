@@ -963,7 +963,7 @@ const LoweringContext = struct {
         const alignment = self.alignmentForNode(node_idx);
 
         if (node.data.rhs != null_node) {
-            const val = try self.lowerExpr(node.data.rhs);
+            const val = try self.lowerCoerced(self.typeOfNode(node_idx), node.data.rhs);
             const local_idx = try self.defineVar(name, c_type, alignment, val);
 
             // Track ownership for alloc expressions. Channels are shared
@@ -1030,7 +1030,8 @@ const LoweringContext = struct {
             return;
         }
 
-        const val = try self.lowerExpr(node.data.rhs);
+        const target_type = if (node.data.lhs != null_node) self.typeOfNode(node.data.lhs) else types.null_type;
+        const val = try self.lowerCoerced(target_type, node.data.rhs);
 
         if (node.data.lhs != null_node) {
             const target = self.tree.nodes.items[node.data.lhs];
@@ -1582,7 +1583,7 @@ const LoweringContext = struct {
         }
 
         if (value_node != null_node) {
-            const val = try self.lowerExpr(value_node);
+            const val = try self.lowerCoerced(self.current_fn_return_type_id, value_node);
             try self.emitAllCleanup();
             try self.emit(ir.makeInst(.ret, 0, val, 0));
         } else {
@@ -2479,9 +2480,33 @@ const LoweringContext = struct {
                 if (self.type_pool.isSimd(self.typeOfNode(node.data.lhs)) or self.type_pool.isSimd(self.typeOfNode(node_idx))) {
                     return try self.lowerSimdBinaryOp(node_idx);
                 }
+                const op_tok = node.main_token;
+                // `x == null` / `x != null` on a nullable tests has_value.
+                {
+                    const op_tag = self.tokens[op_tok].tag;
+                    if (op_tag == .equal_equal or op_tag == .bang_equal) {
+                        const lhs_is_null = self.tree.nodes.items[node.data.lhs].tag == .null_literal;
+                        const rhs_is_null = self.tree.nodes.items[node.data.rhs].tag == .null_literal;
+                        const opt_node = if (rhs_is_null) node.data.lhs else if (lhs_is_null) node.data.rhs else null_node;
+                        if (opt_node != null_node and self.isNullableType(self.typeOfNode(opt_node))) {
+                            const opt_type = self.typeOfNode(opt_node);
+                            const opt_c = self.struct_c_names.get(opt_type) orelse "int64_t";
+                            const opt_local = (try self.exprToTempLocal(opt_node, opt_c)) orelse return ir.null_ref;
+                            const fi_has = try self.module.addFieldInfo(self.allocator, opt_c, "has_value", "bool");
+                            const has_ref = self.allocRef();
+                            try self.emit(ir.makeInst(.local_field_get, has_ref, opt_local, fi_has));
+                            if (op_tag == .equal_equal) {
+                                // x == null  ⇢  !has_value
+                                const r = self.allocRef();
+                                try self.emit(ir.makeInst(.log_not, r, has_ref, 0));
+                                return r;
+                            }
+                            return has_ref;
+                        }
+                    }
+                }
                 const lhs_ref = try self.lowerExpr(node.data.lhs);
                 const rhs_ref = try self.lowerExpr(node.data.rhs);
-                const op_tok = node.main_token;
                 // String equality compares contents via the runtime, not the
                 // run_string_t struct representation.
                 if (self.typeOfNode(node.data.lhs) == types.primitives.string_id) {
