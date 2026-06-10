@@ -1,0 +1,15 @@
+// expect: 42
+package main
+
+use "fmt"
+
+fun producer(ch chan int) {
+    ch <- 42
+}
+
+pub fun main() {
+    ch := alloc(chan[int], 1)
+    run producer(ch)
+    v := <-ch
+    fmt.println(v)
+}

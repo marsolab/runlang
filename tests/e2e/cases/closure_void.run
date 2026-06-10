@@ -1,0 +1,9 @@
+// expect: 7
+package main
+
+use "fmt"
+
+pub fun main() {
+    printIt := fun(x int) { fmt.println(x) }
+    printIt(7)
+}

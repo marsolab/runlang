@@ -68,11 +68,13 @@ run_context_switch:
 _run_context_init:
 #endif
 run_context_init:
-    /* Align stack_top down to 16 bytes */
+    /* Align stack_top down to 16 bytes. The trampoline runs with this
+     * 16-aligned rsp; its `call entry` then pushes a return address so the
+     * entry function observes rsp % 16 == 8, exactly as the System V ABI
+     * requires at function entry. (An extra 8-byte adjustment here used to
+     * flip that parity, faulting on any aligned SSE spill, e.g. movaps in
+     * libc's printf machinery.) */
     andq    $-16, %rsi
-
-    /* Reserve space: return address for alignment */
-    subq    $8, %rsi
 
     /* The trampoline will be the initial rip. Store entry and arg in
      * callee-saved registers (r12=entry, r13=arg) so the trampoline

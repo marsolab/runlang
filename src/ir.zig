@@ -84,6 +84,10 @@ pub const Inst = struct {
 
         // Function calls
         call,
+        /// Indirect call through a function pointer.
+        /// arg1 = call_info idx (target_name holds the C cast type),
+        /// arg2 = function pointer ref
+        call_ptr,
         ret,
         ret_void,
 
