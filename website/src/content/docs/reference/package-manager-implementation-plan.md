@@ -4,14 +4,14 @@ sidebar:
   order: 2
 ---
 
-This plan breaks down [RFC #218: Package Manager Design](https://github.com/marsolab/runlang/issues/218) into implementation phases for the Run compiler and docs. The RFC defines a GitHub-native package manager using `run.toml`, `run.lock`, semantic version tags, a local module cache, Minimum Version Selection, and `run get` / `run mod` commands.
+This plan breaks down [RFC #218: Package Manager Design](https://github.com/marsolab/runlang/issues/218) into implementation phases for the Run compiler and docs. The package manager uses `run.toml`, `run.lock`, semantic version tags, a local module cache, Minimum Version Selection, `run install` / `run i` for dependency installation, and `run pkg` for package maintenance commands.
 
 ## TLDR
 
 1. Build the compiler-internal foundation first: TOML, semantic versions, checksums, `run.toml`, and `run.lock`.
 2. Add GitHub tag discovery, archive download, fast manifest fetches, and local cache management behind testable interfaces.
 3. Implement deterministic dependency resolution with MVS before exposing package manager commands.
-4. Wire `run get` and `run mod` into the CLI after the manifest, lockfile, fetch, cache, and resolver layers are stable.
+4. Wire `run install`, its `run i` alias, and `run pkg` into the CLI after the manifest, lockfile, fetch, cache, and resolver layers are stable.
 5. Integrate external imports into the compiler last: path classification, scope-aware checking, multi-module compilation, cross-package lowering, and C codegen.
 6. Finish with vendor mode, offline builds, private repository authentication, monorepo sub-modules, docs, and end-to-end tests.
 
@@ -27,7 +27,7 @@ The package manager work should preserve that pipeline for single-file and stdli
 
 Current constraints:
 
-- `run init` already writes a basic `run.toml`, but the CLI does not yet expose `run get` or `run mod`.
+- `run init` already writes a basic `run.toml`, but the CLI does not yet expose `run install`, `run i`, or `run pkg`.
 - Imports parse as `use "path"` and currently behave as simple package symbols.
 - The driver compiles one primary source file and discovers nearby assembly files.
 - Lowering and C codegen still assume most cross-package behavior is either local code or known runtime/stdlib builtins.
@@ -43,7 +43,7 @@ Add the data model and parsing modules used by every later phase.
 - Add `src/checksum.zig` for SHA-256 archive hashing and `sha256:<hex>` formatting.
 - Add `src/modfile.zig` for manifest parsing, validation, serialization, dependency sections, and scope tracking.
 - Add `src/lockfile.zig` for deterministic lockfile parsing and generation.
-- Update project initialization so `run init` and `run mod init` create a complete manifest template.
+- Update project initialization so `run init` and `run pkg init` create a complete manifest template.
 - Export the new modules from `src/root.zig` so `zig build test` discovers their tests.
 
 Acceptance gates:
@@ -99,20 +99,20 @@ Related issues: [#306](https://github.com/marsolab/runlang/issues/306), [#307](h
 
 Expose the package manager once the core behavior is reliable.
 
-- Add `src/mod_cmd.zig` for `get`, `tidy`, `download`, `verify`, `graph`, and `vendor` handlers.
-- Wire `run get` and `run mod` subcommands through `src/main.zig`.
-- Support `run get <module>[@version]`, `--test`, `--debug`, `--dev`, `-u <module>`, and `-u`.
+- Add `src/pkg_cmd.zig` for `install`, `tidy`, `download`, `verify`, `graph`, and `vendor` handlers.
+- Wire `run install`, `run i`, and `run pkg` subcommands through `src/main.zig`.
+- Support `run install <module>[@version]`, `run i <module>[@version]`, `--test`, `--debug`, `--dev`, `-u <module>`, and `-u`.
 - Implement atomic updates for `run.toml` and `run.lock`.
-- Implement `run mod tidy` by using the parser and AST import declarations instead of source-text matching.
-- Implement `run mod download` and `run mod verify` from lockfile state.
-- Implement `run mod graph` with direct and transitive dependency output, version labels, scopes, and diamond dependencies.
+- Implement `run pkg tidy` by using the parser and AST import declarations instead of source-text matching.
+- Implement `run pkg download` and `run pkg verify` from lockfile state.
+- Implement `run pkg graph` with direct and transitive dependency output, version labels, scopes, and diamond dependencies.
 - Add user documentation for manifests, locks, scopes, semver syntax, and package manager workflows.
 
 Acceptance gates:
 
 - `run --help` includes package manager commands.
-- `run get` fails cleanly when `run.toml` is missing and suggests `run mod init`.
-- `run mod verify` exits non-zero on missing or mismatched cache entries.
+- `run install` and `run i` fail cleanly when `run.toml` is missing and suggest `run pkg init`.
+- `run pkg verify` exits non-zero on missing or mismatched cache entries.
 - CLI tests cover valid usage, invalid arguments, and error messages.
 
 ## Phase 5: Compiler Integration
@@ -135,7 +135,7 @@ Make resolved dependencies usable by the compiler.
 
 Acceptance gates:
 
-- Unknown external modules produce an error that suggests `run get`.
+- Unknown external modules produce an error that suggests `run install`.
 - Scoped dependencies are rejected outside their allowed contexts.
 - External package functions generate correct mangled names.
 - Multi-package generated C compiles without duplicate symbols or missing declarations.
@@ -147,7 +147,7 @@ Related issues: [#319](https://github.com/marsolab/runlang/issues/319), [#320](h
 
 Finish production workflows after the core package manager and compiler integration work.
 
-- Implement `run mod vendor` and prefer `vendor/` over the global cache when present.
+- Implement `run pkg vendor` and prefer `vendor/` over the global cache when present.
 - Add offline build behavior that never performs network requests when all required modules are cached or vendored.
 - Add private repository support through `GITHUB_TOKEN`, git credential helpers, and `RUNPRIVATE`.
 - Add monorepo sub-module support using path-prefixed tags and subdirectory `run.toml` files.
@@ -156,7 +156,7 @@ Finish production workflows after the core package manager and compiler integrat
 Acceptance gates:
 
 - Builds work offline when dependencies are cached or vendored.
-- Missing cached modules produce a clear `run mod download` suggestion.
+- Missing cached modules produce a clear `run pkg download` suggestion.
 - Private repository auth failures explain how to configure credentials.
 - Sub-module packages resolve, fetch, cache, and import correctly.
 
@@ -189,7 +189,7 @@ The package manager design is complete when:
 
 - All child issues linked from RFC #218 are implemented or explicitly superseded.
 - `run.toml` and `run.lock` are deterministic and documented.
-- `run get`, `run mod tidy`, `run mod download`, `run mod verify`, `run mod graph`, and `run mod vendor` work from the CLI.
+- `run install`, `run i`, `run pkg tidy`, `run pkg download`, `run pkg verify`, `run pkg graph`, and `run pkg vendor` work from the CLI.
 - External imports compile through the existing pipeline.
 - Scoped dependencies are enforced at compile time.
 - Cached, vendored, and offline builds are reproducible.
