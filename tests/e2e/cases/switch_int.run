@@ -1,9 +1,29 @@
+// expect: 11
+// expect: 99
 // expect: 20
 package main
 
 use "fmt"
 
+pub fun classify(x int) int {
+    switch x {
+        0 :: {
+            return 10
+        }
+        1 :: {
+            return 11
+        }
+        _ :: {
+            return 99
+        }
+    }
+    return -1
+}
+
 pub fun main() {
+    fmt.println(classify(1))
+    fmt.println(classify(3))
+
     x := 2
     switch x {
         1 :: fmt.println(10),
