@@ -625,7 +625,13 @@ pub const CCodegen = struct {
                 if (local_idx < self.module.local_infos.items.len) {
                     const info = self.module.local_infos.items[local_idx];
                     if (inst.arg2 != ir.null_ref) {
-                        try self.writer().print("{s} = _t{d};\n", .{ info.name, inst.arg2 });
+                        try self.writer().print("{s} = ", .{info.name});
+                        if (self.paramNameForRef(inst.arg2)) |param_name| {
+                            try self.writer().print("{s}", .{param_name});
+                        } else {
+                            try self.writer().print("_t{d}", .{inst.arg2});
+                        }
+                        try self.writer().print(";\n", .{});
                     } else {
                         if (std.mem.eql(u8, info.c_type, "run_gen_ref_t") or
                             std.mem.eql(u8, info.c_type, "run_string_t") or
@@ -847,6 +853,14 @@ pub const CCodegen = struct {
         }
 
         return "void*";
+    }
+
+    fn paramNameForRef(self: *const CCodegen, ref: ir.Ref) ?[]const u8 {
+        const func = self.current_func orelse return null;
+        for (func.params.items) |p| {
+            if (p.ref == ref) return p.name;
+        }
+        return null;
     }
 
     fn emitIndent(self: *CCodegen) !void {
