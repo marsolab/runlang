@@ -1,0 +1,23 @@
+// compile-error: cannot take mutable address of field of read-only reference
+package main
+
+pub type Inner struct {
+    value int
+}
+
+pub type Outer struct {
+    inner Inner
+}
+
+fun setValue(inner &Inner, value int) {
+    inner.value = value
+}
+
+fun update(outer @Outer) {
+    setValue(&outer.inner, 42)
+}
+
+pub fun main() {
+    outer := Outer{inner: Inner{value: 1}}
+    update(@outer)
+}

@@ -1,0 +1,22 @@
+// expect: 99
+package main
+
+use "fmt"
+
+pub type Inner struct {
+    value int
+}
+
+pub type Outer struct {
+    inner Inner
+}
+
+fun (outer &Outer) setValue(value int) {
+    outer.inner.value = value
+}
+
+pub fun main() {
+    outer := Outer{inner: Inner{value: 1}}
+    outer.setValue(99)
+    fmt.println(outer.inner.value)
+}
