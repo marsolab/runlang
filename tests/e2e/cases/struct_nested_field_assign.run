@@ -1,0 +1,20 @@
+// expect: 58
+package main
+
+use "fmt"
+
+pub type Inner struct {
+    label int
+    value int
+}
+
+pub type Outer struct {
+    tag int
+    inner Inner
+}
+
+pub fun main() {
+    outer := Outer{tag: 9, inner: Inner{label: 7, value: 1}}
+    outer.inner.value = 42
+    fmt.println(outer.tag + outer.inner.label + outer.inner.value)
+}

@@ -68,6 +68,7 @@ integrations: [
           items: [
             { label: 'Specification', slug: 'reference/specification' },
             { label: 'Compiler Status', slug: 'reference/compiler-status' },
+            { label: 'Package Manager Plan', slug: 'reference/package-manager-implementation-plan' },
           ],
         },
         {

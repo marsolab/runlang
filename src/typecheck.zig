@@ -1383,7 +1383,7 @@ const TypeChecker = struct {
                 obj_type_raw = self.symbols.getSymbol(sym_id).type_id;
             }
         } else if (self.nodeTag(obj_node) == .field_access) {
-            // Nested field access: check recursively
+            try self.checkConstPtrFieldAssign(obj_node);
             obj_type_raw = try self.inferExpr(obj_node);
         } else if (self.nodeTag(obj_node) == .deref) {
             obj_type_raw = try self.inferExpr(self.nodeData(obj_node).lhs);
@@ -1776,7 +1776,18 @@ const TypeChecker = struct {
             .index_access => try self.inferIndexAccess(node),
 
             .addr_of => blk: {
-                const operand_type = try self.inferExpr(self.nodeData(node).lhs);
+                const operand_node = self.nodeData(node).lhs;
+                if (operand_node != null_node and self.nodeTag(operand_node) == .field_access and
+                    try self.accessPathStartsFromConstRef(operand_node))
+                {
+                    const loc = self.tokenLoc(self.nodeMainToken(node));
+                    try self.diagnostics.addError(
+                        loc.start,
+                        loc.end,
+                        "cannot take mutable address of field of read-only reference",
+                    );
+                }
+                const operand_type = try self.inferExpr(operand_node);
                 if (operand_type == types.null_type) break :blk types.null_type;
                 break :blk try self.type_pool.intern(self.allocator, .{ .ptr_type = .{ .pointee = operand_type, .is_const = false } });
             },
@@ -1956,7 +1967,7 @@ const TypeChecker = struct {
                             // Check mutability: if calling through @T (const ptr),
                             // the method must not require &T (mutable) receiver.
                             if (method_type_id != types.null_type) {
-                                try self.checkMethodMutability(method_sym, obj_type_raw, method_name, node);
+                                try self.checkMethodMutability(method_sym, obj_type_raw, fa_data.lhs, method_name, node);
                             }
 
                             if (method_type_id != types.null_type) {
@@ -2492,17 +2503,13 @@ const TypeChecker = struct {
         self: *TypeChecker,
         method_sym: Symbol,
         obj_type_raw: TypeId,
+        obj_node: NodeIndex,
         method_name: []const u8,
         call_node: NodeIndex,
     ) CheckError!void {
         // Check if the object is accessed through a const pointer (@T).
-        const is_const_ref = blk: {
-            const obj_resolved = self.type_pool.get(obj_type_raw);
-            break :blk switch (obj_resolved) {
-                .ptr_type => |pt| pt.is_const,
-                else => false,
-            };
-        };
+        const is_const_ref = self.isConstPointerType(obj_type_raw) or
+            try self.accessPathStartsFromConstRef(obj_node);
 
         if (!is_const_ref) return;
 
@@ -2531,6 +2538,33 @@ const TypeChecker = struct {
                 .{method_name},
             );
         }
+    }
+
+    fn isConstPointerType(self: *const TypeChecker, type_id: TypeId) bool {
+        if (type_id == types.null_type or type_id < types.primitives.count) return false;
+        return switch (self.type_pool.get(type_id)) {
+            .ptr_type => |pt| pt.is_const,
+            else => false,
+        };
+    }
+
+    fn accessPathStartsFromConstRef(self: *TypeChecker, node: NodeIndex) CheckError!bool {
+        if (node == null_node) return false;
+        return switch (self.nodeTag(node)) {
+            .ident => blk: {
+                if (self.resolution_map[node]) |sym_id| {
+                    break :blk self.isConstPointerType(self.symbols.getSymbol(sym_id).type_id);
+                }
+                break :blk false;
+            },
+            .field_access => blk: {
+                const base = self.nodeData(node).lhs;
+                if (try self.accessPathStartsFromConstRef(base)) break :blk true;
+                break :blk self.isConstPointerType(try self.inferExpr(base));
+            },
+            .deref => self.isConstPointerType(try self.inferExpr(self.nodeData(node).lhs)),
+            else => self.isConstPointerType(try self.inferExpr(node)),
+        };
     }
 
     fn inferIdent(self: *TypeChecker, node: NodeIndex) CheckError!TypeId {
