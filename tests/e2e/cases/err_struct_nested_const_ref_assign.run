@@ -1,0 +1,19 @@
+// compile-error: cannot assign to field of read-only reference
+package main
+
+pub type Inner struct {
+    value int
+}
+
+pub type Outer struct {
+    inner Inner
+}
+
+fun setValue(outer @Outer) {
+    outer.inner.value = 2
+}
+
+pub fun main() {
+    outer := Outer{inner: Inner{value: 1}}
+    setValue(@outer)
+}

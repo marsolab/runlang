@@ -1,0 +1,23 @@
+// compile-error: cannot call mutating method
+package main
+
+pub type Inner struct {
+    value int
+}
+
+fun (inner &Inner) inc() {
+    inner.value = inner.value + 1
+}
+
+pub type Outer struct {
+    inner Inner
+}
+
+fun bump(outer @Outer) {
+    outer.inner.inc()
+}
+
+pub fun main() {
+    outer := Outer{inner: Inner{value: 1}}
+    bump(@outer)
+}

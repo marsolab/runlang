@@ -1,0 +1,22 @@
+// expect: 2
+package main
+
+use "fmt"
+
+pub type Inner struct {
+    value int
+}
+
+fun (inner &Inner) inc() {
+    inner.value = inner.value + 1
+}
+
+pub type Outer struct {
+    inner Inner
+}
+
+pub fun main() {
+    outer := Outer{inner: Inner{value: 1}}
+    outer.inner.inc()
+    fmt.println(outer.inner.value)
+}

@@ -1329,17 +1329,33 @@ const LoweringContext = struct {
         self.current_block = func.getBlock(after_bb);
     }
 
-    /// Resolve a struct field by name. Returns its type id, or null.
-    fn structFieldType(self: *const LoweringContext, struct_type: TypeId, field_name: []const u8) ?TypeId {
+    const StructFieldLayout = struct {
+        type_id: TypeId,
+        offset: u32,
+    };
+
+    /// Resolve a struct field by name. Returns its type id and byte offset, or null.
+    fn structFieldLayout(self: *const LoweringContext, struct_type: TypeId, field_name: []const u8) ?StructFieldLayout {
         switch (self.type_pool.get(struct_type)) {
             .struct_type => |st| {
+                var offset: u32 = 0;
                 for (st.fields) |f| {
-                    if (std.mem.eql(u8, f.name, field_name)) return f.type_id;
+                    const field_align = @max(@as(u32, 1), self.alignOfTypeId(f.type_id));
+                    offset = std.mem.alignForward(u32, offset, field_align);
+                    if (std.mem.eql(u8, f.name, field_name)) {
+                        return .{ .type_id = f.type_id, .offset = offset };
+                    }
+                    offset += self.sizeOfTypeId(f.type_id);
                 }
             },
             else => {},
         }
         return null;
+    }
+
+    /// Resolve a struct field by name. Returns its type id, or null.
+    fn structFieldType(self: *const LoweringContext, struct_type: TypeId, field_name: []const u8) ?TypeId {
+        return if (self.structFieldLayout(struct_type, field_name)) |layout| layout.type_id else null;
     }
 
     fn isStructType(self: *const LoweringContext, type_id: TypeId) bool {
@@ -1419,6 +1435,68 @@ const LoweringContext = struct {
         return ir.null_ref;
     }
 
+    const FieldAddress = struct {
+        ptr: ir.Ref,
+        field_type: TypeId,
+    };
+
+    /// Lower `base.field` as an lvalue and return a pointer to the field's storage.
+    fn lowerFieldAddress(self: *LoweringContext, node_idx: NodeIndex) LowerError!?FieldAddress {
+        const node = self.tree.nodes.items[node_idx];
+        const base_idx = node.data.lhs;
+        const field_name = self.tokenSlice(node.main_token + 1);
+        const base_type = self.typeOfNode(base_idx);
+
+        if (self.isStructType(base_type)) {
+            const layout = self.structFieldLayout(base_type, field_name) orelse {
+                try self.unsupported(node_idx, "this field access");
+                return null;
+            };
+            const base = self.tree.nodes.items[base_idx];
+            const base_ptr = switch (base.tag) {
+                .ident => blk: {
+                    const name = self.tokenSlice(base.main_token);
+                    const local_idx = self.lookupLocalIdx(name) orelse {
+                        try self.unsupported(node_idx, "field access on this expression");
+                        return null;
+                    };
+                    const ptr = self.allocRef();
+                    try self.emit(ir.makeInst(.local_addr, ptr, local_idx, 0));
+                    break :blk ptr;
+                },
+                .field_access => blk: {
+                    const addr = (try self.lowerFieldAddress(base_idx)) orelse return null;
+                    break :blk addr.ptr;
+                },
+                else => {
+                    try self.unsupported(node_idx, "field access on this expression");
+                    return null;
+                },
+            };
+            const field_ptr = self.allocRef();
+            try self.emit(ir.makeInst(.field_ptr, field_ptr, base_ptr, layout.offset));
+            return .{ .ptr = field_ptr, .field_type = layout.type_id };
+        }
+
+        if (self.type_pool.unwrapPointer(base_type)) |pointee| {
+            if (self.isStructType(pointee)) {
+                const layout = self.structFieldLayout(pointee, field_name) orelse {
+                    try self.unsupported(node_idx, "this field access");
+                    return null;
+                };
+                const ref_val = try self.lowerExpr(base_idx);
+                const base_ptr = self.allocRef();
+                try self.emit(ir.makeInst(.gen_ref_deref, base_ptr, ref_val, 0));
+                const field_ptr = self.allocRef();
+                try self.emit(ir.makeInst(.field_ptr, field_ptr, base_ptr, layout.offset));
+                return .{ .ptr = field_ptr, .field_type = layout.type_id };
+            }
+        }
+
+        try self.unsupported(node_idx, "field access on this expression");
+        return null;
+    }
+
     /// `base.field = value` for struct locals and pointers-to-struct.
     fn lowerFieldAssign(self: *LoweringContext, lhs_idx: NodeIndex, val_ref: ir.Ref) LowerError!void {
         const lhs = self.tree.nodes.items[lhs_idx];
@@ -1440,7 +1518,10 @@ const LoweringContext = struct {
                     return;
                 }
             }
-            return self.unsupported(lhs_idx, "assignment to a field of this expression");
+            const addr = (try self.lowerFieldAddress(lhs_idx)) orelse return;
+            const type_idx = try self.module.addValueTypeName(self.allocator, self.cTypeForTypeId(addr.field_type));
+            try self.emit(ir.makeInst(.ptr_store_value, val_ref, addr.ptr, type_idx));
+            return;
         }
 
         if (self.type_pool.unwrapPointer(base_type)) |pointee| {
@@ -1518,6 +1599,16 @@ const LoweringContext = struct {
             .ptr, .const_ptr => blk: {
                 if (base_is_ptr) {
                     break :blk try self.lowerExpr(base_idx);
+                }
+                const base = self.tree.nodes.items[base_idx];
+                if (base.tag == .field_access) {
+                    const addr = (try self.lowerFieldAddress(base_idx)) orelse {
+                        try self.unsupported(call_idx, "method call on this expression");
+                        return ir.null_ref;
+                    };
+                    const ref = self.allocRef();
+                    try self.emit(ir.makeInst(.gen_ref_stack, ref, addr.ptr, 0));
+                    break :blk ref;
                 }
                 // Auto address-of: methods on a local take its storage.
                 const local_idx = (try self.lowerStructBaseToLocal(base_idx, mi.struct_type)) orelse {
@@ -2898,6 +2989,15 @@ const LoweringContext = struct {
                         try self.emit(ir.makeInst(.gen_ref_stack, ref_result, local_ptr, 0));
                         return ref_result;
                     }
+                }
+                if (operand_node != null_node and self.tree.nodes.items[operand_node].tag == .field_access) {
+                    const addr = (try self.lowerFieldAddress(operand_node)) orelse {
+                        try self.unsupported(node_idx, "taking the address of this field");
+                        return ir.null_ref;
+                    };
+                    const ref_result = self.allocRef();
+                    try self.emit(ir.makeInst(.gen_ref_stack, ref_result, addr.ptr, 0));
+                    return ref_result;
                 }
 
                 const ptr_ref = try self.lowerExpr(operand_node);
