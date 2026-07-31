@@ -1377,12 +1377,23 @@ const LoweringContext = struct {
     /// Lower a struct-typed base expression to a named local holding the
     /// value, so fields can be read with `.field`. Reuses the existing local
     /// when the base is a plain identifier.
-    fn lowerStructBaseToLocal(self: *LoweringContext, base_idx: NodeIndex, struct_type: TypeId) LowerError!?u32 {
+    ///
+    /// When `require_storage` is set the caller intends to take the address of
+    /// the result and write through it, so falling back to a temporary copy
+    /// would silently discard the write. Return null instead and let the caller
+    /// report it — see `lowerMethodCall`.
+    fn lowerStructBaseToLocal(
+        self: *LoweringContext,
+        base_idx: NodeIndex,
+        struct_type: TypeId,
+        require_storage: bool,
+    ) LowerError!?u32 {
         const base = self.tree.nodes.items[base_idx];
         if (base.tag == .ident) {
             const name = self.tokenSlice(base.main_token);
             if (self.lookupLocalIdx(name)) |local_idx| return local_idx;
         }
+        if (require_storage) return null;
         const c_type = self.cTypeForTypeId(struct_type);
         const val_ref = try self.lowerExpr(base_idx);
         if (val_ref == ir.null_ref) return null;
@@ -1405,7 +1416,7 @@ const LoweringContext = struct {
             };
             const struct_c = self.struct_c_names.get(base_type) orelse "int64_t";
             const fi = try self.module.addFieldInfo(self.allocator, struct_c, field_name, self.cTypeForTypeId(field_type));
-            const local_idx = (try self.lowerStructBaseToLocal(base_idx, base_type)) orelse {
+            const local_idx = (try self.lowerStructBaseToLocal(base_idx, base_type, false)) orelse {
                 try self.unsupported(node_idx, "field access on this expression");
                 return ir.null_ref;
             };
@@ -1610,9 +1621,17 @@ const LoweringContext = struct {
                     try self.emit(ir.makeInst(.gen_ref_stack, ref, addr.ptr, 0));
                     break :blk ref;
                 }
-                // Auto address-of: methods on a local take its storage.
-                const local_idx = (try self.lowerStructBaseToLocal(base_idx, mi.struct_type)) orelse {
-                    try self.unsupported(call_idx, "method call on this expression");
+                // Auto address-of: methods on a local take its storage. A `&`
+                // receiver must reach the caller's storage, so anything that
+                // would need a temporary copy (a slice element, a call result)
+                // is rejected rather than silently dropping the mutation.
+                const needs_storage = mi.receiver_kind == .ptr;
+                const local_idx = (try self.lowerStructBaseToLocal(base_idx, mi.struct_type, needs_storage)) orelse {
+                    if (needs_storage) {
+                        try self.unsupported(call_idx, "calling a '&' receiver method on this expression");
+                    } else {
+                        try self.unsupported(call_idx, "method call on this expression");
+                    }
                     return ir.null_ref;
                 };
                 const addr = self.allocRef();
@@ -3389,19 +3408,64 @@ const LoweringContext = struct {
             .chan_type, .map_type => 8,
             .newtype => |newtype| self.sizeOfTypeId(newtype.underlying),
             .struct_type => |st| blk: {
-                var offset: u32 = 0;
-                var max_align: u32 = 1;
-                for (st.fields) |f| {
-                    const field_align = @max(@as(u32, 1), self.alignOfTypeId(f.type_id));
-                    const field_size = self.sizeOfTypeId(f.type_id);
-                    max_align = @max(max_align, field_align);
-                    offset = std.mem.alignForward(u32, offset, field_align) + field_size;
+                var layout = Layout{};
+                for (st.fields) |f| layout.addTypeId(self, f.type_id);
+                break :blk layout.size();
+            },
+            // { bool has_value; T value; } — see the nullable typedefs above.
+            .nullable_type => |nt| blk: {
+                var layout = Layout{};
+                layout.add(1, 1);
+                if (nt.inner != types.null_type) layout.addTypeId(self, nt.inner);
+                break :blk layout.size();
+            },
+            // { int64_t tag; T p0; T p1; ... } — one slot per payload variant.
+            .sum_type => |st| blk: {
+                var layout = Layout{};
+                layout.add(8, 8);
+                for (st.variants) |variant| {
+                    if (variant.payload == types.null_type) continue;
+                    layout.addTypeId(self, variant.payload);
                 }
-                break :blk @max(@as(u32, 1), std.mem.alignForward(u32, offset, max_align));
+                break :blk layout.size();
+            },
+            // { bool is_error; run_string_t error_msg; T value; }
+            .error_union_type => |eu| blk: {
+                var layout = Layout{};
+                layout.add(1, 1);
+                layout.addTypeId(self, types.primitives.string_id);
+                if (eu.payload != types.null_type and eu.payload != types.primitives.void_id) {
+                    layout.addTypeId(self, eu.payload);
+                }
+                break :blk layout.size();
             },
             else => 8,
         };
     }
+
+    /// Accumulates C struct layout: fields at increasing offsets, each aligned
+    /// to its own alignment, with the total rounded up to the widest member.
+    /// Mirrors what the C compiler does to the typedefs emitted in
+    /// `registerAggregateTypedefs`, so slice element sizes match the real
+    /// storage. Getting this wrong makes elements overlap silently.
+    const Layout = struct {
+        offset: u32 = 0,
+        max_align: u32 = 1,
+
+        fn add(self: *Layout, alignment: u32, byte_size: u32) void {
+            const a = @max(@as(u32, 1), alignment);
+            self.max_align = @max(self.max_align, a);
+            self.offset = std.mem.alignForward(u32, self.offset, a) + byte_size;
+        }
+
+        fn addTypeId(self: *Layout, ctx: *const LoweringContext, type_id: TypeId) void {
+            self.add(ctx.alignOfTypeId(type_id), ctx.sizeOfTypeId(type_id));
+        }
+
+        fn size(self: *const Layout) u32 {
+            return @max(@as(u32, 1), std.mem.alignForward(u32, self.offset, self.max_align));
+        }
+    };
 
     fn alignOfTypeId(self: *const LoweringContext, type_id: TypeId) u32 {
         if (self.type_pool.simdAlignment(type_id)) |alignment| return alignment;
@@ -3416,6 +3480,28 @@ const LoweringContext = struct {
                     return max_align;
                 },
                 .ptr_type => return 8,
+                // Aggregates below mirror the typedefs in
+                // `registerAggregateTypedefs`; align to the widest member so
+                // `sizeOfTypeId` lays the members out where C puts them.
+                .nullable_type => |nt| {
+                    if (nt.inner == types.null_type) return 1;
+                    return @max(@as(u32, 1), self.alignOfTypeId(nt.inner));
+                },
+                .sum_type => |st| {
+                    var max_align: u32 = 8; // int64_t tag
+                    for (st.variants) |variant| {
+                        if (variant.payload == types.null_type) continue;
+                        max_align = @max(max_align, self.alignOfTypeId(variant.payload));
+                    }
+                    return max_align;
+                },
+                .error_union_type => |eu| {
+                    var max_align: u32 = 8; // run_string_t error_msg
+                    if (eu.payload != types.null_type and eu.payload != types.primitives.void_id) {
+                        max_align = @max(max_align, self.alignOfTypeId(eu.payload));
+                    }
+                    return max_align;
+                },
                 else => {},
             }
         }

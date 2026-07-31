@@ -1,0 +1,19 @@
+// compile-error: calling a '&' receiver method on this expression
+package main
+
+use "fmt"
+
+type Node struct { tag int }
+
+fun (n &Node) bump() { n.tag = n.tag + 1 }
+
+// Regression: this used to compile and silently discard the mutation, because
+// the receiver was materialized into a temporary copy and `bump` wrote to the
+// copy. Until slice elements are addressable it must be a compile error, not a
+// wrong answer.
+pub fun main() {
+    var nodes = alloc([]Node, 0)
+    nodes = append(nodes, Node{ tag: 5 })
+    nodes[0].bump()
+    fmt.println(nodes[0].tag)
+}
