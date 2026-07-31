@@ -74,19 +74,19 @@ integrations: [
         },
         {
           label: 'Runtime',
-          autogenerate: { directory: 'runtime' },
+          items: [{ autogenerate: { directory: 'runtime' } }],
         },
         {
           label: 'Standard Library',
-          autogenerate: { directory: 'stdlib' },
+          items: [{ autogenerate: { directory: 'stdlib' } }],
         },
         {
           label: 'Conventions',
-          autogenerate: { directory: 'conventions' },
+          items: [{ autogenerate: { directory: 'conventions' } }],
         },
         {
           label: 'Debugging',
-          autogenerate: { directory: 'debugging' },
+          items: [{ autogenerate: { directory: 'debugging' } }],
         },
       ],
       customCss: ['./src/styles/custom.css'],
