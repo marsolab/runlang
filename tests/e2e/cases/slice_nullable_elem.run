@@ -1,0 +1,31 @@
+// expect: 3
+// expect: 11
+// expect: -1
+// expect: 33
+package main
+
+use "fmt"
+
+// Regression: `int?` lowers to { bool has_value; int64_t value; } = 16 bytes,
+// but sizeOfTypeId reported 8, so slice elements overlapped and every read
+// came back as the neighbouring has_value flag instead of the payload.
+pub fun main() {
+    var xs = alloc([]int?, 0)
+    var a int? = 11
+    var b int? = null
+    var c int? = 33
+    xs = append(xs, a)
+    xs = append(xs, b)
+    xs = append(xs, c)
+
+    fmt.println(len(xs))
+
+    var i = 0
+    for i < len(xs) {
+        switch xs[i] {
+            .some(v) :: fmt.println(v),
+            .null :: fmt.println(-1),
+        }
+        i = i + 1
+    }
+}
