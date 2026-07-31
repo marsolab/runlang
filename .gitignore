@@ -6,9 +6,21 @@ main.o
 /test
 .agents/
 .claude/
+.serena/
 /root
 /runner
 /tmp-*-XXXXXX
 /dap-*-XXXXXX
 /lsp-*-XXXXXX
 /skills-lock.json
+
+# Benchmark results, produced by `zig build runtime-bench` and uploaded as a
+# CI artifact (.github/workflows/runtime-ci.yml).
+/bench-results.json
+
+# Compiled Run programs. `run build foo.run` writes the executable to ./foo in
+# the *current* directory — src/driver.zig:409-412 derives the output name from
+# the input's stem only — so building anything while sitting in the repo root
+# drops an extensionless binary here. The named entries above cover the cases
+# that recur; ad-hoc builds still leave strays behind until the driver learns to
+# emit into a build directory or alongside its input.
